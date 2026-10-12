@@ -71,4 +71,11 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   modely a porovnať presnosť, podiel neplatného JSON a čas na položku. Zhoda s 27B nie je presnosť – referenciou sú
   iba ľudské labely. Model meniť po úlohách, nie celú rolu naraz (napr. role_map na 35B, entail ostáva 27B), a iba
   ak rozdiel presnosti nie je štatisticky významný na úkor kvality. · 1 deň + zber labelov.
+- **2026-10-13 – GUI – odhadované časy v dashboarde (požiadavka používateľa).** V Prehľade a Správcovi akcií chýba,
+  kedy čo skončí. Doplniť: (1) pri bežiacej akcii odhad konca (začiatok + limit, presnejšie podľa priemerného trvania
+  rovnakej akcie z histórie `jobs.stats_json` – úlohy často skončia skôr), (2) pri každej úlohe v poradí odhadovaný
+  začiatok a koniec (kumulatívne podľa limitov a histórie), (3) pri autopilotovi koniec kola a celého behu a ktoré akcie
+  ešte prídu na rad, (4) pri akciách v Správcovi akcií typické trvanie (medián z histórie) a pri kartách s prácou
+  odhad, koľko z nej sa stihne (napr. test hypotéz ~3 min na hypotézu, posúdenie citátu ~2 s na 9B), (5) časy
+  v miestnom čase namiesto UTC. · 0,5–1 deň.
 
