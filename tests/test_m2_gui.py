@@ -239,3 +239,18 @@ def test_action_manager_offers_resume_after_interruption(gui):
     assert any("Poradie stojí" in w.value for w in at.warning)
     labels = [b.label for b in at.button]
     assert "Pokračovať v poradí" in labels and "Spustiť znova" in labels
+
+
+def test_people_overview_shows_collected_but_unranked_people(gui):
+    """Akcia #20: zozbieraní ľudia bez väzby (poradie ešte nebežalo) v GUI chýbali; teraz sú „čaká na poradie“."""
+    db = DB(load_config(gui / "config.yaml").db_path)
+    org = db.find_organization_by_website("https://obec-fikt.sk/")["id"]
+    db.insert_person(org, "Peter Vzorový", "peter vzorovy", "https://obec-fikt.sk/urad", "Peter Vzorový, prednosta", 1,
+                     role_title="prednosta")
+    db.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/people.py").run()
+    assert not at.exception, at.exception
+    assert any("čaká na poradie 1" in c.value for c in at.caption)
+    rows = at.dataframe[0].value
+    assert "ešte nezoradený" in set(rows["väzba"]) and "Peter Vzorový" in set(rows["osoba"])

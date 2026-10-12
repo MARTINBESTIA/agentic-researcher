@@ -206,6 +206,16 @@ class Gate0Mixin:
     def people_of_org(self, org_id: int) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM people WHERE org_id = ? ORDER BY id", (org_id,))
 
+    def unranked_people(self, hid: int) -> list[sqlite3.Row]:
+        """Ľudia zozbieraní pre hypotézu, ktorí ešte nemajú väzbu na ňu (poradie pre hypotézu ešte nebežalo)."""
+        return self._all(
+            """SELECT p.*, o.name AS org_name FROM people p LEFT JOIN organizations o ON o.id = p.org_id
+               WHERE p.collected_for_hypothesis_id = ? AND p.status != 'excluded'
+                 AND NOT EXISTS (SELECT 1 FROM person_problem_links l WHERE l.person_id = p.id AND l.hypothesis_id = ?)
+               ORDER BY p.id""",
+            (hid, hid),
+        )
+
     def delete_person(self, person_id: int) -> None:
         """Zmaže osobu; kontakty, väzby a oslovenia zmaže CASCADE, rozhovor ostane pseudonymizovaný."""
         self._exec("DELETE FROM people WHERE id = ?", (person_id,))

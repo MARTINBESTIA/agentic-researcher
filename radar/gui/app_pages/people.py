@@ -23,9 +23,14 @@ def person_rows(hids: list[int]) -> list[dict]:
     rows = []
     for hid in hids:
         org_links = {o["id"]: o for o in d.orgs_for_hypothesis(hid)}
-        for l in d.links_for_hypothesis(hid):
-            if l["priority"] is None:
-                continue
+        # Aj ľudia bez priority (poradie pre hypotézu ešte nebežalo): inak by zozbieraní ľudia v GUI chýbali
+        # (akcia #20: 39 osôb bez väzby, kým nebeží people-rank s mapou rolí ~10 min na hypotézu).
+        pending = [{"person_id": p["id"], "org_id": p["org_id"], "priority": None, "priority_json": None,
+                    "link_type": "pending", "titles": p["titles"], "full_name": p["full_name"],
+                    "role_title": p["role_title"], "org_name": p["org_name"], "is_expert": p["is_expert"],
+                    "person_source_url": p["source_url"], "person_status": p["status"]}
+                   for p in d.unranked_people(hid)]
+        for l in list(d.links_for_hypothesis(hid)) + pending:
             if l["org_id"] not in orgs and l["org_id"] is not None:
                 orgs[l["org_id"]] = d.get_organization(l["org_id"])
             org, org_link = orgs.get(l["org_id"]), org_links.get(l["org_id"])
@@ -36,6 +41,8 @@ def person_rows(hids: list[int]) -> list[dict]:
             profiles = [ct["value"] for ct in contacts if ct["kind"] == "profile_url"]
             generic = [ct["value"] for ct in d.org_contacts(l["org_id"]) if ct["kind"] == "email"] if l["org_id"] else []
             marks = []
+            if l["priority"] is None:
+                marks.append("čaká na poradie")
             if l["link_type"] == "quoted_about_problem":
                 marks.append("citovaný v dôkaze")
             if (comp.get("role_fit") or 0) >= 0.5:
@@ -57,7 +64,8 @@ def person_rows(hids: list[int]) -> list[dict]:
             rows.append({
                 "problém": f"H{hid}", "osoba": f"{l['titles'] + ' ' if l['titles'] else ''}{l['full_name']}",
                 "funkcia": l["role_title"] or "", "organizácia": l["org_name"] or "", "IČO": (org["ico"] if org else "") or "",
-                "väzba": LINK.get(l["link_type"], l["link_type"]), "priorita": l["priority"], "značky": ", ".join(marks),
+                "väzba": "ešte nezoradený" if l["link_type"] == "pending" else LINK.get(l["link_type"], l["link_type"]),
+                "priorita": l["priority"], "značky": ", ".join(marks),
                 "e-mail": "; ".join(emails) or (f"org.: {generic[0]}" if generic else ""), "telefón": "; ".join(phones),
                 "LinkedIn": safe_url(profiles[0]) if profiles else None, "zdroj": safe_url(l["person_source_url"]),
                 "stav": l["person_status"], "id": l["person_id"],
@@ -81,7 +89,9 @@ with tab_all:
         if query:
             rows = [r for r in rows if query.lower() in " ".join(str(v) for v in r.values()).lower()]
         n_li = sum(1 for r in rows if r["LinkedIn"])
-        st.caption(f"{len(rows)} osôb · {len({r['organizácia'] for r in rows})} organizácií · LinkedIn {n_li}. "
+        n_wait = sum(1 for r in rows if r["priorita"] is None)
+        st.caption(f"{len(rows)} osôb · {len({r['organizácia'] for r in rows})} organizácií · LinkedIn {n_li} · "
+                   f"čaká na poradie {n_wait} (zoradí ich krok people-rank; nevybraní sa potom vymažú – minimalizácia). "
                    "Značky sú overiteľné fakty (zdroj osoby, web a IČO firmy, zverejnený kontakt), nie hodnotenie človeka. "
                    "Priorita určuje iba poradie kontroly: 0,35·role_fit + 0,25·väzba + 0,20·kanál + 0,20·zhoda_org.")
         st.dataframe(
