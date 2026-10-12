@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 180 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 181 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -113,3 +113,4 @@ Stav 12. 10. 2026: 180 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M9 | zber ľudí: orgs najviac polovicu rýchlej fázy, people dostane zvyšok | `test_m9_agentic.py::test_people_workflow_leaves_time_for_people_after_orgs` |
 | M4 | IČO kandidáta zo segmentu nájdené aj na podstránke O nás | `test_m4_orgs.py::test_segment_candidate_ico_found_on_about_page` |
 | M4 | názov z textu sa porovnáva s aktuálnym názvom v RPO, nie s historickým | `test_m4_orgs.py::test_name_resolution_uses_current_rpo_name_not_last_listed` |
+| M5 | chyba poradia jednej hypotézy nezastaví ostatné | `test_m5_people.py::test_people_rank_error_in_one_hypothesis_does_not_stop_others` |

@@ -27,6 +27,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from openai import APIConnectionError
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz
 
@@ -746,6 +747,9 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
                 per_org[key] += 1
     keep = {item[1] for item in chosen + experts}
     for priority, pid, person, org, types, link_type, comp, expert in chosen + experts:
+        if db.get_person(pid) is None:  # medzitým vymazaná (výmaz v GUI počas behu)
+            stats["removed_meanwhile"] += 1
+            continue
         db.prune_links(pid, hid, types)
         for t in types:
             evidence_url = None
@@ -886,8 +890,14 @@ def run_people_rank(cfg: Config, db: DB, llm: Any, searx, deadline: Deadline, hy
         hyp = db.get_hypothesis(hid)
         if hyp is None:
             continue
-        stats.update(rank_hypothesis(cfg, db, router, hyp, budget))
-        if searx is not None:
-            stats["profiles"] += search_profiles(cfg, db, searx, hid, deadline=deadline)
+        try:
+            stats.update(rank_hypothesis(cfg, db, router, hyp, budget))
+            if searx is not None:
+                stats["profiles"] += search_profiles(cfg, db, searx, hid, deadline=deadline)
+        except APIConnectionError:
+            raise  # model nebeží: ďalšie hypotézy by zlyhali tiež
+        except Exception:  # noqa: BLE001 – chyba jednej hypotézy nezastaví poradie ostatných (akcia #20)
+            log.exception("Poradie ľudí pre H%s zlyhalo", hid)
+            stats["errors"] += 1
     stats["role_fit_model_calls"] = budget["role_fit"]
     return dict(stats)

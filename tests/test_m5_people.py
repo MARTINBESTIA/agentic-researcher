@@ -342,3 +342,23 @@ def test_rerank_removes_stale_link_types(tmp_path):
     db.upsert_link(pid, hid, "expert")  # z predošlého poradia (poradca bol vtedy expert)
     rank_hypothesis(cfg, db, router, db.get_hypothesis(hid), Counter())
     assert [l["link_type"] for l in db.links_for_person(pid)] == ["role_owner"]
+
+
+def test_people_rank_error_in_one_hypothesis_does_not_stop_others(tmp_path, monkeypatch):
+    """Akcia #20: osoba vymazaná v GUI počas poradia (FOREIGN KEY) zastavila poradie všetkých ďalších hypotéz."""
+    import radar.people as people_mod
+
+    cfg, db, hid, rec, router = setup(tmp_path)
+    h2 = db.create_hypothesis("Druhá", "Popis", "obce")
+    db.set_people_selection(h2, True)
+    done = []
+
+    def fake_rank(cfg_, db_, router_, hyp, budget):
+        if hyp["id"] == hid:
+            raise RuntimeError("FOREIGN KEY constraint failed")
+        done.append(hyp["id"])
+        return {"selected": 1}
+
+    monkeypatch.setattr(people_mod, "rank_hypothesis", fake_rank)
+    stats = people_mod.run_people_rank(cfg, db, router, None, Deadline(1), [hid, h2])
+    assert done == [h2] and stats["errors"] == 1 and stats["selected"] == 1
