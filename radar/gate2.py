@@ -28,7 +28,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from .config import Config
-from .datasets import DatasetError, run_query, schema_text, table_columns
+from .datasets import DatasetError, base_table, run_query, schema_text, table_columns
 from .db import DB
 from .models import as_router
 from .prompts import GATE2_DEMO_SYSTEM, GATE2_PREREG_SYSTEM
@@ -301,7 +301,7 @@ def build_demo(cfg: Config, db: DB, llm: Any, exp) -> Path:
         else:
             text = out.value.text
     spec = json.loads(exp["spec_json"])
-    datasets = [d for d in db.datasets_for(exp["hypothesis_id"], only_ok=True) if d["table_name"] == spec.get("table")]
+    datasets = [d for d in db.datasets_for(exp["hypothesis_id"], only_ok=True) if d["table_name"] == base_table(spec.get("table", ""))]
     prov = "".join(f"<li>{html.escape(d['url'])} · stiahnuté {html.escape(d['fetched_at'][:10])} · SHA-256 "
                    f"{html.escape((d['sha256'] or '')[:16])}…</li>" for d in datasets)
     rows = "".join(f"<tr><td>{html.escape(res['periods'][f['index']])}</td><td>{f['actual']:.2f}</td>"

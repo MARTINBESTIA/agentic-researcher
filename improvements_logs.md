@@ -27,7 +27,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   verziu (napr. GROUP BY bez mien). · 1–2 dni.
 - ~~**2026-10-12 – Brána 1 – ďalšie formáty a archívy.**~~ **Hotové 12. 10. 2026** (ZIP, XML; API so stránkovaním). Podporované sú CSV/XLSX/JSON/Parquet; chýba ZIP (veľa
   portálov balí CSV), XML (ITMS, vestník ÚVO) a API so stránkovaním (RÚZ, ITMS2014+). · 2–3 dni.
-- **2026-10-12 – Brána 1 – lepšie časové stĺpce.** Obdobia ako „2021-Q1“, „01/2022“ alebo rok v názve stĺpca
+- ~~**2026-10-12 – Brána 1 – lepšie časové stĺpce.**~~ **Hotové 12. 10. 2026** (dlhý tvar `dsN_long`; ostáva: exporty DATAcube s viacriadkovou hlavičkou nad tabuľkou – CSV sa načíta s nesprávnymi názvami stĺpcov, treba nájsť riadok hlavičky). Obdobia ako „2021-Q1“, „01/2022“ alebo rok v názve stĺpca
   (široké tabuľky ŠÚ SR) sa dnes neprevedú na časový rad; normalizácia „wide → long“ by sprístupnila DATAcube. · 2 dni.
 - **2026-10-12 – Brána 2 – viac modelov a sezónnosť.** Spätný test má lineárny trend a AR(1) proti naivnému odhadu;
   automatická detekcia periódy (mesačné dáta), exponenciálne vyrovnávanie a model naprieč organizáciami

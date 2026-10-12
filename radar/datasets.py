@@ -6,6 +6,8 @@
   súbor sa po importe zmaže (ostáva URL, čas a SHA-256 – vieme, čo presne sa stiahlo).
 - Dataset s osobnými údajmi (stĺpce meno, rodné číslo, e-mail… alebo e-maily a telefóny v hodnotách) sa
   neuloží: najprv posúdenie podľa GDPR (R-PRIV). Ostane iba profil bez ukážok.
+- Široké tabuľky (ŠÚ SR DATAcube, Eurostat: roky, štvrťroky alebo mesiace ako stĺpce) dostanú aj dlhý tvar
+  `dsN_long` (identifikačné stĺpce, obdobie DATE, obdobie_stlpec, hodnota DOUBLE) – časový rad pre Bránu 2.
 - Dotazy od modelu (reprodukcia čísla) bežia iba na čítanie, bez prístupu k súborom a sieti (DuckDB
   enable_external_access = false), iba jeden SELECT a s časovým limitom. Čísla počíta DuckDB/Python.
 """
@@ -17,6 +19,7 @@ import logging
 import re
 import threading
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -39,6 +42,17 @@ EMAIL_VALUE_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE_VALUE_RE = re.compile(r"^\+?\d[\d /]{8,}$")
 ICO_COLUMN_RE = re.compile(r"(^|_|\b)(i[čc]o|ic)(\b|_|$)", re.I)
 TIME_COLUMN_RE = re.compile(r"(rok|year|d[áa]tum|date|obdob|mesiac|month|kvart|quarter|time|čas)", re.I)
+TABLE_RE = re.compile(r"ds\d+(_long)?")  # tabuľka datasetu a jej dlhý tvar
+_Y = r"(?P<y>19[5-9]\d|20\d\d)"
+_UNIT = r"(?:\s*[\[(].*[\])])?"  # „2020 [EUR]“, „2020 (počet)“
+PERIOD_NAME_RES = [  # obdobie v názve stĺpca širokej tabuľky
+    ("quarter", re.compile(rf"^{_Y}\s*[-_/ ]?\s*Q(?P<q>[1-4]){_UNIT}$", re.I)),  # 2021-Q1, 2021Q1, 2021 Q1
+    ("quarter", re.compile(rf"^Q(?P<q>[1-4])\s*[-_/ ]?\s*{_Y}{_UNIT}$", re.I)),  # Q1 2021
+    ("quarter", re.compile(rf"^(?P<q>[1-4])\.?\s*(?:Q|štvrťrok|stvrtrok|kvartál|kvartal)\s*{_Y}{_UNIT}$", re.I)),
+    ("month", re.compile(rf"^{_Y}\s*(?:-|/|M|_)\s*(?P<m>0?[1-9]|1[0-2]){_UNIT}$", re.I)),  # 2022-01, 2022M01
+    ("month", re.compile(rf"^(?P<m>0?[1-9]|1[0-2])\s*[/.]\s*{_Y}{_UNIT}$")),  # 01/2022, 1.2022
+    ("year", re.compile(rf"^(?:rok\s*|year\s*)?{_Y}{_UNIT}$", re.I)),  # 2020, rok 2020, 2020 [EUR]
+]
 FORBIDDEN_SQL = re.compile(
     r"\b(read_\w+|copy|attach|detach|install|load|pragma|export|import|create|insert|update|delete|drop|alter|"
     r"call|set|reset|checkpoint|vacuum|glob|httpfs|system)\b|https?://|;.+", re.I | re.S)
@@ -420,6 +434,7 @@ def drop_table(cfg: Config, hid: int, table: str) -> None:
     con = duckdb.connect(str(duck_path(cfg, hid)))
     try:
         con.execute(f"DROP TABLE IF EXISTS {table}")
+        con.execute(f"DROP TABLE IF EXISTS {table}_long")
     finally:
         con.close()
 
@@ -431,6 +446,7 @@ def profile_table(cfg: Config, hid: int, table: str) -> dict[str, Any]:
         cols = con.execute(f"DESCRIBE {table}").fetchall()
         rows = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         columns, personal, time_cols, ico_cols = [], [], [], []
+        gran, periods = period_columns([c[0] for c in cols], cfg.gate1.min_wide_periods)
         for name, ctype, *_ in cols:
             q = _quote(name)
             nulls = con.execute(f"SELECT COUNT(*) FILTER (WHERE {q} IS NULL) FROM {table}").fetchone()[0]
@@ -445,7 +461,7 @@ def profile_table(cfg: Config, hid: int, table: str) -> dict[str, Any]:
                 hits = sum(1 for v in sample if EMAIL_VALUE_RE.search(str(v)) or _is_phone(str(v)))
                 if sample and hits / len(sample) > 0.2:
                     personal.append(name)
-            if TIME_COLUMN_RE.search(name) or "DATE" in ctype or "TIMESTAMP" in ctype:
+            if (TIME_COLUMN_RE.search(name) or "DATE" in ctype or "TIMESTAMP" in ctype) and name not in periods:
                 time_cols.append(name)
             if ICO_COLUMN_RE.search(name):
                 ico_cols.append(name)
@@ -455,10 +471,100 @@ def profile_table(cfg: Config, hid: int, table: str) -> dict[str, Any]:
             info = next(c for c in columns if c["name"] == name)
             if "min" in info:
                 span[name] = [info["min"], info["max"]]
+        if periods:
+            span["obdobia v stĺpcoch"] = [min(periods.values()).isoformat(), max(periods.values()).isoformat()]
         return {"rows": rows, "columns": columns, "time_columns": time_cols, "time_span": span,
-                "ico_columns": ico_cols, "personal_columns": personal}
+                "ico_columns": ico_cols, "personal_columns": personal,
+                "period_columns": {"granularita": gran, "počet": len(periods)} if periods else None}
     finally:
         con.close()
+
+
+def period_of(name: str) -> tuple[str, date] | None:
+    """(granularita, začiatok obdobia) z názvu stĺpca, napr. „2021-Q2“ → (quarter, 2021-04-01)."""
+    s = str(name).strip()
+    for gran, rx in PERIOD_NAME_RES:
+        m = rx.match(s)
+        if m:
+            g = m.groupdict()
+            month = int(g["m"]) if g.get("m") else (int(g["q"]) - 1) * 3 + 1 if g.get("q") else 1
+            return gran, date(int(g["y"]), month, 1)
+    return None
+
+
+def period_columns(columns: list[str], min_periods: int = 3) -> tuple[str, dict[str, date]]:
+    """Stĺpce, ktorých názov je obdobie (široká tabuľka): najčastejšia granularita, aspoň `min_periods` stĺpcov."""
+    found: dict[str, dict[str, date]] = {}
+    for c in columns:
+        p = period_of(c)
+        if p:
+            found.setdefault(p[0], {})[c] = p[1]
+    if not found:
+        return "", {}
+    gran, cols = max(found.items(), key=lambda kv: len(kv[1]))
+    if len(cols) < min_periods:
+        return "", {}
+    return gran, cols
+
+
+# Hodnota bunky → DOUBLE: „1 234,5“, „1.234,5“, „1,234.5“, „12 p“ (príznak Eurostatu); „:“, „-“ a prázdne → NULL.
+# Pri jednej čiarke ide o desatinnú čiarku (SK/CZ), pri viacerých o oddeľovače tisícov.
+NUMBER_MACRO = r"""CREATE OR REPLACE TEMP MACRO radar_num(x) AS (
+  WITH s AS (SELECT regexp_replace(CAST(x AS VARCHAR), '[^0-9,.\-]', '', 'g') AS v)
+  SELECT TRY_CAST(CASE
+    WHEN contains(v, ',') AND contains(v, '.') THEN
+      CASE WHEN strpos(v, ',') > strpos(v, '.') THEN replace(replace(v, '.', ''), ',', '.') ELSE replace(v, ',', '') END
+    WHEN length(v) - length(replace(v, ',', '')) > 1 THEN replace(v, ',', '')
+    WHEN contains(v, ',') THEN replace(v, ',', '.')
+    WHEN length(v) - length(replace(v, '.', '')) > 1 THEN replace(v, '.', '')
+    ELSE v END AS DOUBLE) FROM s)"""
+
+
+def wide_to_long(cfg: Config, hid: int, table: str) -> dict[str, Any] | None:
+    """Široká tabuľka (obdobia ako stĺpce) → `{table}_long`: identifikačné stĺpce, obdobie (DATE), obdobie_stlpec
+    (pôvodný názov stĺpca – pri viacerých ukazovateľoch na obdobie sa podľa neho filtruje) a hodnota (DOUBLE)."""
+    if not re.fullmatch(r"ds\d+", table) or not duck_path(cfg, hid).exists():
+        return None
+    con = duckdb.connect(str(duck_path(cfg, hid)))
+    try:
+        cols = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+        gran, periods = period_columns(cols, cfg.gate1.min_wide_periods)
+        if not periods:
+            return None
+        rows = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        if rows * len(periods) > cfg.gate1.max_long_rows:
+            return {"tabuľka": None, "granularita": gran, "obdobia": len(periods),
+                    "poznámka": f"dlhý tvar by mal {rows * len(periods)} riadkov (limit {cfg.gate1.max_long_rows})"}
+        ids = [c for c in cols if c not in periods]
+        taken = set(ids)
+
+        def free(name: str) -> str:
+            while name in taken:
+                name = "_" + name
+            taken.add(name)
+            return name
+
+        n_t, n_txt, n_v = free("obdobie"), free("obdobie_stlpec"), free("hodnota")
+        head = "".join(_quote(c) + ", " for c in ids)
+        parts = [f"SELECT {head}DATE '{d.isoformat()}' AS {_quote(n_t)}, '{c.replace(chr(39), chr(39) * 2)}' AS "
+                 f"{_quote(n_txt)}, radar_num({_quote(c)}) AS {_quote(n_v)} FROM {table}" for c, d in periods.items()]
+        long = f"{table}_long"
+        con.execute(NUMBER_MACRO)
+        con.execute(f"CREATE OR REPLACE TABLE {long} AS " + " UNION ALL ".join(parts))
+        n, filled = con.execute(f"SELECT COUNT(*), COUNT({_quote(n_v)}) FROM {long}").fetchone()
+    except duckdb.Error as exc:
+        log.warning("Dlhý tvar %s sa nepodaril: %s", table, exc)
+        return {"tabuľka": None, "granularita": gran, "obdobia": len(periods), "poznámka": f"chyba: {str(exc)[:150]}"}
+    finally:
+        con.close()
+    return {"tabuľka": long, "granularita": gran, "obdobia": len(periods), "riadky": n, "hodnoty": filled,
+            "rozsah": [min(periods.values()).isoformat(), max(periods.values()).isoformat()],
+            "stĺpce": {"obdobie": n_t, "obdobie_stlpec": n_txt, "hodnota": n_v}}
+
+
+def base_table(table: str) -> str:
+    """Tabuľka datasetu, z ktorej vznikol dlhý tvar (ds5_long → ds5)."""
+    return re.sub(r"_long$", "", table or "")
 
 
 def coverage(cfg: Config, hid: int, table: str, ico_columns: list[str], orgs: list[tuple[int, str]]) -> list[tuple[int, str, int]]:
@@ -490,8 +596,16 @@ def schema_text(cfg: Config, hid: int, tables: list[str], samples: int = 3) -> s
     con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
     parts = []
     try:
-        for t in tables:
+        existing = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+        for t in [n for t in tables for n in (t, f"{t}_long") if n in existing]:
             cols = con.execute(f"DESCRIBE {t}").fetchall()
+            if f"{t}_long" in existing:  # široká tabuľka: stĺpce období iba zhrnuté (stovky mesiacov by zahltili prompt)
+                _, periods = period_columns([c[0] for c in cols], 1)
+                n = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                head = ", ".join(f"{c[0]} {c[1]}" for c in cols if c[0] not in periods)
+                parts.append(f"TABLE {t} ({n} rows, wide): {head}, plus {len(periods)} period columns "
+                             f"{min(periods, key=periods.get)}…{max(periods, key=periods.get)} – use {t}_long for time series")
+                continue
             rows = con.execute(f"SELECT * FROM {t} LIMIT {samples}").fetchall()
             n = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             head = ", ".join(f"{c[0]} {c[1]}" for c in cols)
@@ -531,7 +645,7 @@ def run_query(cfg: Config, hid: int, sql: str, params: list[Any] | None = None, 
 
 
 def table_columns(cfg: Config, hid: int, table: str) -> list[str]:
-    if not re.fullmatch(r"ds\d+", table) or not duck_path(cfg, hid).exists():
+    if not TABLE_RE.fullmatch(table or "") or not duck_path(cfg, hid).exists():
         return []
     con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
     try:

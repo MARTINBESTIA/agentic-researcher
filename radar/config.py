@@ -317,6 +317,8 @@ class Gate1Config(BaseModel):
     repro_close: float = 0.10  # pre „blízko“
     max_repro_per_hypothesis: int = 3
     sql_timeout_s: int = 30
+    min_wide_periods: int = 3  # široká tabuľka (roky/štvrťroky ako stĺpce) → dlhý tvar dsN_long od 3 období
+    max_long_rows: int = 5_000_000  # limit riadkov dlhého tvaru (riadky × obdobia)
     catalog: list[CatalogEntry] = Field(default_factory=lambda: list(DEFAULT_CATALOG))
 
 

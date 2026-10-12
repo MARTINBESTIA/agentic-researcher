@@ -572,3 +572,32 @@ def test_person_contact_from_pdf_phone_list(tmp_path):
     got = {(c["kind"], c["value"], c["extraction"]) for c in db.contacts_for_person(pid)}
     assert got == {("phone", "+421415135102", "person_pdf"), ("email", "peter.vzorovy@fiktivne-mesto.sk", "person_pdf")}
     assert stats["people_found"] == 1
+
+
+def test_wide_table_with_periods_as_columns_gets_long_form(tmp_path):
+    """ŠÚ SR DATAcube: roky ako stĺpce, desatinná čiarka, „:“ za chýbajúcu hodnotu → dsN_long pre časový rad."""
+    from radar.datasets import drop_table, schema_text, table_columns
+
+    wide = ("Územie;Ukazovateľ;2016;2017;2018;2019;2020;2021\n"
+            "Žilinský kraj;Výdavky [mil. EUR];1,5;1,7;2,0;2,1;2,6;:\n"
+            "Nitriansky kraj;Výdavky [mil. EUR];1 200,5;1 250;1 300;1 310;1 400;1 450,25\n")
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path)
+    url = "https://data.obce.sk/files/vydavky.csv"
+    fetcher = mock_fetcher({url: httpx.Response(200, content=wide.encode("cp1250"), headers={"content-type": "text/csv"})})
+    stats = gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])
+    assert stats["datasets"] == 1 and stats["long_tables"] == 1
+    ds = db.datasets_for(hid)[0]
+    table, prof = ds["table_name"], json.loads(ds["profile_json"])
+    assert prof["period_columns"] == {"granularita": "year", "počet": 6}
+    assert prof["time_span"]["obdobia v stĺpcoch"] == ["2016-01-01", "2021-01-01"]
+    assert prof["dlhý_tvar"]["tabuľka"] == f"{table}_long" and prof["dlhý_tvar"]["riadky"] == 12
+    assert prof["dlhý_tvar"]["hodnoty"] == 11  # „:“ je chýbajúca hodnota, nie nula
+    assert run_query(cfg, hid, f"SELECT hodnota FROM {table}_long WHERE Územie = 'Žilinský kraj' "
+                               "AND obdobie = DATE '2016-01-01'")[0][0] == 1.5
+    schema = schema_text(cfg, hid, [table])
+    assert "wide" in schema and f"TABLE {table}_long" in schema and "2016…2021" in schema
+    spec = {"table": f"{table}_long", "time_column": "obdobie", "value_column": "hodnota", "aggregation": "sum", "period": "none"}
+    data = gate2.series(cfg, hid, spec)
+    assert len(data) == 6 and data[0][1] == 1202.0 and data[-1][1] == 1450.25
+    drop_table(cfg, hid, table)
+    assert table_columns(cfg, hid, f"{table}_long") == []

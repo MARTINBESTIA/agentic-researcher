@@ -104,7 +104,8 @@ with tab_d:
         rows = []
         for ds in datasets:
             prof = json_or(ds["profile_json"], {})
-            rows.append({"tabuľka": ds["table_name"], "url": safe_url(ds["url"]), "riadky": ds["rows"],
+            long = prof.get("dlhý_tvar") or {}
+            rows.append({"tabuľka": ds["table_name"] + (f" (+ {long['tabuľka']})" if long.get("tabuľka") else ""), "url": safe_url(ds["url"]), "riadky": ds["rows"],
                          "stĺpce": len(json_or(ds["columns_json"], [])), "MB": round((ds["size_bytes"] or 0) / 1e6, 1),
                          "časový rozsah": "; ".join(f"{k}: {v[0]}–{v[1]}" for k, v in prof.get("time_span", {}).items()),
                          "stav": ds["status"], "poznámka": ds["note"] or ""})

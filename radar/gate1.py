@@ -29,7 +29,7 @@ from .config import Config
 from .critic import evidence_block
 from .datasets import (
     FILE_LINK_RE, DatasetError, coverage, download, download_paginated, drop_table, file_format, hyp_dir, import_table,
-    profile_table, run_query, schema_text,
+    profile_table, run_query, schema_text, wide_to_long,
 )
 from .db import DB
 from .models import as_router
@@ -500,6 +500,9 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
                             "neuložila; pred použitím posúdenie podľa GDPR")
         stats["personal_blocked"] += 1
         return stats
+    if prof.get("period_columns"):
+        prof["dlhý_tvar"] = wide_to_long(cfg, hid, table)
+        stats["long_tables"] += 1 if (prof["dlhý_tvar"] or {}).get("tabuľka") else 0
     db.add_dataset(hid, src["id"], url, table, format=fmt, size_bytes=dl.size, sha256=dl.sha256, rows=prof["rows"],
                    columns_json=[c["name"] for c in prof["columns"]], profile_json=prof, status="ok", note=dl.note)
     for org_id, col, n in coverage(cfg, hid, table, prof["ico_columns"], orgs):

@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 159 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v5).
+Stav 12. 10. 2026: 160 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v5).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -92,3 +92,4 @@ Stav 12. 10. 2026: 159 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M10 | 5 vyhľadávanie: zopakovanie pri blokovaní, bez úvodzoviek, pamäť dopytov | `test_search_retries_blocked_engines_relaxes_quotes_and_caches` |
 | M9 | 17 typ vydavateľa: pravidlá, model raz na doménu, dodávatelia sa nepočítajú do sily | `test_m10_gates.py::test_publisher_types_rules_model_once_per_domain_and_vendor_not_counted` |
 | M10 | kontakty osoby z PDF na webe organizácie (okná okolo mena, zdroj + úryvok) | `test_m10_gates.py::test_person_contact_from_pdf_phone_list` |
+| M11 | široká tabuľka (obdobia ako stĺpce) → dlhý tvar, chýbajúce hodnoty NULL, časový rad Brány 2 | `test_m10_gates.py::test_wide_table_with_periods_as_columns_gets_long_form` |
