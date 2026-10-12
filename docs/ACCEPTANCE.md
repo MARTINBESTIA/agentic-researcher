@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 178 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 179 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -111,3 +111,4 @@ Stav 12. 10. 2026: 178 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M4 | orgs v behu bez presného modelu; prepare-next najprv filtre segmentu, potom mapy rolí | `test_m4_orgs.py::test_run_without_model_filters_and_prepare_next_does_filters_first` |
 | M4 | pokazený odkaz v HTML (napr. „http://[…“) nezahodí celú stránku kandidáta | `test_m4_orgs.py::test_malformed_link_on_page_does_not_drop_the_page` |
 | M9 | zber ľudí: orgs najviac polovicu rýchlej fázy, people dostane zvyšok | `test_m9_agentic.py::test_people_workflow_leaves_time_for_people_after_orgs` |
+| M4 | IČO kandidáta zo segmentu nájdené aj na podstránke O nás | `test_m4_orgs.py::test_segment_candidate_ico_found_on_about_page` |

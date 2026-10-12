@@ -107,6 +107,9 @@ def is_excluded(cfg: Config, ico: str | None, website: str | None) -> bool:
     return bool(host) and any(host == d or host.endswith("." + d) for d in excluded)
 
 
+ICO_PATHS = ("/kontakt", "/o-nas", "/kontakty")  # keď úvodná stránka nemá odkaz na kontakt
+
+
 def root_url(url: str) -> str:
     p = urlparse(url)
     return f"{p.scheme or 'https'}://{p.netloc}/"
@@ -440,12 +443,18 @@ class OrgFinder:
         contacts = extract_contacts(page.html, url)
         icos = icos_in(visible_text(page.html))
         if not icos:
-            for link in contact_page_links(contacts, url, limit=1):
+            # IČO býva v sekcii Kontakt, O nás, obchodných podmienkach alebo impresu; najviac 3 podstránky
+            # (odkazy z úvodnej stránky, inak bežné adresy). Akcia #20: 130 kandidátov bez IČO na 1 podstránke.
+            links = contact_page_links(contacts, url, limit=3) + [url.rstrip("/") + path for path in ICO_PATHS]
+            for link in list(dict.fromkeys(links))[:3]:
                 sub = self.fetcher.fetch_html(link)
                 if sub.status == "ok":
                     icos = icos_in(visible_text(sub.html))
+                    if icos:
+                        break
         if not icos:
             self.stats["segment_no_ico"] += 1
+            log.info("Segment: bez IČO na webe %s – kandidát vynechaný", domain_of(url))
             return
         info = self.lookup_ico(icos[0])
         if info is None or info.terminated:

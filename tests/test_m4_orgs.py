@@ -217,3 +217,22 @@ def test_malformed_link_on_page_does_not_drop_the_page():
     assert contact_page_links(page, "https://fiktivna-firma.sk/") == ["https://fiktivna-firma.sk/kontakt"]
     xml = "<urlset><url><loc>https://[zle</loc></url><url><loc>https://fiktivna-firma.sk/kontakty</loc></url></urlset>"
     assert sitemap_contact_links(xml, "https://fiktivna-firma.sk/") == ["https://fiktivna-firma.sk/kontakty"]
+
+
+def test_segment_candidate_ico_found_on_about_page(tmp_path):
+    """Akcia #20: 130 kandidátov bez IČO na úvodnej a jednej kontaktnej stránke; IČO býva v sekcii O nás."""
+    from radar.orgs import SegmentFilter
+
+    cfg, db, hid, rec, router = setup(tmp_path)
+    rec.responses = {"OrgMentions": {"organizations": []}}
+    db.set_hypothesis_fields(hid, segment_filter_json=SegmentFilter(search_queries=["zákazková strojáreň"]).model_dump_json())
+    rpo, ruz = clients(db, [])
+    searx = FakeSearx({"zákazková strojáreň": [SearchResult("https://fiktivna-strojaren.sk/produkty", "Fiktívna Strojáreň", "")]})
+    fetcher = FakeFetcher(htmls={
+        "https://fiktivna-strojaren.sk/": "<html><body><h1>Fiktívna Strojáreň s.r.o.</h1> zákazková výroba</body></html>",
+        "https://fiktivna-strojaren.sk/o-nas": "<html><body>Fiktívna Strojáreň s.r.o., IČO: 12 345 678</body></html>",
+    })
+    stats = run_orgs(cfg, db, router, searx, fetcher, Deadline(1), [hid], rpo, ruz, model_filters=False)
+    assert "segment_no_ico" not in stats and stats["orgs_created"] == 1
+    org = db.orgs_for_hypothesis(hid)[0]
+    assert org["ico"] == "12345678" and org["website_verified"] == 1 and org["relation"] == "segment_match"
