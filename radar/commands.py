@@ -461,6 +461,36 @@ def _id_list(value: str) -> list[int]:
         raise argparse.ArgumentTypeError("Zadaj ID hypotéz oddelené čiarkou, napr. 4,11,134.") from exc
 
 
+TERMINAL_JOB = ("done", "failed", "stopped", "interrupted", "cancelled")
+
+
+def cmd_job(app, args, sleep=None) -> int:
+    """Akcia ako úloha Správcu akcií (rovnaké poradie ako tlačidlá v GUI): Plánovač úloh tak nezrazí nočný beh
+    s akciou spustenou z GUI a v GUI je vidieť priebeh. --wait čaká na koniec (aj v poradí)."""
+    import time
+
+    from .jobs import JobBusy, refresh_jobs, start_job
+
+    sleep = sleep or time.sleep
+    config = Path(app.cfg.config_dir) / "config.yaml"
+    try:
+        job_id = start_job(app.cfg, app.db, config, args.kind, args.minutes, args.hypotheses, mode=args.mode)
+    except JobBusy as exc:
+        print(str(exc))
+        return 3
+    status = app.db.get_job(job_id)["status"]
+    print(f"Úloha #{job_id} ({args.kind}): {'v poradí' if status == 'queued' else 'spustená'}")
+    if not args.wait:
+        return 0
+    while True:
+        refresh_jobs(app.db)
+        job = app.db.get_job(job_id)
+        if job["status"] in TERMINAL_JOB:
+            print(f"Úloha #{job_id} skončila: {job['status']}")
+            return 0 if job["status"] == "done" else 1
+        sleep(30)
+
+
 def cmd_workflow(app, args) -> int:
     from .workflows import run_workflow
 
@@ -479,6 +509,15 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--minutes", type=float, default=60)
     p.add_argument("--hypotheses", type=_id_list, default=None, help="ID hypotéz, napr. 4,11 (validate, people).")
     p.add_argument("--job", type=int, default=None, help=argparse.SUPPRESS)  # úloha z GUI (stav v tabuľke jobs)
+
+    p = sub.add_parser("job", help="Spustí akciu ako úlohu Správcu akcií (viditeľná v GUI, s poradím); pre Plánovač úloh.")
+    p.add_argument("kind", choices=list(WORKFLOWS))
+    p.add_argument("--minutes", type=float, default=60)
+    p.add_argument("--hypotheses", type=_id_list, default=None, help="ID hypotéz, napr. 4,11.")
+    p.add_argument("--mode", choices=["start", "queue", "replace"], default="queue",
+                   help="queue (predvolené): ak niečo beží, zaradí sa do poradia; start: iba ak nič nebeží; "
+                        "replace: bežiacu zastaví.")
+    p.add_argument("--wait", action="store_true", help="Čaká na koniec úlohy (aj čas v poradí).")
 
     p = sub.add_parser("discover", help="Objavovanie nových problémov (katalóg zdrojov a matica dopytov).")
     p.add_argument("--minutes", type=float, default=None)
@@ -531,6 +570,7 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
 
 HANDLERS = {
     "workflow": cmd_workflow,
+    "job": cmd_job,
     "discover": cmd_discover,
     "sources": cmd_sources,
     "select": cmd_select,

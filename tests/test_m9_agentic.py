@@ -568,3 +568,30 @@ def test_interrupted_job_stalls_queue_until_resumed_or_restarted(tmp_path):
     assert db.get_job(again)["status"] == "queued"  # niečo beží → do poradia, s rovnakými parametrami
     assert json.loads(db.get_job(again)["args_json"])["hypotheses"] == [7]
     assert interrupted_jobs(db) == []  # novšia úloha tej istej akcie už existuje
+
+
+def test_job_command_queues_like_gui_and_waits_for_end(tmp_path, monkeypatch):
+    """Plánovač úloh: `radar job run-all --mode queue --wait` – úloha v Správcovi akcií, čaká aj v poradí."""
+    import argparse
+
+    from radar.commands import cmd_job
+
+    cfg, db, rec, router = setup(tmp_path)
+    created = []
+
+    def fake_start(cfg_, db_, config, kind, minutes, ids, mode="start"):
+        created.append((kind, minutes, ids, mode))
+        return db_.create_job(kind, {"minutes": minutes}, status="queued")
+
+    monkeypatch.setattr("radar.jobs.start_job", fake_start)
+    monkeypatch.setattr("radar.jobs.refresh_jobs", lambda db_: None)
+    app = SimpleNamespace(cfg=cfg, db=db)
+    args = argparse.Namespace(kind="run-all", minutes=480, hypotheses=None, mode="queue", wait=True)
+    ticks = []
+
+    def sleep(_):
+        ticks.append(1)
+        db.update_job(1, status="running" if len(ticks) == 1 else "done")
+
+    assert cmd_job(app, args, sleep=sleep) == 0 and len(ticks) == 2
+    assert created == [("run-all", 480, None, "queue")]

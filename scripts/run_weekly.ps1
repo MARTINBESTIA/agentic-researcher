@@ -39,8 +39,10 @@ if ($usesSwap) {
 try {
     & $python -m radar doctor --wait 600
     if ($LASTEXITCODE -ne 0) { Say "CHYBA: kontrola (doctor) zlyhala, beh sa nespustí"; exit 1 }
-    Say "Beh štartuje (limit $Minutes min, profil $Profile)"
-    & $python -m radar --profile $Profile run-all --minutes $Minutes
+    Say "Beh štartuje (limit $Minutes min) ako úloha Správcu akcií; ak beží akcia z GUI, zaradí sa do poradia"
+    # Profil modelov a výber modelov platia z config.yaml a z GUI (Správca akcií → Modely), rovnako ako pre akcie z GUI.
+    if ($Profile -ne "balanced") { Say "Pozn.: -Profile $Profile sa už nepoužíva – profil nastav v GUI (Správca akcií → Modely)." }
+    & $python -m radar job run-all --minutes $Minutes --mode queue --wait
     Say "Beh skončil s kódom $LASTEXITCODE; správa: reports\latest.md"
 } finally {
     if ($usesSwap) {

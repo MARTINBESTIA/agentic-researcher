@@ -128,8 +128,13 @@ alebo zadaná ručne v GUI. Stránka LinkedIn sa nikdy nesťahuje (zakazujú to 
 
 ### Nočný beh
 
-`run_nightly.bat` (alebo `scripts\run_weekly.ps1 -Minutes 480 -Profile balanced`) spustí Docker
-a SearXNG, skontroluje modely a prejde `run-all`. Naplánovanie: `scripts\register_weekly_task.ps1`.
+`run_nightly.bat` (alebo `scripts\run_weekly.ps1 -Minutes 480`) spustí Docker a SearXNG, skontroluje
+modely a spustí `run-all` ako úlohu Správcu akcií (`python -m radar job run-all --mode queue --wait`):
+v GUI vidíš priebeh a ak práve beží akcia z GUI, nočný beh sa zaradí do poradia za ňu. Profil a modely
+platia z GUI (Správca akcií → Modely). Naplánovanie (registruješ ty, mení nastavenia Windows):
+`scripts\register_weekly_task.ps1 -Daily -Time 23:00 -Wake` (každý deň s prebudením; vo Windows musia byť
+povolené časovače prebudenia), bez `-Daily` raz týždenne (`-Day Sunday`). Na batériu sa beh nespustí;
+prerušenú akciu spustíš v Správcovi akcií tlačidlom „Spustiť znova“.
 Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model v poradí priority
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.

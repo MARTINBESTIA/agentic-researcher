@@ -13,7 +13,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-11 – hypotézy – hlbšie zlučovanie príliš úzkych hypotéz.**~~ **Čiastočne hotové 12. 10. 2026** (témy nad hypotézami bez zlučovania; ostáva: test hypotéz a Brána 0 na úrovni témy, napr. vybrať celú tému na rozhovory). Jeden beh vytvoril 18 hypotéz
   o e-faktúrach; consolidate zlučuje iba dvojice nad prahom podobnosti. Hierarchia (téma → podproblémy)
   alebo zhlukovanie celého zoznamu naraz by zredukovalo šum. · 2–3 dni.
-- **2026-10-11 – prevádzka – naplánovať nočný beh.** Úloha v Plánovači (scripts/register_weekly_task.ps1)
+- **2026-10-11 – prevádzka – naplánovať nočný beh.** *12. 10. 2026: skript pripravený (`register_weekly_task.ps1 -Daily -Time 23:00 -Wake`, beh ako úloha Správcu akcií); registráciu spúšťaš ty. Ostáva poradie akcií podľa času (napr. 6:00 zber ľudí).* Úloha v Plánovači (scripts/register_weekly_task.ps1)
   nie je zaregistrovaná; poradie akcií by sa dalo spúšťať aj podľa času (napr. 22:00 test hypotéz,
   6:00 zber ľudí). · 0,5 dňa.
 - ~~**2026-10-11 – agent – vlastný „scout“ prompt pre slovenské úradné zdroje.**~~ **Hotové 12. 10. 2026** (portály z katalógu Brány 1 v prompte prieskumu; výťažnosť ešte treba zmerať na behoch). Sedenia prieskumu majú
@@ -50,7 +50,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   nočný beh by stihol rádovo viac posúdení. Treba najprv nazbierať labely. · 0,5 dňa + labely.
 - ~~**2026-10-12 – modely – menej výmen modelov v run-all.**~~ **Čiastočne hotové 12. 10. 2026** (extrakcia po agentoch celej dávky v teste aj v Bráne 1; poradie krokov run-all ostáva kvôli prednosti Brány 1; ďalší krok: zmerať čas výmeny z logu Ollama `load_duration` a podľa toho rozhodnúť). S rolou agent (35B) sa v rýchlej fáze strieda 9B a 35B;
   zoskupiť kroky agenta (scout, gate1-sources, validate-search) za sebou by ušetrilo ~1 min na výmenu. · 0,5 dňa.
-- **2026-10-12 – prevádzka – nočný beh odolný voči spánku a výpadkom.** *Čiastočne hotové 12. 10. 2026: „Pokračovať v poradí“ a „Spustiť znova“ v Správcovi akcií; ostáva úloha v Plánovači s prebudením (zmena nastavení systému – zaregistruješ ty, skript treba pripraviť).* Teraz sa počítač neuspí pre nečinnosť a limit sa
+- **2026-10-12 – prevádzka – nočný beh odolný voči spánku a výpadkom.** *Čiastočne hotové 12. 10. 2026: „Pokračovať v poradí“ a „Spustiť znova“ v Správcovi akcií; skript s prebudením a kontrolou nabíjačky je pripravený (zaregistruješ ty).* Teraz sa počítač neuspí pre nečinnosť a limit sa
   neráta počas spánku; po zatvorení veka však beh stojí. Plánovač úloh s „Wake the computer to run this task“ a
   kontrolou nabíjačky, plus obnovenie prerušenej akcie z poradia po štarte, by noc využili celú. · 0,5–1 deň.
 - **2026-10-12 – agenti – prompt a nástroje pre modely, ktoré iba čítajú.** 9B aj MoE 35B agent číta, ale nástroj
