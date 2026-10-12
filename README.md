@@ -195,6 +195,8 @@ profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je prak
   dostanú spoločnú tému, napr. všetky o e-faktúrach; názov navrhne rýchly model. Hypotézy sa nezlučujú.
   Problémy → **Témy** ukazujú silu dôkazov za celú tému (každé tvrdenie raz), počty podložených
   a neotestovaných hypotéz; tému sa dá premenovať (ručný názov sa zachová). V zozname hypotéz je filter „Téma“.
+  V detaile témy: **Otestovať neotestované hypotézy témy** a **Zbierať ľudí k téme** (3 najsilnejšie
+  hypotézy témy na Bránu 0).
 
 Úloha beží ako samostatný proces (aj po zatvorení prehliadača), naraz iba jedna (GPU), dá sa
 zastaviť. Priebeh a koniec výstupu (maskovaný) sú v Prehľade, celý výstup v `logs/jobs/`.

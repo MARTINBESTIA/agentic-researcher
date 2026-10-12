@@ -216,6 +216,8 @@ def test_problems_theme_view_and_rename(gui):
     at.segmented_control(key="pr_view").set_value("Témy").run()
     assert not at.exception, at.exception
     assert any("1 tém pokrýva 2 z 2 hypotéz" in c.value for c in at.caption)
+    labels = [b.label for b in at.button]
+    assert "Otestovať neotestované hypotézy témy (2)" in labels and "Zbierať ľudí k téme (3 najsilnejšie hypotézy)" in labels
     name_input = next(t for t in at.text_input if t.label == "Názov témy")
     name_input.set_value("Obce – kapacita na projekty")
     next(b for b in at.button if b.label.startswith("Premenovať")).click().run()

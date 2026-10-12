@@ -32,8 +32,23 @@ if view == "Témy":
     if theme["summary"]:
         st.markdown(esc(theme["summary"]))
     member_ids = {h["id"] for h in d.theme_members(tid)}
-    st.dataframe([r for r in rows if r["id"] in member_ids], hide_index=True, alt="Hypotézy témy",
+    members = [r for r in rows if r["id"] in member_ids]
+    st.dataframe(members, hide_index=True, alt="Hypotézy témy",
                  column_config={"id": st.column_config.NumberColumn("H", format="H%d")})
+    untested = [r["id"] for r in members if r["test"] == "neotestovaná"]
+    rank = {"silnejšia": 2, "stredná": 1, "slabá": 0}
+    strongest = [r["id"] for r in sorted(members, key=lambda r: (rank[r["sila"]], r["overené"], r["domény"]), reverse=True)
+                 if r["stav"] != "rejected"][:3]
+    with st.container(horizontal=True):
+        start_job_button("validate", f"Otestovať neotestované hypotézy témy ({len(untested)})", 10 + 5 * len(untested),
+                         untested, key=f"th_val_{tid}", icon=":material/fact_check:", disabled=not untested)
+        if c.privacy.lia_completed:
+            start_job_button("people", "Zbierať ľudí k téme (3 najsilnejšie hypotézy)", 120, strongest, key=f"th_ppl_{tid}",
+                             icon=":material/group_add:",
+                             help="Zapne na Bránu 0 najviac 3 najsilnejšie hypotézy témy (" +
+                                  ", ".join(f"H{i}" for i in strongest) + ") a spustí organizácie → ľudia a kontakty "
+                                  "→ priorita → LinkedIn. Nič sa neodosiela.")
+    jobs_panel(show_last=False)
     with st.form(f"pr_theme_rename_{tid}"):
         name = st.text_input("Názov témy", theme["name"])
         if st.form_submit_button("Premenovať (ručný názov sa pri ďalšom zostavení zachová)", icon=":material/edit:"):
