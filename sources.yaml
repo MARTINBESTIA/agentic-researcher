@@ -1,62 +1,73 @@
 # Katalóg zdrojov na objavovanie nových problémov (R-DISC-1).
-# Zdroj sa použije až po tvojom potvrdení: over ho (python -m radar sources --check), pozri si web
-# a nastav verified: true. Metódy: search (dopyty cez SearXNG v rámci domény), rss, sitemap, seed, api.
-# Kategórie: audit | spending_review | fiscal | ombudsman | legislation | eu_obligations | procurement |
-#            association | annual_report | media | innovation_call | event | other
+# Zdroj sa použije iba s verified: true. Overenie 12. 10. 2026 (skript + ručná kontrola): web dostupný (TLS cez úložisko
+# OS), robots.txt povoľuje, nadpis stránky zodpovedá organizácii (parkované domény, presmerovania na dodávateľov
+# a weby s ochranou pred robotmi vyradené). Ak má zdroj RSS, použije sa RSS (bez vyhľadávača).
+# Metódy: search (dopyty cez SearXNG v rámci domény), rss, sitemap, seed, api.
+# Kategórie: audit | inspection | analysis | spending_review | fiscal | ombudsman | legislation | eu_obligations |
+#            procurement | association | trade_media | media | annual_report | innovation_call | event | other
+# Zo zdrojov s vyhľadávaním jednej kategórie sa za beh použijú najviac discovery.search_sources_per_arm (rotácia).
 
 - category: audit
   name: NKÚ SR – výsledky kontrol
   url: https://www.nku.gov.sk
   method: search
-  queries: ['site:nku.gov.sk kontrola zistenia nedostatky']
+  queries:
+  - site:nku.gov.sk kontrola zistenia nedostatky
   cadence_days: 14
   language: sk
-  verified: false
+  verified: true
 - category: spending_review
   name: Útvar hodnoty za peniaze (MF SR) – revízie výdavkov
   url: https://www.mfsr.sk
   method: search
-  queries: ['site:mfsr.sk revízia výdavkov opatrenia']
+  queries:
+  - site:mfsr.sk revízia výdavkov opatrenia
   cadence_days: 30
   language: sk
-  verified: false
+  verified: true
 - category: fiscal
   name: Rada pre rozpočtovú zodpovednosť
   url: https://www.rrz.sk
   method: search
-  queries: ['site:rrz.sk hodnotenie riziká']
+  queries:
+  - site:rrz.sk hodnotenie riziká
   cadence_days: 30
   language: sk
-  verified: false
+  verified: true
 - category: ombudsman
   name: Verejný ochranca práv – správy o činnosti
   url: https://www.vop.gov.sk
   method: search
-  queries: ['site:vop.gov.sk správa o činnosti nedostatky']
+  queries:
+  - site:vop.gov.sk správa o činnosti nedostatky
   cadence_days: 60
   language: sk
-  verified: false
+  verified: true
 - category: legislation
   name: Slov-Lex – legislatívny proces a pripomienky
   url: https://www.slov-lex.sk
   method: search
-  queries: ['site:slov-lex.sk nová povinnosť od 2027', 'site:slov-lex.sk zásadná pripomienka administratívna záťaž']
+  queries:
+  - site:slov-lex.sk nová povinnosť od 2027
+  - site:slov-lex.sk zásadná pripomienka administratívna záťaž
   cadence_days: 7
   language: sk
-  verified: false
+  verified: true
 - category: eu_obligations
   name: EUR-Lex – nové nariadenia a smernice
   url: https://eur-lex.europa.eu
   method: search
-  queries: ['site:eur-lex.europa.eu regulation obligation apply from 2027 companies reporting']
+  queries:
+  - site:eur-lex.europa.eu regulation obligation apply from 2027 companies reporting
   cadence_days: 14
   language: en
-  verified: false
+  verified: true
 - category: procurement
   name: ÚVO – vestník a prípravné trhové konzultácie
   url: https://www.uvo.gov.sk
   method: search
-  queries: ['site:uvo.gov.sk "prípravné trhové konzultácie"']
+  queries:
+  - site:uvo.gov.sk "prípravné trhové konzultácie"
   cadence_days: 7
   language: sk
   verified: false
@@ -64,30 +75,1165 @@
   name: Centrálny register zmlúv
   url: https://www.crz.gov.sk
   method: search
-  queries: ['site:crz.gov.sk zmluva služby analýza procesov']
+  queries:
+  - site:crz.gov.sk zmluva služby analýza procesov
   cadence_days: 14
   language: sk
-  verified: false
+  verified: true
 - category: annual_report
   name: RÚZ – výročné správy (časť o rizikách)
   url: https://www.registeruz.sk/cruz-public
   method: api
   cadence_days: 30
   language: sk
-  verified: false
+  verified: true
 - category: association
   name: Podnikateľská aliancia Slovenska – prieskumy podnikateľského prostredia
   url: https://alianciapas.sk
   method: search
-  queries: ['site:alianciapas.sk prieskum bariéry podnikania']
+  queries:
+  - site:alianciapas.sk prieskum bariéry podnikania
   cadence_days: 30
   language: sk
-  verified: false
+  verified: true
 - category: association
   name: Slovenská obchodná a priemyselná komora
   url: https://www.sopk.sk
   method: search
-  queries: ['site:sopk.sk prieskum problémy firiem']
+  queries:
+  - site:sopk.sk prieskum problémy firiem
   cadence_days: 30
   language: sk
-  verified: false
+  verified: true
+- category: inspection
+  name: Úrad pre dohľad nad zdravotnou starostlivosťou
+  url: https://www.udzs-sk.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Slovenská obchodná inšpekcia
+  url: https://www.soi.sk
+  method: search
+  queries:
+  - site:soi.sk kontroly zistené nedostatky
+  - site:soi.sk výročná správa
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Národný inšpektorát práce
+  url: https://www.ip.gov.sk
+  method: search
+  queries:
+  - site:ip.gov.sk správa o stave ochrany práce
+  - site:ip.gov.sk nedostatky kontroly
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad na ochranu osobných údajov
+  url: https://dataprotection.gov.sk
+  method: search
+  queries:
+  - site:dataprotection.gov.sk výročná správa porušenia
+  - site:dataprotection.gov.sk najčastejšie nedostatky
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad pre reguláciu sieťových odvetví
+  url: https://www.urso.gov.sk
+  method: search
+  queries:
+  - site:urso.gov.sk kontrola zistenia
+  - site:urso.gov.sk výročná správa
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Protimonopolný úrad SR
+  url: https://www.antimon.gov.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Slovenská inšpekcia životného prostredia
+  url: https://www.sizp.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Štátny ústav pre kontrolu liečiv
+  url: https://www.sukl.sk
+  method: search
+  queries:
+  - site:sukl.sk výpadky liekov
+  - site:sukl.sk nedostatky
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad verejného zdravotníctva SR
+  url: https://www.uvzsr.sk
+  method: search
+  queries:
+  - site:uvzsr.sk výsledky kontrol
+  - site:uvzsr.sk výročná správa
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Štátna veterinárna a potravinová správa
+  url: https://svps.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad pre reguláciu elektronických komunikácií a poštových služieb
+  url: https://www.teleoff.gov.sk
+  method: search
+  queries:
+  - site:teleoff.gov.sk výročná správa
+  - site:teleoff.gov.sk sťažnosti
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad pre reguláciu hazardných hier
+  url: https://www.urhh.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Finančná správa SR
+  url: https://www.financnasprava.sk
+  method: search
+  queries:
+  - site:financnasprava.sk výročná správa
+  - site:financnasprava.sk najčastejšie chyby daňovníkov
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad jadrového dozoru
+  url: https://www.ujd.gov.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad pre normalizáciu, metrológiu a skúšobníctvo
+  url: https://www.normoff.gov.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Národná banka Slovenska – dohľad nad finančným trhom
+  url: https://nbs.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút finančnej politiky (MF SR)
+  url: https://www.mfsr.sk
+  method: search
+  queries:
+  - site:mfsr.sk inštitút finančnej politiky komentár
+  - site:mfsr.sk IFP analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút zdravotnej politiky (MZ SR)
+  url: https://www.health.gov.sk
+  method: search
+  queries:
+  - site:health.gov.sk inštitút zdravotnej politiky analýza
+  - site:health.gov.sk IZP revízia
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút sociálnej politiky (MPSVR SR)
+  url: https://www.employment.gov.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút vzdelávacej politiky (MŠVVaM SR)
+  url: https://www.minedu.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút environmentálnej politiky (MŽP SR)
+  url: https://www.minzp.sk
+  method: search
+  queries:
+  - site:minzp.sk inštitút environmentálnej politiky analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút dopravnej politiky (MD SR)
+  url: https://www.mindop.sk
+  method: search
+  queries:
+  - site:mindop.sk inštitút dopravnej politiky analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Analytické centrum MS SR
+  url: https://www.justice.gov.sk
+  method: search
+  queries:
+  - site:justice.gov.sk analytické centrum analýza súdy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Slovak Business Agency – analýzy podnikateľského prostredia
+  url: https://www.sbagency.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Ekonomický ústav SAV
+  url: https://ekonom.sav.sk
+  method: search
+  queries:
+  - site:ekonom.sav.sk working paper
+  - site:ekonom.sav.sk analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: INEKO
+  url: https://www.ineko.sk/?rss=1
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Inštitút pre verejné otázky (IVO)
+  url: https://www.ivo.sk
+  method: search
+  queries:
+  - site:ivo.sk analýza
+  - site:ivo.sk prieskum
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: MESA10
+  url: https://www.mesa10.org
+  method: search
+  queries:
+  - site:mesa10.org analýza
+  - site:mesa10.org štúdia
+  cadence_days: 14
+  language: en
+  verified: true
+- category: analysis
+  name: Slovak Governance Institute
+  url: https://www.governance.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: INESS
+  url: https://iness.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Nadácia F. A. Hayeka
+  url: https://www.insap.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Aliancia Fair-play
+  url: https://fair-play.sk/articles.atom
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Transparency International Slovensko
+  url: https://transparency.sk/sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Via Iuris
+  url: https://viaiuris.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Slovensko.Digital
+  url: https://slovensko.digital/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Slovenská inovačná a energetická agentúra
+  url: https://www.siea.sk
+  method: search
+  queries:
+  - site:siea.sk analýza
+  - site:siea.sk energetická efektívnosť problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: ombudsman
+  name: Komisár pre deti
+  url: https://www.komisarpredeti.sk
+  method: search
+  queries:
+  - site:komisarpredeti.sk správa o činnosti
+  - site:komisarpredeti.sk podnety
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: ombudsman
+  name: Komisár pre osoby so zdravotným postihnutím
+  url: https://www.komisarprezdravotnepostihnutych.sk
+  method: search
+  queries:
+  - site:komisarprezdravotnepostihnutych.sk správa o činnosti
+  - site:komisarprezdravotnepostihnutych.sk podnety
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: ombudsman
+  name: Slovenské národné stredisko pre ľudské práva
+  url: https://www.snslp.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: legislation
+  name: Národná rada SR – návrhy zákonov
+  url: https://www.nrsr.sk
+  method: search
+  queries:
+  - site:nrsr.sk návrh zákona povinnosť podnikatelia
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: legislation
+  name: Ministerstvo hospodárstva – lepšia regulácia a podnikateľské prostredie
+  url: https://www.mhsr.sk
+  method: search
+  queries:
+  - site:mhsr.sk lepšia regulácia
+  - site:mhsr.sk analýza vplyvov na podnikateľské prostredie
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: eu_obligations
+  name: Európsky dvor audítorov – osobitné správy
+  url: https://www.eca.europa.eu
+  method: search
+  queries:
+  - site:eca.europa.eu special report shortcomings
+  - site:eca.europa.eu osobitná správa
+  cadence_days: 14
+  language: en
+  verified: true
+- category: eu_obligations
+  name: Európska komisia – Have your say (konzultácie)
+  url: https://commission.europa.eu
+  method: search
+  queries:
+  - site:commission.europa.eu have your say consultation burden SMEs
+  cadence_days: 14
+  language: en
+  verified: true
+- category: eu_obligations
+  name: Zastúpenie Európskej komisie na Slovensku
+  url: https://slovakia.representation.ec.europa.eu
+  method: search
+  queries:
+  - site:slovakia.representation.ec.europa.eu povinnosť
+  - site:slovakia.representation.ec.europa.eu nové pravidlá
+  cadence_days: 14
+  language: en
+  verified: true
+- category: eu_obligations
+  name: Európska agentúra pre bezpečnosť a ochranu zdravia pri práci
+  url: https://osha.europa.eu/rss.xml
+  method: rss
+  cadence_days: 14
+  language: en
+  verified: true
+- category: procurement
+  name: TED – európske tendre zo Slovenska
+  url: https://ted.europa.eu
+  method: search
+  queries:
+  - site:ted.europa.eu Slovakia contract notice software services
+  cadence_days: 14
+  language: en
+  verified: true
+- category: procurement
+  name: Elektronický kontraktačný systém (EKS)
+  url: https://www.eks.sk
+  method: search
+  queries:
+  - site:eks.sk zákazka
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: procurement
+  name: UVOstat
+  url: https://www.uvostat.sk
+  method: search
+  queries:
+  - site:uvostat.sk obstarávanie
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Republiková únia zamestnávateľov
+  url: https://www.ruzsr.sk
+  method: search
+  queries:
+  - site:ruzsr.sk pripomienky
+  - site:ruzsr.sk prieskum
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia zamestnávateľských zväzov a združení
+  url: https://www.azzz.sk
+  method: search
+  queries:
+  - site:azzz.sk pripomienky
+  - site:azzz.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Klub 500
+  url: https://www.klub500.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: AmCham Slovakia
+  url: https://amcham.sk
+  method: search
+  queries:
+  - site:amcham.sk survey business environment
+  - site:amcham.sk prieskum
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Združenie miest a obcí Slovenska (ZMOS)
+  url: https://www.zmos.sk
+  method: search
+  queries:
+  - site:zmos.sk problémy samospráv
+  - site:zmos.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Únia miest Slovenska
+  url: https://www.uniamiest.sk
+  method: search
+  queries:
+  - site:uniamiest.sk stanovisko
+  - site:uniamiest.sk problémy miest
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia priemyselných zväzov a dopravy
+  url: https://www.apzd.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Zväz automobilového priemyslu SR
+  url: https://zapsr.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Zväz elektrotechnického priemyslu SR
+  url: https://zep.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Zväz chemického a farmaceutického priemyslu SR
+  url: https://www.zchfp.sk/feed/news.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora stavebných inžinierov
+  url: https://www.sksi.sk
+  method: search
+  queries:
+  - site:sksi.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: ČESMAD Slovakia
+  url: https://www.cesmad.sk
+  method: search
+  queries:
+  - site:cesmad.sk problémy dopravcov
+  - site:cesmad.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská poľnohospodárska a potravinárska komora
+  url: https://www.sppk.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Potravinárska komora Slovenska
+  url: https://www.pks.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia nemocníc Slovenska
+  url: https://www.asociacianemocnic.sk
+  method: search
+  queries:
+  - site:asociacianemocnic.sk problémy nemocníc
+  - site:asociacianemocnic.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská lekárska komora
+  url: https://www.lekom.sk
+  method: search
+  queries:
+  - site:lekom.sk stanovisko
+  - site:lekom.sk problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská lekárnická komora
+  url: https://www.slek.sk
+  method: search
+  queries:
+  - site:slek.sk stanovisko
+  - site:slek.sk výpadky
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora sestier a pôrodných asistentiek
+  url: https://www.sksapa.sk
+  method: search
+  queries:
+  - site:sksapa.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia poskytovateľov sociálnych služieb
+  url: https://apssvsr.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: IT Asociácia Slovenska
+  url: https://itas.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská živnostenská komora
+  url: https://www.szk.sk
+  method: search
+  queries:
+  - site:szk.sk problémy živnostníkov
+  - site:szk.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenský živnostenský zväz
+  url: https://www.szz.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská banková asociácia
+  url: https://www.sbaonline.sk
+  method: search
+  queries:
+  - site:sbaonline.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská asociácia poisťovní
+  url: https://www.slaspo.sk/?q=aktuality&rss=1
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská asociácia fotovoltického priemyslu a OZE
+  url: https://www.sapi.sk
+  method: search
+  queries:
+  - site:sapi.sk problémy
+  - site:sapi.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia vodárenských spoločností
+  url: https://avssr.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia hotelov a reštaurácií Slovenska
+  url: https://ahrs.sk
+  method: search
+  queries:
+  - site:ahrs.sk problémy
+  - site:ahrs.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Národná asociácia realitných kancelárií Slovenska
+  url: https://www.narks.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Komora daňových poradcov SR
+  url: https://www.skdp.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora audítorov
+  url: https://www.skau.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora certifikovaných účtovníkov
+  url: https://skcu.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská advokátska komora
+  url: https://www.sak.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Notárska komora SR
+  url: https://www.notar.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Obecné noviny
+  url: https://www.obecne-noviny.sk/rss/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: TREND
+  url: https://www.trend.sk
+  method: search
+  queries:
+  - site:trend.sk problém firmy
+  - site:trend.sk byrokracia
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Podnikajte.sk
+  url: https://www.podnikajte.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Energie-portal.sk
+  url: https://www.energie-portal.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: ASB portál (stavebníctvo)
+  url: https://www.asb.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Strojárstvo
+  url: https://www.engineering.sk/sk/?format=feed&amp;type=rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: ATP Journal (automatizácia)
+  url: https://www.atpjournal.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Roľnícke noviny
+  url: https://rno.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Startitup
+  url: https://www.startitup.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Finweb
+  url: https://hnonline.sk/finweb/feed
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Živé.sk
+  url: https://zive.aktuality.sk/rss/najnovsie/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Pravne listy
+  url: https://www.pravnelisty.sk
+  method: search
+  queries:
+  - site:pravnelisty.sk problémy v praxi
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: epravo.sk
+  url: https://www.epravo.sk
+  method: search
+  queries:
+  - site:epravo.sk nová povinnosť
+  - site:epravo.sk problémy v praxi
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Daňové centrum / dane a účtovníctvo
+  url: https://www.danovecentrum.sk
+  method: search
+  queries:
+  - site:danovecentrum.sk problémy účtovníkov
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: Plán obnovy a odolnosti – výzvy
+  url: https://www.planobnovy.sk
+  method: search
+  queries:
+  - site:planobnovy.sk výzva
+  - site:planobnovy.sk projekty problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: Výskumná a inovačná autorita
+  url: https://vaia.gov.sk/sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: Agentúra na podporu výskumu a vývoja
+  url: https://www.apvv.sk
+  method: search
+  queries:
+  - site:apvv.sk výzva
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: Ministerstvo investícií, regionálneho rozvoja a informatizácie
+  url: https://mirri.gov.sk
+  method: search
+  queries:
+  - site:mirri.gov.sk výzva
+  - site:mirri.gov.sk GovTech
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: Eurofondy – výzvy a programy
+  url: https://www.eurofondy.gov.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: innovation_call
+  name: SARIO
+  url: https://www.sario.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: media
+  name: Pravda – ekonomika
+  url: https://www.pravda.sk
+  method: search
+  queries:
+  - site:pravda.sk ekonomika problém
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: media
+  name: TASR – Teraz.sk ekonomika
+  url: https://www.teraz.sk
+  method: search
+  queries:
+  - site:teraz.sk ekonomika problém
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: media
+  name: Aktuality – ekonomika
+  url: https://www.aktuality.sk/rss/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: media
+  name: Denník E
+  url: https://dennikn.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Štátna školská inšpekcia
+  url: https://www.ssi.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Súdna rada SR
+  url: https://www.sudnarada.gov.sk
+  method: search
+  queries:
+  - site:sudnarada.gov.sk správa o stave súdnictva
+  - site:sudnarada.gov.sk problémy súdov
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Generálna prokuratúra SR
+  url: https://www.genpro.gov.sk
+  method: search
+  queries:
+  - site:genpro.gov.sk správa o činnosti prokuratúry
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Pôdohospodárska platobná agentúra
+  url: https://www.apa.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Národné centrum zdravotníckych informácií
+  url: https://www.nczisk.sk
+  method: search
+  queries:
+  - site:nczisk.sk správa
+  - site:nczisk.sk elektronické zdravotníctvo problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Sociálna poisťovňa
+  url: https://www.socpoist.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Ústredie práce, sociálnych vecí a rodiny
+  url: https://www.upsvr.gov.sk
+  method: search
+  queries:
+  - site:upsvr.gov.sk analýza trhu práce
+  - site:upsvr.gov.sk nedostatok pracovníkov
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: inspection
+  name: Úrad podpredsedu vlády / NASES – e-Government
+  url: https://www.nases.gov.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Slovenská agentúra životného prostredia
+  url: https://www.sazp.sk
+  method: search
+  queries:
+  - site:sazp.sk správa o stave životného prostredia
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Enviroportál
+  url: https://www.enviroportal.sk
+  method: search
+  queries:
+  - site:enviroportal.sk správa o stave
+  - site:enviroportal.sk problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Štátny inštitút odborného vzdelávania
+  url: https://siov.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Národné poľnohospodárske a potravinárske centrum
+  url: https://www.nppc.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: Konzervatívny inštitút M. R. Štefánika
+  url: https://www.institute.sk/?ezin_template_key=rss2
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: analysis
+  name: SAPIE – Slovenská aliancia pre inovatívnu ekonomiku
+  url: https://sapie.sk
+  method: search
+  queries:
+  - site:sapie.sk prieskum
+  - site:sapie.sk bariéry startupov
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora architektov
+  url: https://komarch.sk
+  method: search
+  queries:
+  - site:komarch.sk stanovisko
+  - site:komarch.sk problémy
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia súkromných lekárov SR
+  url: https://new.aslsr.sk
+  method: search
+  queries:
+  - site:new.aslsr.sk stanovisko
+  - site:new.aslsr.sk problémy ambulancií
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská komora zubných lekárov
+  url: https://skzl.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Asociácia správcovských spoločností
+  url: https://www.sass.sk
+  method: search
+  queries:
+  - site:sass.sk stanovisko
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Slovenská rada pre zelené budovy
+  url: https://www.skgbc.org/feed/
+  method: rss
+  cadence_days: 14
+  language: en
+  verified: true
+- category: association
+  name: Bratislavský samosprávny kraj
+  url: https://bratislavskykraj.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Trnavský samosprávny kraj
+  url: https://www.trnavskykraj.sk/feed/
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Trenčiansky samosprávny kraj
+  url: https://www.tsk.sk
+  method: search
+  queries:
+  - site:tsk.sk problémy
+  - site:tsk.sk analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Nitriansky samosprávny kraj
+  url: https://www.unsk.sk
+  method: search
+  queries:
+  - site:unsk.sk problémy
+  - site:unsk.sk analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Žilinský samosprávny kraj
+  url: https://www.zilinskazupa.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Banskobystrický samosprávny kraj
+  url: https://www.bbsk.sk
+  method: search
+  queries:
+  - site:bbsk.sk problémy
+  - site:bbsk.sk analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Prešovský samosprávny kraj
+  url: https://psk.sk/rss
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: association
+  name: Košický samosprávny kraj
+  url: https://www.kosickazupa.sk
+  method: search
+  queries:
+  - site:kosickazupa.sk problémy
+  - site:kosickazupa.sk analýza
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Odpady-portal.sk
+  url: https://www.odpady-portal.sk/rss.xml
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: trade_media
+  name: Účtovníctvo, audítorstvo, daňovníctvo
+  url: https://www.dashofer.sk/rss/?wa=WWW26UAD&rss_channel=15
+  method: rss
+  cadence_days: 14
+  language: sk
+  verified: true
+- category: eu_obligations
+  name: ENISA – kybernetická bezpečnosť (NIS2)
+  url: https://www.enisa.europa.eu
+  method: search
+  queries:
+  - site:enisa.europa.eu NIS2 obligations
+  cadence_days: 14
+  language: en
+  verified: true
+- category: eu_obligations
+  name: Národný bezpečnostný úrad – kybernetická bezpečnosť
+  url: https://www.nbu.gov.sk
+  method: search
+  queries:
+  - site:nbu.gov.sk kybernetická bezpečnosť povinnosti
+  cadence_days: 14
+  language: sk
+  verified: true

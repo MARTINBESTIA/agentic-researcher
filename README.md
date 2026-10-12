@@ -214,7 +214,8 @@ zastaviť. Priebeh a koniec výstupu (maskovaný) sú v Prehľade, celý výstup
 30 % dokumentov behu ide mimo tém: katalóg `sources.yaml` (NKÚ, revízie výdavkov, legislatíva,
 EUR-Lex, ÚVO a PTK, CRZ, zväzy, výročné správy z RÚZ) a rotujúca matica „vzor bolesti × odvetvie“.
 Medzi kategórie sa delí Thompson samplingom (úspech = dokument s overeným tvrdením). Zdroj z
-katalógu sa použije až po tvojom potvrdení (`sources --check`, potom `verified: true`).
+katalógu sa použije až po potvrdení (`sources --check`, potom `verified: true`); od 12. 10. 2026 je povolených
+146 overených zdrojov (úrady, inšpekcie, analytické útvary, zväzy, komory, kraje, odborné médiá, EÚ), 69 cez RSS.
 Nový problém je najprv „candidate“; hypotézou sa stane až s 2 overenými tvrdeniami z 2 domén.
 Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v správe vlastné sekcie.
 
