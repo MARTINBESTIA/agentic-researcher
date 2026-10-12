@@ -14,6 +14,7 @@ Kroky (v poradí podľa modelov):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -25,6 +26,7 @@ from pydantic import BaseModel, Field
 from rapidfuzz import fuzz, process
 
 from .agent import ResearchAgent
+from .catalogs import NKOD_DATASET_RE, CatalogDataset, NKODClient
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
@@ -42,6 +44,8 @@ log = logging.getLogger(__name__)
 ACCESS = ("open", "registration", "request_211", "partner", "paid", "unknown")
 ACCESS_SCORE = {"open": 1.0, "registration": 0.7, "request_211": 0.4, "partner": 0.3, "paid": 0.2, "unknown": 0.3}
 OPEN_LICENSE_RE = re.compile(r"cc[- ]?by|cc0|creative commons|otvoren\w* licenc|open data|odbl|public domain|voľne použi", re.I)
+# Nekomerčné (NC) a bez úprav (ND) licencie obmedzujú startup: komerčné použitie alebo odvodené dáta nie sú dovolené.
+RESTRICTED_LICENSE_RE = re.compile(r"(cc[-_ ]?)?by[-_ ]?nc|by[-_ ]?nd|noncommercial|non-commercial|nekomer", re.I)
 MACHINE_FORMATS = ("csv", "xlsx", "json", "xml", "api", "parquet", "sparql")
 REPRO_SCORE = {"match": 1.0, "close": 0.7, "mismatch": 0.2, "failed": 0.0}
 
@@ -107,6 +111,11 @@ def _hypotheses(cfg: Config, db: DB, ids: list[int] | None):
 # ======================================================================= 2. zdroje (agent)
 SOURCE_TOOLS: list[dict[str, Any]] = [
     {"type": "function", "function": {
+        "name": "search_catalog",
+        "description": "Search the Slovak National Open Data Catalogue (data.slovensko.sk) by 1-3 Slovak keywords. Returns "
+                       "datasets with publisher, formats and page_url; each result counts as a read page.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
         "name": "web_search", "description": "Search the web. Returns a JSON list of results (title, url, snippet).",
         "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
     {"type": "function", "function": {
@@ -143,6 +152,46 @@ class SourceAgent(ResearchAgent):
         self.hyp = hyp
         self.fields = {f["name"]: f for f in fields}
         self.saved: list[int] = []
+        self.catalog = NKODClient(cfg.gate1.nkod_sparql) if cfg.gate1.nkod_enabled else None
+        self.catalog_hits: list[str] = []  # URI datasetov z katalógu, ktoré agent „prečítal“
+
+    def add_catalog_page(self, ds: CatalogDataset) -> None:
+        """Metadáta z katalógu ako prečítaná stránka (dokument Brány 1, do extrakcie dôkazov nejde)."""
+        if ds.uri in self.pages:
+            return
+        text = ds.text()
+        doc_id, _ = self.db.upsert_document(ds.uri, ds.title, self.doc_kind, self.topic, None,
+                                            hashlib.sha256(text.encode("utf-8")).hexdigest(), text, source_category="nkod")
+        self.pages[ds.uri] = (doc_id, [text])
+        self.catalog_hits.append(ds.uri)
+
+    def search_catalog(self, query: str, limit: int = 5) -> str:
+        if self.catalog is None:
+            return "The catalogue search is disabled; use web_search."
+        found = self.catalog.search(query, limit=limit)
+        if self.catalog.failed:
+            return "The catalogue is not available now; use web_search."
+        for ds in found:
+            self.add_catalog_page(ds)
+        if not found:
+            return "No dataset found; try other or fewer keywords, or web_search."
+        return json.dumps([{"page_url": ds.uri, "title": ds.title, "publisher": ds.publisher, "formats": ds.formats,
+                            "files": len(ds.distributions) + ds.more_distributions} for ds in found], ensure_ascii=False)
+
+    def prefetch_catalog(self, fields: list) -> list[str]:
+        """Kandidáti z katalógu pre každé pole ešte pred agentom (bez modelu): aj keď agent katalóg nepoužije,
+        záložná extrakcia zdrojov ich posúdi ako prečítané stránky."""
+        lines: list[str] = []
+        if self.catalog is None:
+            return lines
+        for f in fields:
+            for ds in self.catalog.search(f["name"], limit=self.cfg.gate1.nkod_hits_per_field):
+                self.add_catalog_page(ds)
+                lines.append(f"- for \"{f['name']}\": {ds.title} ({ds.publisher or '?'}; {', '.join(ds.formats) or '?'}) "
+                             f"page_url {ds.uri}")
+            if self.catalog.failed:
+                break
+        return lines
 
     def _page_text(self, url: str) -> str | None:
         if url not in self.pages:
@@ -196,6 +245,12 @@ class SourceAgent(ResearchAgent):
         return f"Saved source S{sid} for field '{field['name']}'" + ("" if quote_ok else " (quote not found on the page)")
 
     def dispatch(self, name: str, raw_args: str | None) -> str:
+        if name == "search_catalog":
+            try:
+                args = json.loads(raw_args or "{}")
+                return self.search_catalog(str((args if isinstance(args, dict) else {}).get("query", "")))
+            except ValueError:
+                return "Error: tool arguments are not a valid JSON object."
         if name == "record_source":
             try:
                 args = json.loads(raw_args or "{}")
@@ -220,14 +275,18 @@ class ExtractedSources(BaseModel):
     sources: list[ExtractedSource] = Field(default_factory=list)
 
 
-def sources_from_read_pages(cfg: Config, db: DB, llm: Any, agent: SourceAgent, max_pages: int = 6) -> int:
+def sources_from_read_pages(cfg: Config, db: DB, llm: Any, agent: SourceAgent, max_pages: int = 8) -> int:
     """Rýchly model pri nástrojoch často iba číta (reálny beh: 22 krokov, 5 prečítaných stránok ITMS, 0 uložených
     zdrojov). Presný model preto z každej prečítanej stránky vyberie zdroje v štruktúrovanom JSON; overenie je
     rovnaké ako pri nástroji record_source (citát, licencia a frekvencia musia byť na stránke)."""
     router = as_router(llm, cfg, db)
     listing = "\n".join(f'- "{name}" – {f["description"] or ""}' for name, f in agent.fields.items())
     saved = 0
-    for url, (doc_id, chunks) in list(agent.pages.items())[:max_pages]:
+    # Najprv stránky, ktoré agent sám prečítal; kandidáti z katalógu (hľadanie podľa názvu poľa býva zašumené)
+    # najviac traja, aby nevytlačili webové zdroje.
+    web = [(u, v) for u, v in agent.pages.items() if u not in agent.catalog_hits]
+    catalog = [(u, agent.pages[u]) for u in agent.catalog_hits if u in agent.pages][:3]
+    for url, (doc_id, chunks) in (web + catalog)[:max_pages]:
         res = router.run_task(
             "gate1_source_extract",
             [{"role": "system", "content": GATE1_SOURCE_EXTRACT_SYSTEM},
@@ -273,6 +332,11 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
         task = (f"Problem: {hyp['title']} (segment: {hyp['segment'] or '?'}).\nFind sources for these fields:\n{listing}\n"
                 "Start with the known portals; search in Slovak first.")
         agent = SourceAgent(cfg, db, llm, searx, fetcher, hyp, todo)
+        candidates = agent.prefetch_catalog(todo)
+        if candidates:
+            task += ("\nCatalogue candidates already read (verify they fit the field; record_source with this page_url):\n"
+                     + "\n".join(candidates))
+            stats["catalog_candidates"] += len(candidates)
         try:
             agent.run(task, steps, system=system, deadline=deadline)
         except Exception as exc:  # noqa: BLE001 – zlyhanie modelu nezastaví beh (invariant 5)
@@ -300,7 +364,8 @@ def source_quality(src, checks: dict[str, Any]) -> dict[str, Any]:
     formats = (src["formats"] or "").lower() + " " + " ".join(checks.get("súbory_formáty", []))
     machine = 1.0 if any(f in formats for f in MACHINE_FORMATS) or checks.get("súbory") else 0.0
     lic = src["license"] or ""
-    license_score = 1.0 if OPEN_LICENSE_RE.search(lic) else (0.5 if lic else 0.0)
+    restricted = bool(RESTRICTED_LICENSE_RE.search(lic))
+    license_score = 0.3 if restricted else 1.0 if OPEN_LICENSE_RE.search(lic) else (0.5 if lic else 0.0)
     comp = {
         "strojovo_čitateľné": machine,
         "licencia": license_score,
@@ -309,6 +374,8 @@ def source_quality(src, checks: dict[str, Any]) -> dict[str, Any]:
         "prístup": ACCESS_SCORE.get(src["access"], 0.3),
     }
     comp["skóre"] = round(sum(comp.values()) / len(comp), 2)
+    if restricted:
+        comp["obmedzenie_licencie"] = "nekomerčné použitie alebo bez úprav (NC/ND) – over, či sa hodí pre tvoj produkt"
     return comp
 
 
@@ -381,9 +448,24 @@ def discover_api(fetcher, page_url: str, topic: str, paging: dict[str, Any] | No
     return []
 
 
-def check_source(fetcher, src, topic: str = "") -> dict[str, Any]:
+IMPORTABLE = {"CSV": "csv", "TSV": "csv", "TXT": "csv", "XLSX": "xlsx", "JSON": "json", "XML": "xml", "ZIP": "zip",
+              "PARQUET": "parquet"}
+
+
+def check_source(fetcher, src, topic: str = "", catalog: NKODClient | None = None) -> dict[str, Any]:
     checks = json.loads(src["checks_json"] or "{}")
     url = src["url"]
+    nkod_uri = next((u for u in (src["evidence_url"], url) if u and NKOD_DATASET_RE.match(u)), None)
+    if nkod_uri and catalog is not None:
+        ds = catalog.dataset(nkod_uri)
+        if ds is not None:  # súbory priamo z distribúcií v katalógu (stránka katalógu je aplikácia v JavaScripte)
+            files = [d for d in ds.distributions if d.format.upper() in IMPORTABLE]
+            checks.update(http_ok=True, http_stav="ok", katalóg=nkod_uri, súbory=[d.url for d in files][:10],
+                          súbory_formáty=sorted({IMPORTABLE[d.format.upper()] for d in files}),
+                          formát_podľa_katalógu={d.url: IMPORTABLE[d.format.upper()] for d in files})
+            if not files:
+                checks["poznámka"] = "v katalógu nie je súbor v podporovanom formáte (" + ", ".join(ds.formats) + ")"
+            return checks
     if file_format(url):
         checks.update(http_ok=True, súbory=[url], súbory_formáty=[file_format(url)])
         return checks
@@ -411,6 +493,7 @@ def check_source(fetcher, src, topic: str = "") -> dict[str, Any]:
 
 def run_check(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int] | None) -> dict:
     stats: Counter = Counter()
+    catalog = NKODClient(cfg.gate1.nkod_sparql) if cfg.gate1.nkod_enabled else None
     for hyp in _hypotheses(cfg, db, ids):
         for src in db.sources_for(hyp["id"]):
             if deadline.expired():
@@ -421,7 +504,7 @@ def run_check(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int] |
                                                                             and "stránkovanie" not in old)):
                 continue
             field = db.get_field(src["field_id"])
-            checks = check_source(fetcher, src, f"{field['name']} {field['description'] or ''}" if field else "")
+            checks = check_source(fetcher, src, f"{field['name']} {field['description'] or ''}" if field else "", catalog)
             db.update_source(src["id"], checks_json=checks, quality_json=source_quality(src, checks),
                              status="verified" if checks.get("http_ok") else "candidate")
             stats["checked"] += 1
@@ -471,11 +554,13 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
                 if db.datasets_total_bytes() >= limit_total:
                     stats["total_limit"] += 1
                     return dict(stats)
-                stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url)))
+                stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url),
+                                          (checks.get("formát_podľa_katalógu") or {}).get(url)))
     return dict(stats)
 
 
-def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None) -> Counter:
+def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None,
+                 fmt_hint: str | None = None) -> Counter:
     stats: Counter = Counter()
     dataset_id = db.add_dataset(hid, src["id"], url, "pending", status="error", note="sťahuje sa")
     table = f"ds{dataset_id}"
@@ -485,7 +570,7 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
             fmt = "json"
         else:
             dl = download(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked)
-            fmt = file_format(dl.final_url, dl.content_type) or "bin"
+            fmt = file_format(dl.final_url, dl.content_type) or fmt_hint or "bin"  # odkaz z katalógu býva bez prípony
         import_table(cfg, hid, table, dl.path, fmt)
         dl.path.unlink(missing_ok=True)  # v DuckDB je tabuľka; ostáva URL, čas a SHA-256 súboru
         prof = profile_table(cfg, hid, table)

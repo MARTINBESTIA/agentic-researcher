@@ -171,6 +171,12 @@ z prečítanej stránky) → kontrola a kvalita → stiahnutie do DuckDB (`data/
 návrhy žiadostí podľa zákona 211/2000 a pripravenosť dát so zložkami. Chýbajúce dáta sú príznak, nič sa
 nevyraďuje; „Brána 1 prešla“ zapisuješ ty.
 
+Zdroje hľadá agent aj v **Národnom katalógu otvorených dát** (data.slovensko.sk, verejný SPARQL, ~22 000
+datasetov) – bez vyhľadávača: poskytovateľ, licencia z podmienok užitia, periodicita, formáty a odkazy na
+stiahnutie priamo z metadát. Pre každé pole sa ešte pred agentom načítajú 2 kandidáti; kontrola zdroja berie
+súbory z distribúcií v katalógu. Licencie **NC/ND** (iba nekomerčné použitie, bez úprav) majú v kvalite zdroja
+nižšie skóre a príznak – over, či sa hodia pre tvoj produkt. Vypnutie: `gate1.nkod_enabled: false`.
+
 **Brána 2** (po tvojom rozhodnutí): dvojice hypotéza × organizácia z nájdených dát → predregistrácia
 (uzamkneš ju pred testom) → spätný test proti naivnému odhadu (iba Python) → demo HTML pre organizáciu →
 spätná väzba expertov a rozhodnutie.

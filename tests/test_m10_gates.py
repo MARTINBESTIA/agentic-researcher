@@ -32,7 +32,7 @@ def step(*calls):
 def setup(tmp_path, **gate):
     cfg = Config(db_path=str(tmp_path / "data" / "r.sqlite"), models=ModelsConfig(), embeddings=EmbeddingsConfig(enabled=False),
                  privacy=PrivacyConfig(lia_completed=True), people=PeopleConfig(search_profiles=False),
-                 gate1=Gate1Config(**gate), config_dir=str(tmp_path))
+                 gate1=Gate1Config(**({"nkod_enabled": False} | gate)), config_dir=str(tmp_path))  # bez siete
     cfg.gate2.demos_dir = str(tmp_path / "demos")
     db = DB(cfg.db_path)
     rec = Recorder()
@@ -646,3 +646,91 @@ def test_prereg_filters_select_one_indicator_of_long_table(tmp_path):
     assert gate2.validate_spec(cfg, hid, spec | {"filters": {"okres": "x"}, "model": "prophet"}) == [
         "stĺpec filtra 'okres' nie je v tabuľke", "neznámy model 'prophet' (možnosti: linear_trend, ar1, ses, holt_damped, "
         "seasonal_trend, auto)"]
+
+
+# ======================================================================= národný katalóg (SPARQL)
+NKOD_DS = "https://data.gov.sk/set/1b2c3d4e-0000-4000-8000-00000000f001"
+NKOD_FILE = "https://data.slovensko.sk/download?id=fin112-obce"
+FIN_TITLE = "Vybrané údaje z výkazu FIN 1-12 za obce a ich rozpočtové organizácie"
+
+
+def nkod_transport(queries):
+    def b(**kw):
+        return {k: {"type": "literal", "value": v} for k, v in kw.items()}
+
+    def handler(request):
+        q = request.url.params["query"]
+        queries.append(q)
+        if "GROUP BY ?d ORDER BY" in q:  # hľadanie datasetov
+            rows = [b(d=NKOD_DS, title=FIN_TITLE, desc="Mesačné údaje o príjmoch a výdavkoch obcí.",
+                      publisher="Ministerstvo financií SR", modified="2026-09-30T10:00:00Z",
+                      periodicity="http://publications.europa.eu/resource/authority/frequency/MONTHLY")] \
+                if 'CONTAINS(?hay, "rozpoc")' in q and '"vydavk"' not in q else []  # s tretím slovom nič
+        elif "dcat:distribution ?dist" in q:
+            rows = [b(dist=NKOD_DS + "/r1", title="FIN 1-12 obce 2026", format="http://publications.europa.eu/resource/authority/file-type/CSV",
+                      download=NKOD_FILE, license="http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"),
+                    b(dist=NKOD_DS + "/r2", title="Mapa", format="http://publications.europa.eu/resource/authority/file-type/GEOJSON",
+                      download="https://data.slovensko.sk/download?id=mapa")]
+        else:  # dataset podľa URI
+            rows = [b(title=FIN_TITLE, publisher="Ministerstvo financií SR")]
+        return httpx.Response(200, json={"head": {}, "results": {"bindings": rows}})
+
+    return httpx.MockTransport(handler)
+
+
+def test_nkod_search_terms_metadata_text_and_failure():
+    from radar.catalogs import NKODClient, search_terms
+
+    assert search_terms("Rozpočet obce") == ["rozpoc", "obce"] and search_terms("Výdavky na lieky") == ["vydavk", "liek"]
+    queries = []
+    client = NKODClient(http=httpx.Client(transport=nkod_transport(queries)))
+    [ds] = client.search("Rozpočet obce – výdavky", limit=3)  # tri slová nič nenájdu, dve áno
+    assert len([q for q in queries if "GROUP BY ?d ORDER BY" in q]) == 2
+    assert ds.formats == ["CSV", "GEOJSON"] and ds.periodicity == "mesačne (MONTHLY)"
+    text = ds.text()
+    assert "Licencia (podmienky užitia, autorské dielo): CC BY 4.0 (CC_BY_4_0)" in text and NKOD_FILE in text
+    assert client.dataset("https://example.com/x") is None  # iba identifikátory katalógu
+
+    def down(request):
+        raise httpx.ConnectError("nedostupné", request=request)
+
+    broken = NKODClient(http=httpx.Client(transport=httpx.MockTransport(down)))
+    assert broken.search("Rozpočet obce") == [] and broken.failed
+
+
+def test_catalog_candidates_become_sources_with_files_and_typed_download(tmp_path, monkeypatch):
+    """Agent katalóg nepoužije; kandidát predčítaný pre pole prejde záložnou extrakciou, kontrola vezme súbor
+    z distribúcií (bez GeoJSON) a import pozná formát z katalógu (odkaz bez prípony)."""
+    from radar.catalogs import NKODClient
+
+    queries = []
+    monkeypatch.setattr(gate1, "NKODClient", lambda *a, **k: NKODClient(http=httpx.Client(transport=nkod_transport(queries))))
+    cfg, db, rec, router = setup(tmp_path, nkod_enabled=True)
+    hid = gate1_hyp(db)
+    db.upsert_field(hid, "Rozpočet obce", "výdavky obce podľa položiek", True, "")
+    rec.responses["tools"] = [step(call("finish", {"summary": "nič"}))]
+    rec.responses["ExtractedSources"] = lambda messages: {"sources": [
+        {"field": "Rozpočet obce", "name": FIN_TITLE, "url": NKOD_FILE, "access": "open", "license": "CC BY 4.0",
+         "update_frequency": "mesačne", "formats": "CSV", "evidence_quote": FIN_TITLE}]} \
+        if NKOD_DS in messages[-1]["content"] else {"sources": []}
+    stats = gate1.run_sources(cfg, db, router, FakeSearx(), FakeFetcher(), Deadline(1), [hid])
+    assert stats["catalog_candidates"] == 1 and stats["sources_from_pages"] == 1
+    [src] = db.sources_for(hid)
+    assert src["license"] == "CC BY 4.0" and src["update_frequency"] == "mesačne" and src["evidence_url"] == NKOD_DS
+    kind = db.conn.execute("SELECT source_kind FROM documents WHERE url = ?", (NKOD_DS,)).fetchone()[0]
+    assert kind == "gate1"  # metadáta katalógu nejdú do extrakcie dôkazov
+
+    gate1.run_check(cfg, db, FakeFetcher(), Deadline(1), [hid])
+    checks = json.loads(db.sources_for(hid)[0]["checks_json"])
+    assert checks["súbory"] == [NKOD_FILE] and checks["formát_podľa_katalógu"] == {NKOD_FILE: "csv"}
+    csv = "ico;rok;vydavky\n00313271;2025;100\n00313271;2026;120\n"
+    fetcher = mock_fetcher({NKOD_FILE: httpx.Response(200, content=csv.encode(), headers={"content-type": "application/octet-stream"})})
+    assert gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])["datasets"] == 1
+    assert db.datasets_for(hid)[0]["format"] == "csv" and db.datasets_for(hid)[0]["rows"] == 2
+
+
+def test_noncommercial_license_is_not_counted_as_open():
+    src = {"formats": "CSV", "license": "CC BY-NC 4.0 (CC_BYNC_4_0)", "update_frequency": "ročne", "access": "open"}
+    q = gate1.source_quality(src, {"http_ok": True, "súbory": ["x.csv"]})
+    assert q["licencia"] == 0.3 and "NC/ND" in q["obmedzenie_licencie"]
+    assert gate1.source_quality(src | {"license": "CC BY 4.0"}, {"http_ok": True})["licencia"] == 1.0

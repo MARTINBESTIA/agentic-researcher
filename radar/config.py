@@ -330,6 +330,10 @@ class Gate1Config(BaseModel):
     repro_close: float = 0.10  # pre „blízko“
     max_repro_per_hypothesis: int = 3
     sql_timeout_s: int = 30
+    # Národný katalóg otvorených dát (SPARQL): kandidáti na zdroje bez vyhľadávača, súbory z distribúcií.
+    nkod_enabled: bool = True
+    nkod_sparql: str = "https://data.slovensko.sk/api/sparql"
+    nkod_hits_per_field: int = 2  # hľadanie podľa názvu poľa je zašumené; agent si katalóg prehľadá aj sám
     min_wide_periods: int = 3  # široká tabuľka (roky/štvrťroky ako stĺpce) → dlhý tvar dsN_long od 3 období
     max_long_rows: int = 5_000_000  # limit riadkov dlhého tvaru (riadky × obdobia)
     catalog: list[CatalogEntry] = Field(default_factory=lambda: list(DEFAULT_CATALOG))

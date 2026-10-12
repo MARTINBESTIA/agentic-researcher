@@ -45,6 +45,7 @@ docker compose up -d                     # SearXNG
 | `radar/collect.py`, `radar/discover.py` | zber k témam; objavovanie (sources.yaml, matica dopytov, Thompson sampling) |
 | `radar/extract.py` → `verify.py` → `cluster.py` → `critic.py` → `market.py` → `report.py` | pipeline dôkazov (screen, kontrola kódom → entail, kandidáti a novosť, správa so sekciami Brány 0) |
 | `radar/gate1.py`, `radar/gate2.py`, `radar/datasets.py` | Brána 1 (polia, zdroje, DuckDB, reprodukcia, infozákon, pripravenosť) a Brána 2 (predregistrácia, spätný test, demo); DuckDB iba na čítanie bez externého prístupu |
+| `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií |
 | `radar/themes.py` | témy: zhluky podobných hypotéz (average linkage nad embeddingmi), názov z rýchleho modelu, stabilné ID medzi behmi; hypotézy sa nezlučujú |
 | `radar/publishers.py` | typ vydavateľa zdroja (pravidlá podľa domény, model raz na doménu); dodávatelia sa nepočítajú do sily dôkazov |
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu) |
