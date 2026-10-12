@@ -62,3 +62,13 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-12 – Brána 1 – relevantnejšie kandidáty z národného katalógu.** Hľadanie podľa kmeňov slov z názvu poľa
   je zašumené (napr. „Rozpočet projektu“ → „Zoznam projektov rozvoja IT“). Lokálny index názvov a popisov ~22 500
   datasetov s embeddingmi (raz týždenne zo SPARQL) by dal poradie podľa významu poľa aj témy hypotézy. · 1 deň.
+- **2026-10-12 – modely – otestovať presnosť ostatných modelov pre úlohy presnej roly (rozhodnutie: zatiaľ ostáva 27B).**
+  Mapa rolí na qwen3.6:27b trvá ~194 s na vzorku × 3 vzorky ≈ 10 min na hypotézu (akcia #19: 53 hypotéz → ~9 h iba
+  na mapy rolí); filter segmentu ~50 s, posúdenie citátu ~20 s. Kandidáti: MoE qwen3.6:35b-a3b (~8× rýchlejšie
+  generovanie), 9B, prípadne menší počet vzoriek pri mape rolí (1 namiesto 3). Postup: pre každú úlohu presnej roly
+  (entail, cluster_assign, role_map, role_fit, segment_filter, draft_check, gate1_*) zostaviť sadu s gold labelmi
+  z Kontroly (≥ 50 na úlohu; pri role_map a segment_filter ručné posúdenie výstupov), spustiť `eval` pre všetky
+  modely a porovnať presnosť, podiel neplatného JSON a čas na položku. Zhoda s 27B nie je presnosť – referenciou sú
+  iba ľudské labely. Model meniť po úlohách, nie celú rolu naraz (napr. role_map na 35B, entail ostáva 27B), a iba
+  ak rozdiel presnosti nie je štatisticky významný na úkor kvality. · 1 deň + zber labelov.
+
