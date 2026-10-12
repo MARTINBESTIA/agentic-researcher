@@ -22,6 +22,9 @@ models:
     # qwen3.6:27b-q4_K_M, 24 z 64 vrstiev na GPU (~4 tok/s generovanie, ~200 tok/s prompt);
     # ollama/Modelfile.qwen3.6-27b. Jedno posúdenie ~30–60 s, s uvažovaním ~5–7 min.
     accurate: {model: radar-qwen3.6-27b, timeout_s: 1800, max_tokens: 2048}
+    # Sudca: posúdenie dôkazov (entail, entail_gate), zaradenie do hypotéz a zlúčenie. 13. 10. 2026: 9B sa s 27B zhodol
+    # iba v 67 % posúdení a bol benevolentnejší (scripts/compare_models.py), preto sudca ostáva 27B, aj keď „accurate“ je 9B.
+    judge:    {model: radar-qwen3.6-27b, timeout_s: 1800, max_tokens: 2048}
     embed:    {model: radar-qwen3-embedding, timeout_s: 120}
     # Agenti s nástrojmi (scout, test hypotéz, zdroje Brány 1). Tu 9B; v GUI (Správca akcií → Modely) je od 12. 10. 2026
     # zvolený MoE radar-qwen3.6-35b-a3b (ollama/Modelfile.qwen3.6-35b-a3b): 32,8 tok/s, nástroje OK. Výber v GUI prepíše tento riadok.
@@ -37,7 +40,7 @@ models:
   # Uvažovanie je vypnuté všade: Ollama nemá rozpočet uvažovania a Qwen3.6-27B pri mape rolí premýšľal
   # > 3 000 tokenov (~12 min na vzorku pri 4,5 tok/s) a aj tak skončil orezaný. Zapína sa iba v eval profiloch B a D.
   tasks:
-    entail_gate:  {role: accurate, thinking: false, k: 3}
+    entail_gate:  {role: judge, thinking: false, k: 3}
     critique:     {role: accurate, thinking: false, k: 1}
     draft_check:  {role: accurate, thinking: false, k: 1}
     role_map:     {role: accurate, thinking: false, k: 3}

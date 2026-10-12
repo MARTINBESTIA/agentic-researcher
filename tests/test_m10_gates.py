@@ -815,3 +815,28 @@ def test_crz_append_missing_days_adds_only_new_contracts(tmp_path):
     res = append_days(cfg, mock_fetcher(routes), hid, "ds9", ["2026-01-20", "2026-02-27"], [])
     assert res == {"days_ok": ["2026-01-20"], "days_failed": ["2026-02-27"], "added": 1}
     assert run_query(cfg, hid, "SELECT COUNT(*), SUM(suma_zmluva) FROM ds9")[0] == (2, 150.0)  # ID 1 ostalo pôvodné
+
+
+def test_xlsx_without_extension_imports_and_bad_file_is_dataset_error(tmp_path):
+    """13. 10. 2026: XLSX z katalógu uložené s príponou .bin – openpyxl ho odmietol a spadol celý krok datasetov."""
+    import io
+
+    from openpyxl import Workbook
+
+    from radar.datasets import hyp_dir, import_table
+
+    cfg, *_ = setup(tmp_path)
+    hyp_dir(cfg, 5).mkdir(parents=True)
+    wb = Workbook()
+    wb.active.append(["projekt", "naklady"])
+    wb.active.append(["Cesta", 10])
+    buf = io.BytesIO()
+    wb.save(buf)
+    path = tmp_path / "download-abc.bin"
+    path.write_bytes(buf.getvalue())
+    import_table(cfg, 5, "ds1", path, "xlsx")
+    assert run_query(cfg, 5, "SELECT naklady FROM ds1")[0][0] == 10
+    bad = tmp_path / "zle.bin"
+    bad.write_bytes(b"PK\x03\x04 nie je excel")
+    with pytest.raises(DatasetError):
+        import_table(cfg, 5, "ds2", bad, "xlsx")

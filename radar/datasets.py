@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import logging
 import re
 import threading
@@ -355,7 +356,8 @@ def _xlsx_to_csv(path: Path) -> Path:
 
     from openpyxl import load_workbook
 
-    wb = load_workbook(path, read_only=True, data_only=True)
+    with open(path, "rb") as fh:  # súbor ako objekt: openpyxl inak odmietne príponu (stiahnuté .bin/.part)
+        wb = load_workbook(BytesIO(fh.read()), read_only=True, data_only=True)
     best, rows = None, -1
     for ws in wb.worksheets:  # hárok s najviac riadkami
         n = ws.max_row or 0
@@ -431,6 +433,10 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
             raise DatasetError(f"import zlyhal: {str(exc)[:200]}") from exc
         finally:
             con.close()
+    except DatasetError:
+        raise
+    except Exception as exc:  # noqa: BLE001 – poškodený súbor (napr. XLSX) je chyba datasetu, nie celého kroku
+        raise DatasetError(f"súbor sa nedá spracovať: {type(exc).__name__}: {str(exc)[:150]}") from exc
     finally:
         for extra in cleanup:
             if extra != path:

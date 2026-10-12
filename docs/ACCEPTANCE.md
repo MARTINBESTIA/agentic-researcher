@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 194 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 13. 10. 2026: 196 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -128,3 +128,5 @@ Stav 12. 10. 2026: 194 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M9 | autopilot číta svoj koniec a naplánuje kolo | `test_m9_agentic.py::test_autopilot_job_reads_its_end_time_and_plans` |
 | M9 | ostré spustenie úlohy s konfiguráciou inej databázy sa odmietne | `test_m9_agentic.py::test_real_spawn_refuses_config_of_another_database` |
 | M10 | vopred povolené „prešla“ iba pri stave pripravená a iba pre zadanú hypotézu | `test_m10_gates.py::test_reproduction_of_known_number_scale_and_readiness` |
+| M1 | rola sudca: posúdenie dôkazov ostáva na sudcovi, keď sa presný model zmení | `test_m1_foundation.py::test_judge_role_keeps_evidence_tasks_on_its_model_when_accurate_changes` |
+| M10 | XLSX bez prípony sa načíta, poškodený súbor je chyba datasetu | `test_m10_gates.py::test_xlsx_without_extension_imports_and_bad_file_is_dataset_error` |

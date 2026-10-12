@@ -52,9 +52,9 @@ if gpu:
             st.toast("Uvoľnené: " + (", ".join(unload_gpu(c)) or "nič"), icon=":material/memory:")
             st.rerun()
 
-ROLE_HELP = {"fast": "rýchly: extrakcia, triedenie, kontakty", "accurate": "presný: posúdenie dôkazov, zaradenie, "
-             "ľudia, návrhy, Brány 1 a 2", "agent": "agent s nástrojmi: prieskum, test hypotéz, zdroje Brány 1",
-             "embed": "embeddingy (CPU)"}
+ROLE_HELP = {"fast": "rýchly: extrakcia, triedenie, kontakty", "accurate": "presný: mapy rolí, návrhy oslovení, "
+             "kritika, Brány 1 a 2", "judge": "sudca: posúdenie dôkazov, zaradenie do hypotéz, zlúčenie",
+             "agent": "agent s nástrojmi: prieskum, test hypotéz, zdroje Brány 1", "embed": "embeddingy (CPU)"}
 with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":material/tune:"):
     installed = ollama_models(c)
     chosen = d.get_setting(MODEL_SETTINGS_KEY, {}) or {}

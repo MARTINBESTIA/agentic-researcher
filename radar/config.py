@@ -60,10 +60,12 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "screen": _route("fast"),
     "extract": _route("fast"),
     "number_extract": _route("fast"),
-    "entail": _route("accurate"),
-    "entail_gate": _route("accurate", True, 3),
-    "cluster_assign": _route("accurate"),
-    "merge_check": _route("accurate"),
+    # Rola „judge“ (sudca): posúdenie dôkazov a zaradenie – meranie 13. 10. 2026: 9B sa s 27B zhodol iba v 67 %
+    # zo 100 posúdení a v 28 prípadoch bol benevolentnejší (čiastočne → podporené); generovanie ostáva na „accurate“.
+    "entail": _route("judge"),
+    "entail_gate": _route("judge", True, 3),
+    "cluster_assign": _route("judge"),
+    "merge_check": _route("judge"),
     "critique": _route("accurate", True),
     "market_structure": _route("accurate", True),
     # Agenti s nástrojmi (rola "agent"; predvolene ten istý model ako fast, v GUI sa dá zmeniť napr. na MoE 35B).
@@ -93,6 +95,7 @@ def _default_roles() -> dict[str, RoleConfig]:
     return {
         "fast": RoleConfig(model="radar-qwen3.5-9b", timeout_s=600, max_tokens=2048),
         "accurate": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=4096),
+        "judge": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=2048),
         "agent": RoleConfig(model="radar-qwen3.5-9b", timeout_s=900, max_tokens=2048),
         "embed": RoleConfig(model="radar-qwen3-embedding", timeout_s=120),
     }

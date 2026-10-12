@@ -78,4 +78,9 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   ešte prídu na rad, (4) pri akciách v Správcovi akcií typické trvanie (medián z histórie) a pri kartách s prácou
   odhad, koľko z nej sa stihne (napr. test hypotéz ~3 min na hypotézu, posúdenie citátu ~2 s na 9B), (5) časy
   v miestnom čase namiesto UTC. · 0,5–1 deň.
+- **2026-10-13 – Brána 1 – lepší výber čísla na reprodukciu.** Pri H11 boli jedinými cieľmi „10 mil. €“ (metodika), „40 %“
+  (vlastnícky podiel) a „2025 decembra“ (dátum) – žiadne sa z dát zmlúv nedá vypočítať, preto reprodukcia „nevyšla“ a hypotéza
+  nedostala stav pripravená napriek pokrytiu všetkých polí. Vyraďovať dátumy a roky, uprednostniť čísla o objeme, počte a sume
+  z tvrdení o rovnakej doméne ako dataset; ak vhodné číslo neexistuje, označiť „reprodukcia nemožná (bez cieľa)“ namiesto
+  „nevyšla“ a pripravenosť počítať bez tejto zložky. · 0,5 dňa.
 

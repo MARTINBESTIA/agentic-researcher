@@ -551,7 +551,10 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
                     return dict(stats)
                 old = existing.get(url)
                 retry_crz = old is not None and old["status"] == "error" and is_crz_export(url)  # adresár → dávky
-                if old is not None and not retry_crz and not (paging.get(url) and not (old["note"] or "").startswith("API:")):
+                # prerušené uprostred sťahovania (pád procesu alebo kroku) – znova
+                retry_broken = old is not None and old["status"] == "error" and (old["note"] or "") == "sťahuje sa"
+                if old is not None and not (retry_crz or retry_broken) and not (
+                        paging.get(url) and not (old["note"] or "").startswith("API:")):
                     continue  # už stiahnuté (jednostránkové API sa stiahne znova, keď vieme stránkovať)
                 if db.datasets_total_bytes() >= limit_total:
                     stats["total_limit"] += 1
@@ -584,6 +587,11 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
     except DatasetError as exc:
         db.add_dataset(hid, src["id"], url, table, status="too_large" if "limit" in str(exc) else "error",
                        note=str(exc)[:300])
+        stats["dataset_errors"] += 1
+        return stats
+    except Exception as exc:  # noqa: BLE001 – jeden súbor nezastaví ostatné datasety (13. 10. 2026: XLSX s príponou .bin)
+        log.exception("Dataset %s zlyhal", url)
+        db.add_dataset(hid, src["id"], url, table, status="error", note=f"chyba: {type(exc).__name__}: {str(exc)[:200]}")
         stats["dataset_errors"] += 1
         return stats
     if prof["personal_columns"]:

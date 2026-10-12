@@ -152,7 +152,7 @@ def test_every_model_call_is_recorded_with_prompt_version(tmp_path):
     rows = db.conn.execute("SELECT task, role, model, profile, prompt_version, verdict FROM model_judgments ORDER BY id").fetchall()
     assert [tuple(r) for r in rows] == [
         ("extract", "fast", "radar-qwen3.5-9b", "balanced", prompt_version("extract"), "True"),
-        ("entail", "accurate", "radar-qwen3.6-27b", "balanced", prompt_version("entail"), "partial"),
+        ("entail", "judge", "radar-qwen3.6-27b", "balanced", prompt_version("entail"), "partial"),
     ]
     assert len(rec.calls) == len(rows)
     assert db.conn.execute("SELECT status FROM claims").fetchone()[0] == "partial"
@@ -165,7 +165,7 @@ def test_profiles_override_roles(tmp_path):
     assert make_router(cfg, db, rec, profile="fast").route("entail").role == "fast"
     assert make_router(cfg, db, rec, profile="accurate").route("extract").role == "accurate"
     route = make_router(cfg, db, rec).route("entail_gate")
-    assert (route.role, route.k) == ("accurate", 3)
+    assert (route.role, route.k) == ("judge", 3)  # posúdenie dôkazov má vlastnú rolu (13. 10. 2026)
 
 
 def test_config_merges_partial_task_overrides():
@@ -210,3 +210,15 @@ def test_local_config_overrides_without_git(tmp_path):
     assert cfg.outreach.sender.name == "Fiktívny Odosielateľ" and cfg.outreach.sender.email == "{EMAIL}"
     assert cfg.outreach.daily_cap == 10
     assert "config.local.yaml" in (Path(__file__).resolve().parent.parent / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_judge_role_keeps_evidence_tasks_on_its_model_when_accurate_changes(tmp_path):
+    """13. 10. 2026: presná rola prepnutá na 9B pre rýchlosť, ale posúdenie dôkazov (9B benevolentnejší) ostáva na sudcovi."""
+    from radar.models import MODEL_SETTINGS_KEY
+
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"), models=ModelsConfig())
+    db = DB(cfg.db_path)
+    db.set_setting(MODEL_SETTINGS_KEY, {"roles": {"accurate": "radar-qwen3.5-9b"}, "profile": "balanced"})
+    router = make_router(cfg, db, Recorder())
+    assert router.route("entail").model == "radar-qwen3.6-27b" and router.route("cluster_assign").model == "radar-qwen3.6-27b"
+    assert router.route("role_map").model == "radar-qwen3.5-9b" and router.route("draft").model == "radar-qwen3.5-9b"
