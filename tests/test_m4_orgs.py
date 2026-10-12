@@ -180,3 +180,28 @@ def test_registry_circuit_breaker_skips_unresponsive_register(tmp_path):
     rpo._paused_until = 0.0  # prestávka uplynula: register sa skúsi znova
     rpo.search_name("Obec Šiesta")
     assert len(hits) == 4
+
+
+def test_run_without_model_filters_and_prepare_next_does_filters_first(tmp_path):
+    """Akcia #19 (53 hypotéz): orgs v behu nesmie volať presný model (striedanie 9B/27B pri každej hypotéze);
+    prepare-next pripraví filtre segmentu pre všetky hypotézy skôr než pomalé mapy rolí."""
+    from types import SimpleNamespace
+
+    from radar.commands import stage_prepare_next
+
+    cfg, db, hid, rec, router = setup(tmp_path)
+    cfg.privacy.lia_completed = True
+    rec.responses = {"OrgMentions": {"organizations": []},
+                     "SegmentFilter": {"sk_nace_prefixes": ["25"], "search_queries": []},
+                     "RoleMap": {"roles": [{"category": "vedúci výroby", "examples": ["riaditeľ výroby"]}]}}
+    rpo, ruz = clients(db, [])
+    stats = run_orgs(cfg, db, router, FakeSearx(), FakeFetcher(), Deadline(1), [hid], rpo, ruz, model_filters=False)
+    assert stats["segment_filter_pending"] == 1 and rec.models_for("SegmentFilter") == []
+
+    h2 = db.create_hypothesis("Druhá hypotéza", "Popis", "obce")
+    for h in (hid, h2):
+        db.set_people_selection(h, True)
+    app = SimpleNamespace(cfg=cfg, db=db, router=router, searx=FakeSearx(), fetcher=FakeFetcher())
+    assert stage_prepare_next(app, Deadline(1)) == {"segment_filters": 2, "role_maps": 2}
+    order = [name for name, *_ in rec.calls if name in ("SegmentFilter", "RoleMap")]
+    assert order[:2] == ["SegmentFilter", "SegmentFilter"] and set(order[2:]) == {"RoleMap"}

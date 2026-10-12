@@ -155,10 +155,13 @@ def _ids(app, hypothesis_ids: list[int] | None) -> list[int] | None:
     return hypothesis_ids or getattr(app, "people_ids", None)
 
 
-def stage_orgs(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
+def stage_orgs(app, deadline: Deadline, hypothesis_ids: list[int] | None = None, model_filters: bool = False) -> dict:
+    """V behu (run-all, akcia „Zbierať ľudí“) bez presného modelu: filtre segmentu pripravuje prepare-next.
+    Samostatný príkaz `orgs` / `people` z CLI si chýbajúci filter vypýta hneď (model_filters=True)."""
     from .orgs import run_orgs
 
-    return run_orgs(app.cfg, app.db, app.router, app.searx, app.fetcher, deadline, _ids(app, hypothesis_ids))
+    return run_orgs(app.cfg, app.db, app.router, app.searx, app.fetcher, deadline, _ids(app, hypothesis_ids),
+                    model_filters=model_filters)
 
 
 def stage_people(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
@@ -187,12 +190,17 @@ def stage_prepare_next(app, deadline: Deadline) -> dict:
 
     stats: Counter = Counter()
     finder = OrgFinder(app.cfg, app.db, app.router, app.searx, app.fetcher, None, None, deadline)
-    for h in app.db.people_enabled_hypotheses():
+    hyps = app.db.people_enabled_hypotheses()
+    # Najprv filtre segmentu pre všetky (~50 s, potrebuje ich hneď orgs), potom mapy rolí (~10 min, až people-rank).
+    for h in hyps:
         if deadline.expired():
-            break
+            return dict(stats)
         if not h["segment_filter_json"] and finder.segment_filter(h) is not None:
             stats["segment_filters"] += 1
-        if app.cfg.privacy.lia_completed and app.db.get_role_map(h["id"]) is None and role_map_for(app.cfg, app.db, app.router, h):
+    for h in hyps:
+        if deadline.expired() or not app.cfg.privacy.lia_completed:
+            break
+        if app.db.get_role_map(h["id"]) is None and role_map_for(app.cfg, app.db, app.router, h):
             stats["role_maps"] += 1
     return dict(stats)
 
@@ -347,7 +355,7 @@ def cmd_orgs(app, args) -> int:
         rpo = RPOClient(app.db, app.cfg.people.registry_delay_s, app.cfg.people.registry_cache_days, app.cfg.fetch.user_agent)
         print(json.dumps(import_public_list(app.cfg, app.db, args.hypothesis, args.import_csv, rpo), ensure_ascii=False))
         return 0
-    return _run(app, "orgs", args.minutes, lambda: stage_orgs(app, _deadline(app, args), _hyp_ids(app, args)))
+    return _run(app, "orgs", args.minutes, lambda: stage_orgs(app, _deadline(app, args), _hyp_ids(app, args), True))
 
 
 def cmd_people(app, args) -> int:
@@ -355,7 +363,7 @@ def cmd_people(app, args) -> int:
 
     ids = _hyp_ids(app, args)
     try:
-        code = _run(app, "orgs", args.minutes, lambda: stage_orgs(app, _deadline(app, args), ids))
+        code = _run(app, "orgs", args.minutes, lambda: stage_orgs(app, _deadline(app, args), ids, True))
         code |= _run(app, "people", args.minutes, lambda: stage_people(app, _deadline(app, args), ids))
         code |= _run(app, "people-rank", args.minutes, lambda: stage_people_rank(app, _deadline(app, args), ids))
     except PrivacyGateError as exc:

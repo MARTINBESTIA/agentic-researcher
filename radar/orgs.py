@@ -130,9 +130,12 @@ def select_people_hypotheses(cfg: Config, db: DB) -> list[int]:
 
 class OrgFinder:
     def __init__(self, cfg: Config, db: DB, router: ModelRouter, searx, fetcher, rpo: RPOClient | None,
-                 ruz: RUZClient | None, deadline: Deadline):
+                 ruz: RUZClient | None, deadline: Deadline, model_filters: bool = True):
         self.cfg, self.db, self.router, self.searx, self.fetcher = cfg, db, router, searx, fetcher
         self.rpo, self.ruz, self.deadline = rpo, ruz, deadline
+        # False v rýchlej fáze behu: filter segmentu (presný model) pripravuje prepare-next; inak by sa pri každej
+        # hypotéze striedal rýchly a presný model (reálna akcia #19: 47 z 53 hypotéz bez filtra).
+        self.model_filters = model_filters
         self.stats: Counter = Counter()
         self._resolved: dict[str, OrgInfo | None] = {}
 
@@ -391,6 +394,9 @@ class OrgFinder:
         }
 
     def from_segment(self, hyp) -> None:
+        if not hyp["segment_filter_json"] and not self.model_filters:
+            self.stats["segment_filter_pending"] += 1  # hľadanie podľa segmentu po prepare-next (ďalší beh)
+            return
         flt = self.segment_filter(hyp)
         if flt is None:
             return
@@ -505,7 +511,7 @@ def import_public_list(cfg: Config, db: DB, hid: int, path: str | Path, rpo: RPO
 
 
 def run_orgs(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, hypothesis_ids: list[int] | None = None,
-             rpo: RPOClient | None = None, ruz: RUZClient | None = None) -> dict:
+             rpo: RPOClient | None = None, ruz: RUZClient | None = None, model_filters: bool = True) -> dict:
     """Organizácie pre hypotézy s people_enabled (alebo zadané hypotézy)."""
     router = as_router(llm, cfg, db)
     if rpo is None:
@@ -513,7 +519,7 @@ def run_orgs(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, 
     if ruz is None:
         ruz = RUZClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
     ids = hypothesis_ids or select_people_hypotheses(cfg, db)
-    finder = OrgFinder(cfg, db, router, searx, fetcher, rpo, ruz, deadline)
+    finder = OrgFinder(cfg, db, router, searx, fetcher, rpo, ruz, deadline, model_filters=model_filters)
     for hid in ids:
         if deadline.expired():
             break
