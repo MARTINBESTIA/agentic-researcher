@@ -258,9 +258,12 @@ def _people(app, deadline: Deadline, run, ids: list[int] | None, report_progress
     app.people_ids = ids
     # prepare-next (presný model): filter segmentu pre orgs a mapa rolí; people-rank na konci hľadá aj LinkedIn.
     run("prepare-next", deadline.sub(deadline.remaining_minutes() * 0.15))
-    fast = deadline.sub(deadline.remaining_minutes() * 0.65)
-    for stage in ("orgs", "people"):
-        run(stage, fast)
+    fast_min = deadline.remaining_minutes() * 0.65
+    fast = deadline.sub(fast_min)
+    # orgs najviac polovicu rýchlej fázy: akcia #19 minula celý čas na orgs a krok people (ľudia z webov
+    # organizácií) sa preskočil – akcia potom nepridala nikoho nového.
+    run("orgs", fast.sub(fast_min * 0.5))
+    run("people", fast)
     run("people-rank", deadline.sub(deadline.remaining_minutes() * 0.7))
     run("contacts", deadline)  # e-mail a telefón ku každej vybranej osobe (bez modelu)
 

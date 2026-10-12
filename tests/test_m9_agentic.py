@@ -605,3 +605,15 @@ def test_long_runs_preload_whole_package_at_start():
     assert {"radar.validate", "radar.gate1", "radar.gate2", "radar.themes", "radar.catalogs", "radar.strength"} <= set(loaded)
     assert not any(m.startswith("radar.gui") for m in loaded) and "radar.__main__" not in loaded
     assert set(LONG_COMMANDS) == {"workflow", "run-all"}
+
+
+def test_people_workflow_leaves_time_for_people_after_orgs(tmp_path):
+    """Akcia #19: orgs minul celý čas rýchlej fázy a krok people sa preskočil; orgs má najviac polovicu."""
+    from radar.workflows import _people
+
+    cfg, db, rec, router = setup(tmp_path)
+    budgets = {}
+    _people(SimpleNamespace(db=db), Deadline(100), lambda stage, dl: budgets.setdefault(stage, dl.remaining_minutes()),
+            None, lambda **kw: None)
+    assert list(budgets) == ["prepare-next", "orgs", "people", "people-rank", "contacts"]
+    assert 32 <= budgets["orgs"] <= 33 and 64 <= budgets["people"] <= 65.1
