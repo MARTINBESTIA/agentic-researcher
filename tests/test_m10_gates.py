@@ -551,3 +551,24 @@ def test_publisher_types_rules_model_once_per_domain_and_vendor_not_counted(tmp_
     doc, _ = db.upsert_document("https://softver-firma.sk/blog/c", "T", "search", "t", "q", "h9", DOC)
     assert run_source_types(cfg, db, router, Deadline(1))["from_known_domains"] == 1  # nový dokument známej domény
     assert db.get_document(doc)["source_type"] == "vendor"
+
+
+def test_person_contact_from_pdf_phone_list(tmp_path):
+    """Telefónny zoznam úradu v PDF: kontakt sa vezme iba z okna pri mene osoby (nie suseda)."""
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("H", "", "obce")
+    db.set_people_selection(hid, True)
+    org, _ = db.upsert_organization("Mesto Fiktívne", "mesto fiktivne", "search", website="https://www.fiktivne-mesto.sk/",
+                                    website_verified=1)
+    pid = db.insert_person(org, "Peter Vzorový", "peter vzorovy", "https://api.statistics.sk/rpo", "RPO", hid,
+                           role_title="vedúci odboru", source_kind="rpo")
+    db.set_link_priority(db.upsert_link(pid, hid, "org_affected"), 0.6, {})
+    pdf = "https://www.fiktivne-mesto.sk/files/telefonny-zoznam.pdf"
+    text = ("Telefónny zoznam mestského úradu. " * 10 + "Ing. Jana NOVÁKOVÁ prednostka 041 513 5101 "
+            "jana.novakova@fiktivne-mesto.sk Peter Vzorový vedúci odboru výstavby 041 513 5102 "
+            "peter.vzorovy@fiktivne-mesto.sk Eva Malá referentka 041 513 5103")
+    searx = FakeSearx({"filetype:pdf": [SearchResult(url=pdf, title="Telefónny zoznam", snippet="")]})
+    stats = run_person_contacts(cfg, db, searx, FakeFetcher(texts={pdf: text}), Deadline(1))
+    got = {(c["kind"], c["value"], c["extraction"]) for c in db.contacts_for_person(pid)}
+    assert got == {("phone", "+421415135102", "person_pdf"), ("email", "peter.vzorovy@fiktivne-mesto.sk", "person_pdf")}
+    assert stats["people_found"] == 1

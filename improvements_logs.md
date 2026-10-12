@@ -16,10 +16,10 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-11 – prevádzka – naplánovať nočný beh.** Úloha v Plánovači (scripts/register_weekly_task.ps1)
   nie je zaregistrovaná; poradie akcií by sa dalo spúšťať aj podľa času (napr. 22:00 test hypotéz,
   6:00 zber ľudí). · 0,5 dňa.
-- **2026-10-11 – agent – vlastný „scout“ prompt pre slovenské úradné zdroje.** Sedenia prieskumu majú
+- ~~**2026-10-11 – agent – vlastný „scout“ prompt pre slovenské úradné zdroje.**~~ **Hotové 12. 10. 2026** (portály z katalógu Brány 1 v prompte prieskumu; výťažnosť ešte treba zmerať na behoch). Sedenia prieskumu majú
   nízku výťažnosť (1–3 citáty zo 6 sedení); zoznam overených portálov (NKÚ, ÚVO, slov-lex, výročné
   správy) ako štartovacie URL by agentovi ušetril vyhľadávanie. · 1 deň.
-- **2026-10-12 – kontakty – kontakty z PDF výročných správ a úradných zverejnení.** Krok `contacts` číta iba
+- ~~**2026-10-12 – kontakty – kontakty z PDF výročných správ a úradných zverejnení.**~~ **Hotové 12. 10. 2026** (vyhľadanie `filetype:pdf` na webe organizácie, okná textu okolo mena). Krok `contacts` číta iba
   HTML stránky; mnohé obce majú kontakty zamestnancov v PDF (organizačný poriadok). Extrakcia blokov z PDF
   (pypdf + rovnaké pravidlo „meno pred kontaktom“) by doplnila časť zo 24 ľudí bez kontaktu. · 1 deň.
 - **2026-10-12 – Brána 1 – posúdenie GDPR priamo v GUI pre zablokovaný dataset.** Dataset s osobnými údajmi

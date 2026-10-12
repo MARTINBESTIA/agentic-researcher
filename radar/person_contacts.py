@@ -5,7 +5,8 @@ citovaní v dôkazoch tam často nie sú (reálny stav 11. 10. 2026: 24 z 38 vyb
 kontaktu). Tento krok pre každého vybraného človeka bez osobného e-mailu a telefónu:
 
 1. v sitemap.xml webu organizácie nájde stránky, ktorých adresa obsahuje priezvisko (bez vyhľadávača),
-   potom vyhľadá `"meno" site:web-organizácie` a `"meno" "organizácia" kontakt`,
+   potom vyhľadá `"meno" site:web-organizácie`, `"meno" "organizácia" kontakt` a PDF na webe organizácie
+   (telefónne zoznamy, organizačné poriadky; z PDF sa berú okná textu okolo mena),
 2. stiahne iba stránky z overeného webu jeho organizácie alebo z úradných domén (people.official_domains),
 3. kontakt uloží, iba ak je v tom istom bloku HTML ako meno, najbližšie meno pred kontaktom je práve
    táto osoba (zoznam viacerých ľudí), vzdialenosť ≤ 400 znakov a hodnota je doslova v úryvku.
@@ -21,7 +22,7 @@ import re
 from collections import Counter
 
 from .config import Config
-from .contacts import HIDDEN_MARK, extract_contacts, is_generic_email, phones_in, snippet_around
+from .contacts import HIDDEN_MARK, emails_in, extract_contacts, is_generic_email, phones_in, snippet_around
 from .names import fold
 from .db import DB
 from .names import looks_like_person_name, name_in_text, split_titles
@@ -90,6 +91,22 @@ def sitemap_person_links(xml: str, org_domain: str, name: str, limit: int = 3) -
     return out
 
 
+def text_windows(text: str, name: str, radius: int = WINDOW) -> list[str]:
+    """Okná textu okolo výskytov mena (PDF nemá bloky HTML; pravidlo „najbližšie meno pred kontaktom“ platí ďalej)."""
+    from .names import fold
+
+    hay, needle = fold(text), fold(split_titles(name)[0])
+    out, start = [], 0
+    while needle and (pos := hay.find(needle, start)) >= 0 and len(out) < 5:
+        out.append(text[max(0, pos - 80): pos + len(needle) + radius])
+        start = pos + len(needle)
+    return out
+
+
+def is_pdf_url(url: str) -> bool:
+    return url.lower().split("?")[0].endswith(".pdf")
+
+
 def has_personal_contact(db: DB, person_id: int) -> bool:
     for c in db.contacts_for_person(person_id):
         if c["kind"] == "phone" or (c["kind"] == "email" and not is_generic_email(c["value"])):
@@ -104,7 +121,8 @@ def find_person_contacts(cfg: Config, db: DB, searx, fetcher, person, deadline: 
     official = cfg.people.official_domains
     name = person["full_name"]
     queries = ([f'"{name}" site:{org_domain}'] if org_domain else []) + (
-        [f'"{name}" "{org["name"]}" kontakt'] if org is not None else [f'"{name}" kontakt'])
+        [f'"{name}" "{org["name"]}" kontakt'] if org is not None else [f'"{name}" kontakt']) + (
+        [f'"{name}" site:{org_domain} filetype:pdf'] if org_domain else [])  # telefónne zoznamy, organizačné poriadky
     urls: list[str] = []
     if org_domain:  # sitemap nepotrebuje vyhľadávač (ten býva preťažený alebo blokovaný)
         sm = fetcher.fetch_html(f"https://{org_domain}/sitemap.xml")
@@ -122,8 +140,23 @@ def find_person_contacts(cfg: Config, db: DB, searx, fetcher, person, deadline: 
     for url in urls[: cfg.people.max_contact_pages_per_person]:
         if deadline.expired():
             break
-        page = fetcher.fetch_html(url)
         stats["pages"] += 1
+        if is_pdf_url(url):  # PDF: text z pypdf, okná okolo mena namiesto blokov HTML
+            doc = fetcher.fetch(url)
+            if doc is None:
+                continue
+            for window in text_windows(doc.text, name):
+                emails = [e for e, _, _ in emails_in(window)]
+                phones = [p for p, _, _ in phones_in(window)]
+                for kind, value, snippet in contacts_of_name(window, name, emails, phones):
+                    if kind != "hidden_contact":
+                        saver(person["id"], person["org_id"], kind, value, doc.final_url or url, snippet, "person_pdf")
+                        stats[f"found_{kind}"] += 1
+                        found_any = True
+            if found_any:
+                break
+            continue
+        page = fetcher.fetch_html(url)
         if page.status != "ok":
             continue
         contacts = extract_contacts(page.html, page.final_url or url)

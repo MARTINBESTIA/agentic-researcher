@@ -62,6 +62,7 @@ def run_scout(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline,
         system = SCOUT_SYSTEM.format(
             today=date.today().isoformat(), sector=sector, pain=pain, max_steps=w.scout_max_steps,
             lang=cfg.pipeline.output_language, known="\n".join(f"- {t}" for t in known) or "(none yet)",
+            portals="\n".join(f"   - {c.name}: {c.url} ({c.topics})" for c in cfg.gate1.catalog),
         )
         # Stránky, ktoré agent prečíta, sú dokumenty objavovania: aj keď agent citát neuloží (rýchly model
         # pri volaní nástrojov často len číta), spracuje ich bežný screen → extrakcia → overenie.

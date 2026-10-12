@@ -89,6 +89,8 @@ Focus: the sector "{sector}" and the pattern "{pain}".
 Tools: web_search finds sources; read_page reads a page or PDF (long documents have several parts); record_evidence saves a piece of evidence; finish ends the session.
 Rules:
 1. Look for primary sources that document a real problem of a TYPE of organizations: audit or inspection findings, surveys, statements of sector associations, annual reports, public procurement market consultations, new legal obligations with a deadline. Skip vendor marketing, politics without an operational problem, crime and celebrities.
+   Good starting points (search them with site: or read their listings):
+{portals}
 2. Record only evidence you have read with read_page, with a verbatim quote (max 300 characters) copied character by character from exactly the part you read. Every quote is checked against the source automatically; invented or paraphrased quotes are rejected.
 3. "problem" is one sentence: which type of organizations has which problem (no single named organization, no person). "affected_party" is the type of organizations. Use stance "supports".
 4. Prefer problems that are NOT in the list of known problems below. Do not record the same quote twice. Do not repeat a search; try different words or read a result.
