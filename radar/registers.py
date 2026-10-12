@@ -174,19 +174,41 @@ def org_info_from_rpo(entity: dict[str, Any]) -> OrgInfo:
 
 
 class RegistryClient:
+    # Istič: po FAIL_LIMIT zlyhaniach za sebou (časový limit, chyba spojenia, HTTP 5xx) sa register na PAUSE_S
+    # vynechá. Reálny beh 12. 10. 2026: RPO neodpovedalo a krok orgs čakal 60 s pri každej organizácii.
+    FAIL_LIMIT = 3
+    PAUSE_S = 900.0
+
     def __init__(self, db: DB, delay_s: float = 1.0, cache_days: float = 30, user_agent: str = "ProblemRadar/0.2",
                  http: httpx.Client | None = None):
         self.db = db
         self.delay_s = delay_s
         self.cache_days = cache_days
-        self.http = http or httpx.Client(timeout=60, headers={"User-Agent": user_agent, "Accept": "application/json"})
+        self.http = http or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0),
+                                         headers={"User-Agent": user_agent, "Accept": "application/json"})
         self._last = 0.0
+        self._fails = 0
+        self._paused_until = 0.0
+        self.skipped = 0  # dopyty vynechané počas prestávky ističa
+
+    def _failed(self, url: str, reason: str) -> None:
+        self._fails += 1
+        if self._fails >= self.FAIL_LIMIT:
+            self._paused_until = time.monotonic() + self.PAUSE_S
+            self._fails = 0
+            log.warning("Register nedostupný (%s): %s – %d× za sebou, %d min sa vynechá", url, reason,
+                        self.FAIL_LIMIT, self.PAUSE_S // 60)
+        else:
+            log.warning("Register nedostupný (%s): %s", url, reason)
 
     def _get_json(self, url: str, params: dict[str, Any] | None = None, sanitize=None) -> Any:
         full = url + ("?" + urlencode(sorted((params or {}).items())) if params else "")
         cached = self.db.cache_get(full, self.cache_days)
         if cached is not None:
             return json.loads(cached)
+        if time.monotonic() < self._paused_until:
+            self.skipped += 1
+            return None
         wait = self.delay_s - (time.monotonic() - self._last)
         if wait > 0:
             time.sleep(wait)
@@ -194,8 +216,12 @@ class RegistryClient:
         try:
             resp = self.http.get(url, params=params)
         except httpx.HTTPError as exc:
-            log.warning("Register nedostupný (%s): %s", url, exc)
+            self._failed(url, str(exc))
             return None
+        if resp.status_code >= 500:
+            self._failed(url, f"HTTP {resp.status_code}")
+            return None
+        self._fails = 0
         if resp.status_code == 404:
             return None
         if resp.status_code >= 400:

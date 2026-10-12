@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 170 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 171 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -103,3 +103,4 @@ Stav 12. 10. 2026: 170 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M9 | prerušená akcia: poradie stojí, pokračovať v poradí, spustiť znova s rovnakými parametrami | `test_m9_agentic.py::test_interrupted_job_stalls_queue_until_resumed_or_restarted` |
 | M9 | GUI: Správca akcií ponúkne pokračovanie po prerušení | `test_m2_gui.py::test_action_manager_offers_resume_after_interruption` |
 | M9 | `radar job --mode queue --wait`: úloha ako z GUI, čaká aj v poradí | `test_m9_agentic.py::test_job_command_queues_like_gui_and_waits_for_end` |
+| M4 | istič registra: po 3 zlyhaniach sa register vynechá, po prestávke sa skúsi znova | `test_m4_orgs.py::test_registry_circuit_breaker_skips_unresponsive_register` |

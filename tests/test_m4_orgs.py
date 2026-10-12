@@ -162,3 +162,21 @@ def test_auto_selection_respects_manual_choice(tmp_path):
     db.set_people_selection(hid, False)  # ručne vypnuté
     db.set_people_selection(weak, True)  # ručne zapnuté napriek slabým dôkazom
     assert select_people_hypotheses(cfg, db) == [weak]
+
+
+def test_registry_circuit_breaker_skips_unresponsive_register(tmp_path):
+    """Reálny beh: RPO neodpovedalo a krok orgs čakal pri každej organizácii; po 3 zlyhaniach sa register vynechá."""
+    db = DB(tmp_path / "r.sqlite")
+    hits = []
+
+    def handler(request):
+        hits.append(str(request.url))
+        raise httpx.ReadTimeout("The read operation timed out", request=request)
+
+    rpo = RPOClient(db, delay_s=0, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    for name in ("Obec Prvá", "Obec Druhá", "Obec Tretia", "Obec Štvrtá", "Obec Piata"):
+        assert rpo.search_name(name) == []
+    assert len(hits) == 3 and rpo.skipped == 2  # 4. a 5. dopyt počas prestávky ističa nečakajú na časový limit
+    rpo._paused_until = 0.0  # prestávka uplynula: register sa skúsi znova
+    rpo.search_name("Obec Šiesta")
+    assert len(hits) == 4
