@@ -34,6 +34,7 @@ CRZ_FILE = "https://www.crz.gov.sk/export/{day}.zip"
 FIELDS = ("ID", "nazov", "zs1", "ico1", "ico", "predmet", "datum", "datum_ucinnost", "datum_platnost_do",
           "datum_zverejnene", "suma_zmluva", "suma_spolu", "rezort", "typ", "druh", "stav", "uvo")
 EMPTY_DATES = {"0000-00-00", "0000-00-00 00:00:00", ""}
+CONTROL_CHARS = re.compile(rb"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 # Zrozumiteľné názvy stĺpcov (kód rozpozná IČO podľa názvu, model vidí význam): zs1 = objednávateľ, ico = dodávateľ.
 RENAME = {"zs1": "objednavatel", "ico1": "ico_objednavatel", "ico": "ico_dodavatel", "nazov": "cislo_zmluvy"}
 
@@ -45,7 +46,8 @@ def is_crz_export(url: str) -> bool:
 def contracts(xml: bytes) -> list[dict]:
     """Zmluvy z dávky: iba vybrané polia (bez mien a adries), prázdne dátumy → None. Bez externých entít."""
     parser = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
-    root = etree.fromstring(xml, parser)
+    # Riadiace znaky, ktoré XML nepovoľuje (reálna dávka 2026-01-20 mala \x02 v texte) – inak by vypadol celý deň.
+    root = etree.fromstring(CONTROL_CHARS.sub(b"", xml), parser)
     out = []
     for z in root.iter("zmluva"):
         row: dict = {}

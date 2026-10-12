@@ -778,3 +778,13 @@ def test_gate_stage_cli_accepts_hypotheses():
     args = build_parser().parse_args(["gate1-datasets", "--hypotheses", "11,4", "--minutes", "90"])
     assert args.hypotheses == [11, 4] and args.minutes == 90
     assert build_parser().parse_args(["gate2-backtest", "--hypotheses", "1"]).hypotheses == [1]
+
+
+def test_crz_batch_with_control_character_is_not_dropped():
+    """Reálna dávka CRZ 2026-01-20: znak \x02 v texte (XML ho nepovoľuje) zahodil celý deň."""
+    from radar.crz import contracts
+
+    xml = ("<?xml version='1.0'?><zmluvy><zmluva><ID>7</ID><predmet>Oprava" + chr(2) + " cesty</predmet>"
+           "<suma_zmluva>10</suma_zmluva></zmluva></zmluvy>").encode()
+    [row] = contracts(xml)
+    assert row["predmet"] == "Oprava cesty" and row["suma_zmluva"] == 10.0
