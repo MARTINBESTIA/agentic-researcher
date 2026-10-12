@@ -94,8 +94,11 @@ _SLUG_RE = re.compile(r"[\w\-.%]{2,100}")
 def normalize_profile_url(url: str | None) -> str | None:
     """Kanonická URL LinkedIn: https://www.linkedin.com/in/<slug> (osoba) alebo /company/<slug>
     (organizácia); bez parametrov, sledovacích kódov a jazykovej subdomény. Iné URL → None."""
-    parsed = urlparse((url or "").strip())
-    host = (parsed.hostname or "").lower()
+    try:
+        parsed = urlparse((url or "").strip())
+        host = (parsed.hostname or "").lower()
+    except ValueError:  # pokazený odkaz na stránke (napr. „http://[…“)
+        return None
     if parsed.scheme not in ("http", "https") or not (host == "linkedin.com" or host.endswith(".linkedin.com")):
         return None
     parts = [x for x in unquote(parsed.path).split("/") if x]
@@ -257,7 +260,10 @@ def extract_contacts(html: str, url: str) -> PageContacts:
     for a in doc.xpath("//a[@href]"):
         href = (a.get("href") or "").strip()
         if href and not href.lower().startswith(("mailto:", "tel:", "javascript:", "#")):
-            page.links.append((urljoin(url, href), _clean_text(a)[:120]))
+            try:
+                page.links.append((urljoin(url, href), _clean_text(a)[:120]))
+            except ValueError:  # pokazený odkaz (napr. „http://[…“) nezahodí celú stránku
+                continue
     hidden_page = _prepare(doc)
     body = doc.find(".//body")
     full_text = _clean_text(body if body is not None else doc)
@@ -339,10 +345,14 @@ def contact_page_links(page: PageContacts, base_url: str, limit: int = 5) -> lis
     host = (urlparse(base_url).hostname or "").removeprefix("www.")
     out: list[str] = []
     for href, text in page.links:
-        parsed = urlparse(href)
+        try:
+            parsed = urlparse(href)
+            link_host = (parsed.hostname or "").removeprefix("www.")
+        except ValueError:
+            continue
         if parsed.scheme not in ("http", "https"):
             continue
-        if (parsed.hostname or "").removeprefix("www.") != host:
+        if link_host != host:
             continue
         if is_contact_link(parsed.path + " " + text):
             clean = href.split("#")[0]
@@ -357,8 +367,12 @@ def sitemap_contact_links(xml: str, base_url: str, limit: int = 5) -> list[str]:
     host = (urlparse(base_url).hostname or "").removeprefix("www.")
     out = []
     for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", xml or "", re.I):
-        parsed = urlparse(loc)
-        if (parsed.hostname or "").removeprefix("www.") != host:
+        try:
+            parsed = urlparse(loc)
+            loc_host = (parsed.hostname or "").removeprefix("www.")
+        except ValueError:
+            continue
+        if loc_host != host:
             continue
         if is_contact_link(parsed.path) and loc not in out:
             out.append(loc)

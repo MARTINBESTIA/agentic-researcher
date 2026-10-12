@@ -205,3 +205,15 @@ def test_run_without_model_filters_and_prepare_next_does_filters_first(tmp_path)
     assert stage_prepare_next(app, Deadline(1)) == {"segment_filters": 2, "role_maps": 2}
     order = [name for name, *_ in rec.calls if name in ("SegmentFilter", "RoleMap")]
     assert order[:2] == ["SegmentFilter", "SegmentFilter"] and set(order[2:]) == {"RoleMap"}
+
+
+def test_malformed_link_on_page_does_not_drop_the_page():
+    """Akcia #19: odkaz „http://[…“ v HTML (ValueError Invalid IPv6 URL) zahodil celú stránku kandidáta."""
+    from radar.contacts import contact_page_links, extract_contacts, sitemap_contact_links
+
+    html = ('<html><body><a href="http://[broken">zlý</a><a href="/kontakt">Kontakt</a>'
+            "<p>Fiktívna Firma s.r.o., IČO: 12 345 678</p></body></html>")
+    page = extract_contacts(html, "https://fiktivna-firma.sk/")
+    assert contact_page_links(page, "https://fiktivna-firma.sk/") == ["https://fiktivna-firma.sk/kontakt"]
+    xml = "<urlset><url><loc>https://[zle</loc></url><url><loc>https://fiktivna-firma.sk/kontakty</loc></url></urlset>"
+    assert sitemap_contact_links(xml, "https://fiktivna-firma.sk/") == ["https://fiktivna-firma.sk/kontakty"]

@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 176 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 177 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -109,3 +109,4 @@ Stav 12. 10. 2026: 176 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M10 | licencia NC/ND nie je otvorená | `test_m10_gates.py::test_noncommercial_license_is_not_counted_as_open` |
 | M9 | dlhé behy načítajú všetky moduly pri štarte (úpravy kódu počas behu nemiešajú verzie) | `test_m9_agentic.py::test_long_runs_preload_whole_package_at_start` |
 | M4 | orgs v behu bez presného modelu; prepare-next najprv filtre segmentu, potom mapy rolí | `test_m4_orgs.py::test_run_without_model_filters_and_prepare_next_does_filters_first` |
+| M4 | pokazený odkaz v HTML (napr. „http://[…“) nezahodí celú stránku kandidáta | `test_m4_orgs.py::test_malformed_link_on_page_does_not_drop_the_page` |
