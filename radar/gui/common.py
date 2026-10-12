@@ -85,12 +85,14 @@ def hypothesis_table(db_path: str) -> list[dict[str, Any]]:
     """Hypotézy so silou dôkazov (zložky, nie jedno číslo)."""
     d = get_db(db_path)
     rows = []
+    theme_names = {t["id"]: t["name"] for t in d.themes()}
     for h in d.all_hypotheses():
         label, n_ver, n_part, n_dom = evidence_strength(d.evidence_for(h["id"]))
         test = json_or(h["validation_json"], {}) if h["validation_state"] == "tested" else {}
         incomplete = (test.get("agent") or {}).get("ok") is False
         rows.append({
-            "id": h["id"], "hypotéza": h["title"], "segment": h["segment"], "stav": h["status"], "pôvod": h["origin"],
+            "id": h["id"], "hypotéza": h["title"], "segment": h["segment"], "téma": theme_names.get(h["theme_id"], ""),
+            "stav": h["status"], "pôvod": h["origin"],
             "sila": label, "overené": n_ver, "čiastočne": n_part, "domény": n_dom,
             "test": test.get("verdikt") or VALIDATION_STATE.get(h["validation_state"], "neotestovaná"),
             "test neúplný": incomplete,
@@ -102,6 +104,26 @@ def hypothesis_table(db_path: str) -> list[dict[str, Any]]:
 
 
 VALIDATION_STATE = {None: "neotestovaná", "searched": "čaká na overenie", "tested": "otestovaná"}
+
+
+def theme_table(db_path: str, hyp_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Témy so súhrnom: sila dôkazov z tvrdení všetkých hypotéz témy (každé tvrdenie raz) a verdikty testov."""
+    d = get_db(db_path)
+    by_id = {r["id"]: r for r in hyp_rows}
+    out = []
+    for t in d.themes():
+        members = [by_id[h["id"]] for h in d.theme_members(t["id"]) if h["id"] in by_id]
+        evidence = {e["id"]: e for h in members for e in d.evidence_for(h["id"])}
+        label, n_ver, n_part, n_dom = evidence_strength(list(evidence.values()))
+        tests = [m["test"] for m in members]
+        out.append({
+            "id": t["id"], "téma": t["name"], "hypotéz": len(members), "sila": label, "overené": n_ver, "domény": n_dom,
+            "podložené": tests.count("podložená"), "sporné": tests.count("sporná"),
+            "neotestované": sum(1 for x in tests if x in ("neotestovaná", "čaká na overenie")),
+            "brána 0": sum(1 for m in members if m["ľudia"]),
+            "názov": {"model": "model", "medoid": "z hypotézy", "manual": "ručne"}.get(t["name_method"], t["name_method"]),
+        })
+    return out
 
 
 # ---------------------------------------------------------------- akcie na pozadí (Správca akcií)

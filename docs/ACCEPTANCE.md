@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 163 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v5).
+Stav 12. 10. 2026: 167 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -96,3 +96,7 @@ Stav 12. 10. 2026: 163 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M11 | sezóna podľa obdobia, modely ses / holt_damped / seasonal_trend / auto (výber iba z histórie) | `test_m10_gates.py::test_backtest_season_length_and_new_models` |
 | M11 | filtre predregistrácie (ukazovateľ, kraj) nad dlhou tabuľkou; neznámy model a stĺpec filtra sú chyby návrhu | `test_m10_gates.py::test_prereg_filters_select_one_indicator_of_long_table` |
 | M9 | extrakcia z prečítaných stránok až po všetkých agentoch dávky (menej výmen modelu) | `test_m9_agentic.py::test_validation_extracts_after_all_agents_of_batch` |
+| M11 | témy: average linkage (prah, najväčšia veľkosť) | `test_m11_themes.py::test_average_linkage_threshold_and_max_size` |
+| M11 | témy: názov z modelu, zamietnuté a samostatné bez témy, stabilné ID a ručný názov medzi behmi | `test_m11_themes.py::test_themes_named_by_model_stable_ids_and_manual_name_kept` |
+| M11 | témy: pri chybe modelu názov najtypickejšej hypotézy; bez embeddingov sa krok preskočí | `test_m11_themes.py::test_theme_name_falls_back_to_most_typical_hypothesis` |
+| M11 | GUI: Problémy → Témy (súhrn dôkazov), filter podľa témy, premenovanie | `test_m2_gui.py::test_problems_theme_view_and_rename` |

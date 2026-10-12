@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Callable
 
 from .schema import (
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, V1_COLUMNS, V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS,
-    V5_COLUMNS,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, V1_COLUMNS, V1_INDEXES, V2_COLUMNS, V3_COLUMNS,
+    V4_COLUMNS, V5_COLUMNS, V6_COLUMNS,
 )
 
 log = logging.getLogger(__name__)
@@ -76,7 +76,14 @@ def migrate_v5(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_V5)
 
 
-MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5]
+def migrate_v6(conn: sqlite3.Connection) -> None:
+    """Témy: zhluky podobných hypotéz (nedeštruktívne – hypotézy sa nezlučujú)."""
+    _add_columns(conn, V6_COLUMNS)
+    conn.executescript(SCHEMA_V6)
+
+
+MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
+                                                          migrate_v6]
 LATEST = len(MIGRATIONS)
 
 

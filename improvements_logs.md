@@ -10,7 +10,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-11 – dôkazy – rozpoznať typ zdroja (dodávateľ / médiá / úrad / výskum).**~~ **Hotové 12. 10. 2026** (pravidlá + model raz na doménu; dodávatelia sa nepočítajú do sily). Agent pri teste
   hypotéz občas berie text z blogu dodávateľa softvéru ako podporu problému. Klasifikátor zdroja
   (doména + model) by vedel váhovať dôkazy a v GUI označiť „marketing dodávateľa“. · 1–2 dni.
-- **2026-10-11 – hypotézy – hlbšie zlučovanie príliš úzkych hypotéz.** Jeden beh vytvoril 18 hypotéz
+- ~~**2026-10-11 – hypotézy – hlbšie zlučovanie príliš úzkych hypotéz.**~~ **Čiastočne hotové 12. 10. 2026** (témy nad hypotézami bez zlučovania; ostáva: test hypotéz a Brána 0 na úrovni témy, napr. vybrať celú tému na rozhovory). Jeden beh vytvoril 18 hypotéz
   o e-faktúrach; consolidate zlučuje iba dvojice nad prahom podobnosti. Hierarchia (téma → podproblémy)
   alebo zhlukovanie celého zoznamu naraz by zredukovalo šum. · 2–3 dni.
 - **2026-10-11 – prevádzka – naplánovať nočný beh.** Úloha v Plánovači (scripts/register_weekly_task.ps1)
@@ -59,4 +59,3 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-12 – Brána 2 – hodnoty filtrov z dát.**~~ **Hotové 12. 10. 2026** (schéma pre model uvádza všetky hodnoty textových stĺpcov s ≤ 30 hodnotami; výber v GUI zo zoznamu ostáva). Model pri predregistrácii vidí iba 3 ukážkové riadky, takže
   hodnotu filtra (presný názov ukazovateľa alebo kraja) často nepozná. Zoznam odlišných hodnôt nízkokardinalitných
   stĺpcov (napr. ≤ 50) v schéme a výber filtra v GUI zo zoznamu by znížili počet chybných návrhov. · 0,5 dňa.
-

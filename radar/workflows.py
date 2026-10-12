@@ -81,6 +81,11 @@ ACTIONS: dict[str, Action] = {
         "Presný model ku hypotézam s dôkazmi napíše protiargumenty, čo ešte overiť a otázky na rozhovory; "
         "hrubý odhad trhu (čísla počíta Python, hodnoty iba zo zdrojov).",
         "kritiky, otázky na rozhovory, odhady trhu", "presný", 60),
+    "themes": Action(
+        "Zoskupiť hypotézy do tém",
+        "Podobné hypotézy (podľa embeddingov) zoskupí do tém, napr. všetky o e-faktúrach; názov témy navrhne rýchly "
+        "model zo zoznamu hypotéz. Hypotézy sa nezlučujú ani nemenia; ručne premenované témy ostanú.",
+        "témy a ich súhrn dôkazov (Problémy → Témy)", "embeddingy + rýchly", 15),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "
@@ -209,7 +214,13 @@ def _scout(app, deadline: Deadline, run, ids, report_progress) -> None:
     accurate_min = max(0.0, deadline.remaining_minutes() - 2)
     run("verify", deadline.sub(accurate_min * 0.6))
     run("cluster", deadline.sub(max(0.0, deadline.remaining_minutes() - 2)))
+    run("themes", Deadline(5))  # nové hypotézy hneď v témach (kód + krátke názvy rýchlym modelom)
     run("report", Deadline(5))
+
+
+def _themes(app, deadline: Deadline, run, ids, report_progress) -> None:
+    run("embed", deadline.sub(min(5.0, deadline.remaining_minutes())))
+    run("themes", deadline)
 
 
 def _validate(app, deadline: Deadline, run, ids: list[int] | None, report_progress) -> None:
@@ -333,4 +344,5 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate2": _gate2, "bench": _bench,
+    "themes": _themes,
 }

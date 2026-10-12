@@ -78,6 +78,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "gate2_demo": _route("accurate"),  # Brána 2: text dema iba z vypočítaných faktov
     "org_mentions": _route("fast"),
     "source_type": _route("fast"),  # typ vydavateľa neznámej domény (raz na doménu)
+    "theme_name": _route("fast"),  # názov témy (zhluku hypotéz) zo zoznamu názvov hypotéz
     "person_mentions": _route("fast"),
     "segment_filter": _route("accurate"),
     "contact_assoc": _route("fast"),
@@ -149,6 +150,18 @@ class EmbeddingsConfig(BaseModel):
     # Kosínusová podobnosť, od ktorej správa upozorní na možno rovnaké hypotézy. Kalibrované
     # pre qwen3-embedding:0.6b: rovnaký problém ~0,72–0,75, súvisiaci, ale iný problém do ~0,64.
     similar_hypotheses: float = 0.70
+
+
+class ThemesConfig(BaseModel):
+    """Témy nad hypotézami: priemerná väzba (average linkage) nad kosínusovou podobnosťou embeddingov."""
+
+    # Kalibrované na 426 reálnych hypotézach (12. 10. 2026): 0,60 → 97 tém s 2–12 hypotézami (lieky, e-faktúry,
+    # eurofondy v samosprávach…); 0,55 už spája nesúvisiace problémy, 0,70 zachytí iba takmer rovnaké hypotézy.
+    threshold: float = 0.60
+    max_size: int = 30  # väčšia téma by bola iba „verejný sektor“
+    min_size: int = 2
+    keep_jaccard: float = 0.5  # téma si ponechá ID a názov, ak sa jej členovia zmenili menej
+    max_names_per_run: int = 60  # zvyšok dostane dočasne názov najtypickejšej hypotézy
 
 
 class SearchConfig(BaseModel):
@@ -472,6 +485,7 @@ class Config(BaseModel):
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     workflows: WorkflowsConfig = Field(default_factory=WorkflowsConfig)
+    themes: ThemesConfig = Field(default_factory=ThemesConfig)
     gate1: Gate1Config = Field(default_factory=Gate1Config)
     gate2: Gate2Config = Field(default_factory=Gate2Config)
     people: PeopleConfig = Field(default_factory=PeopleConfig)

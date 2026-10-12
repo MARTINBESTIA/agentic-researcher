@@ -69,6 +69,13 @@ def stage_source_types(app, deadline: Deadline) -> dict:
     return run_source_types(app.cfg, app.db, app.router, deadline)
 
 
+def stage_themes(app, deadline: Deadline) -> dict:
+    """Témy: zhluky podobných hypotéz z embeddingov (kód), názov tém rýchly model."""
+    from .themes import run_themes
+
+    return run_themes(app.cfg, app.db, app.router, app.embedder, deadline)
+
+
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu)."""
     from .person_contacts import run_person_contacts
@@ -224,6 +231,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "profiles": stage_profiles,
     "contacts": stage_contacts,
     "source-types": stage_source_types,
+    "themes": stage_themes,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
     "gate1-check": stage_gate1("check"),
@@ -262,6 +270,7 @@ STAGE_HELP = {
     "bench": "Rýchlosť a schopnosti modelov každej roly (do Eval a výberu modelov).",
     "source-types": "Typ vydavateľa zdrojov: úrad, médiá, výskum, združenie, dodávateľ (dodávatelia sa nepočítajú do sily).",
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
+    "themes": "Témy: zhluky podobných hypotéz podľa embeddingov (kód), názvy tém (rýchly model); hypotézy sa nezlučujú.",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",
     "purge": "Retencia: zmaže osobné údaje po lehotách z config.yaml a staré exporty.",

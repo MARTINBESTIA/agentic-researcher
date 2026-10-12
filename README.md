@@ -186,6 +186,10 @@ profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je prak
 - **Hľadať firmy a ľudí k tomuto problému** (Problémy → detail, po LIA) a **Zbierať ľudí ku overeným
   hypotézam** (Prehľad, Správca akcií): vyberie problémy na Bránu 0 a spustí organizácie → ľudia
   a kontakty → priorita → LinkedIn. Návrhy oslovení sú samostatná akcia.
+- **Zoskupiť hypotézy do tém** (Správca akcií; v celom behu automaticky): podobné hypotézy (embeddingy)
+  dostanú spoločnú tému, napr. všetky o e-faktúrach; názov navrhne rýchly model. Hypotézy sa nezlučujú.
+  Problémy → **Témy** ukazujú silu dôkazov za celú tému (každé tvrdenie raz), počty podložených
+  a neotestovaných hypotéz; tému sa dá premenovať (ručný názov sa zachová). V zozname hypotéz je filter „Téma“.
 
 Úloha beží ako samostatný proces (aj po zatvorení prehliadača), naraz iba jedna (GPU), dá sa
 zastaviť. Priebeh a koniec výstupu (maskovaný) sú v Prehľade, celý výstup v `logs/jobs/`.

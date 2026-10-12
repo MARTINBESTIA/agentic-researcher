@@ -522,3 +522,24 @@ CREATE TABLE IF NOT EXISTS domain_types (   -- typ vydavateľa podľa domény (p
 );
 CREATE INDEX IF NOT EXISTS idx_documents_domain ON documents(domain);
 """
+
+V6_COLUMNS = {
+    "hypotheses": {
+        "theme_id": "INTEGER",                    # téma (zhluk podobných hypotéz); NULL = samostatná hypotéza
+    },
+}
+
+SCHEMA_V6 = """
+CREATE TABLE IF NOT EXISTS themes (         -- témy: zhluky podobných hypotéz podľa embeddingov; hypotézy sa nezlučujú
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  summary TEXT,
+  name_method TEXT NOT NULL,                -- model | medoid (názov najtypickejšej hypotézy) | manual
+  medoid_id INTEGER,                        -- najtypickejšia hypotéza témy
+  size INTEGER NOT NULL,
+  members_json TEXT NOT NULL,               -- ID hypotéz pri poslednom zostavení (zhoda tém medzi behmi)
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hypotheses_theme ON hypotheses(theme_id);
+"""

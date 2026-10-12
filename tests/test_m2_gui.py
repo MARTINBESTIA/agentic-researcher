@@ -199,3 +199,27 @@ def test_gate1_page_shows_readiness_fields_and_info_request(gui):
     assert any(m.label == "Kľúčové polia nájdené" and m.value == "0 / 1" for m in at.metric)
     assert any("dáta nenájdené" in w.value for w in at.warning)
     assert any("211/2000" in c.value for c in at.code)
+
+
+def test_problems_theme_view_and_rename(gui):
+    """Témy: súhrn dôkazov za tému, filter hypotéz podľa témy a ručný názov."""
+    db = DB(load_config(gui / "config.yaml").db_path)
+    h2 = db.create_hypothesis("Obce nestíhajú projekty", "", "malé obce")
+    tid = db.save_themes([{"members": {1, h2}, "name": "Kapacita malých obcí", "summary": "Obce bez kapacít.",
+                           "name_method": "model", "medoid_id": 1}])[0]
+    db.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/problems.py").run()
+    assert not at.exception, at.exception
+    at.selectbox(key="pr_theme_filter").set_value("Kapacita malých obcí").run()
+    assert any(c.value.startswith("2 z 2 hypotéz") for c in at.caption)
+    at.segmented_control(key="pr_view").set_value("Témy").run()
+    assert not at.exception, at.exception
+    assert any("1 tém pokrýva 2 z 2 hypotéz" in c.value for c in at.caption)
+    name_input = next(t for t in at.text_input if t.label == "Názov témy")
+    name_input.set_value("Obce – kapacita na projekty")
+    next(b for b in at.button if b.label.startswith("Premenovať")).click().run()
+    assert not at.exception, at.exception
+    db = DB(load_config(gui / "config.yaml").db_path)
+    assert db.get_theme(tid)["name"] == "Obce – kapacita na projekty" and db.get_theme(tid)["name_method"] == "manual"
+    db.close()

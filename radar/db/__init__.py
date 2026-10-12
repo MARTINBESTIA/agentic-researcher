@@ -17,6 +17,7 @@ from .gate0 import Gate0Mixin
 from .gates import GatesMixin
 from .migrations import LATEST, migrate
 from .ops import OpsMixin
+from .themes import ThemesMixin
 
 __all__ = [
     "DB",
@@ -30,7 +31,7 @@ __all__ = [
 SCHEMA_VERSION = LATEST
 
 
-class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin):
+class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

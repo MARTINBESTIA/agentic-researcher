@@ -102,7 +102,7 @@ for col, kind in zip(cols, ("gate1", "gate2")):
 
 st.subheader("Ďalšie akcie")
 cols = st.columns(3)
-for i, kind in enumerate(("contacts", "drafts", "evidence", "topics", "critique", "bench", "run-all")):
+for i, kind in enumerate(("contacts", "drafts", "evidence", "themes", "topics", "critique", "bench", "run-all")):
     with cols[i % 3]:
         action_card(kind, "am", extras.get(kind))
 

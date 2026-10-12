@@ -3,12 +3,47 @@ import streamlit as st
 from radar.db import HYPOTHESIS_STATUSES
 from radar.gui.common import (
     cfg, db, esc, highlighted_window, hypothesis_table, jobs_panel, json_or, refresh, safe_url, start_job_button,
+    theme_table,
 )
 from radar.publishers import TYPE_LABELS
 from radar.strength import evidence_strength
 
 d, c = db(), cfg()
 rows = hypothesis_table(c.db_path)
+
+view = st.segmented_control("Zobrazenie", ["Hypotézy", "Témy"], default="Hypotézy", key="pr_view")
+if view == "Témy":
+    themes = theme_table(c.db_path, rows)
+    if not themes:
+        st.info("Témy ešte nie sú zostavené. Spusti akciu „Zoskupiť hypotézy do tém“ (Správca akcií) alebo počkaj na "
+                "celý beh.", icon=":material/info:")
+        start_job_button("themes", "Zoskupiť hypotézy do tém", 15, key="pr_themes_start", icon=":material/category:")
+        st.stop()
+    in_themes = sum(t["hypotéz"] for t in themes)
+    st.caption(f"{len(themes)} tém pokrýva {in_themes} z {len(rows)} hypotéz (ostatné sú samostatné alebo zamietnuté). "
+               "Sila témy počíta každé overené tvrdenie jej hypotéz raz; hypotézy sa nezlučujú.")
+    themes.sort(key=lambda t: ({"silnejšia": 2, "stredná": 1, "slabá": 0}[t["sila"]], t["overené"], t["hypotéz"]),
+                reverse=True)
+    st.dataframe(themes, hide_index=True, alt="Témy so súhrnom dôkazov", height=360,
+                 column_config={"id": st.column_config.NumberColumn("T", format="T%d")})
+    tid = st.selectbox("Detail témy", [t["id"] for t in themes], key="pr_theme",
+                       format_func=lambda i: f"T{i}: {next(t['téma'] for t in themes if t['id'] == i)[:100]}")
+    theme = d.get_theme(tid)
+    if theme["summary"]:
+        st.markdown(esc(theme["summary"]))
+    member_ids = {h["id"] for h in d.theme_members(tid)}
+    st.dataframe([r for r in rows if r["id"] in member_ids], hide_index=True, alt="Hypotézy témy",
+                 column_config={"id": st.column_config.NumberColumn("H", format="H%d")})
+    with st.form(f"pr_theme_rename_{tid}"):
+        name = st.text_input("Názov témy", theme["name"])
+        if st.form_submit_button("Premenovať (ručný názov sa pri ďalšom zostavení zachová)", icon=":material/edit:"):
+            try:
+                d.rename_theme(tid, name)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                refresh()
+    st.stop()
 
 # Predvolene všetky hypotézy (aj slabé a zamietnuté); filtre iba zužujú.
 TESTS = ["podložená", "sporná", "slabá", "nepodložená", "čaká na overenie", "neotestovaná"]
@@ -20,10 +55,14 @@ with st.container(horizontal=True):
     strengths = st.pills("Sila dôkazov", ["silnejšia", "stredná", "slabá"], selection_mode="multi",
                          default=["silnejšia", "stredná", "slabá"], key="pr_strength")
     tests = st.pills("Test", TESTS, selection_mode="multi", default=TESTS, key="pr_test")
-query = st.text_input("Hľadať v názve", key="pr_q", placeholder="napr. obstarávanie")
+theme_names = sorted({r["téma"] for r in rows if r["téma"]})
+with st.container(horizontal=True):
+    query = st.text_input("Hľadať v názve", key="pr_q", placeholder="napr. obstarávanie")
+    theme_pick = st.selectbox("Téma", ["všetky", "bez témy"] + theme_names, key="pr_theme_filter")
 order = {"silnejšia": 2, "stredná": 1, "slabá": 0}
 shown = [r for r in rows if r["pôvod"] in (origins or []) and r["stav"] in (statuses or []) and r["sila"] in (strengths or [])
-         and r["test"] in (tests or []) and (not query or query.lower() in (r["hypotéza"] or "").lower())]
+         and r["test"] in (tests or []) and (not query or query.lower() in (r["hypotéza"] or "").lower())
+         and (theme_pick == "všetky" or r["téma"] == ("" if theme_pick == "bez témy" else theme_pick))]
 shown.sort(key=lambda r: (order[r["sila"]], r["overené"], r["domény"]), reverse=True)
 n_tested = sum(1 for r in rows if r["test"] not in ("neotestovaná", "čaká na overenie"))
 st.caption(f"{len(shown)} z {len(rows)} hypotéz · otestované {n_tested} z {len(rows)}. Sila: silnejšia = ≥ 4 overené "
