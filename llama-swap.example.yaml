@@ -1,0 +1,57 @@
+# llama-swap – ALTERNATÍVA k Ollame (na tomto počítači sa predvolene používa Ollama, pozri config.yaml).
+# llama-swap je proxy s OpenAI API: podľa poľa "model" v požiadavke spustí príslušný llama-server
+# a ostatné podľa skupín vypne. ${PORT} doplní llama-swap. Syntax over podľa README svojej verzie:
+# https://github.com/mostlygeek/llama-swap
+#
+# Použitie:
+#   1. skopíruj ako llama-swap.yaml a uprav cesty k llama-server.exe a k modelom (GGUF),
+#   2. spusti start_llm_swap.bat,
+#   3. v config.yaml: models.base_url: http://127.0.0.1:8080/v1, roly fast/accurate/embed s model: fast,
+#      accurate, embed a uvažovanie cez šablónu Qwen:
+#        thinking_on:  {chat_template_kwargs: {enable_thinking: true}}
+#        thinking_off: {chat_template_kwargs: {enable_thinking: false}}
+#
+# --reasoning-budget obmedzí uvažovanie na strane servera (R-ACC-2). Pri novších zostavách llama.cpp
+# sú hlásené zaseknutia s neobmedzeným uvažovaním, preto ho vždy nastav (over cez llama-server --help).
+healthCheckTimeout: 600          # veľké modely sa z disku načítavajú dlho
+logLevel: info
+startPort: 10001
+
+macros:
+  server: "C:/llama.cpp/llama-server.exe --host 127.0.0.1 --port ${PORT} --jinja --flash-attn on"
+
+models:
+  fast:                          # MoE: experti v RAM (--n-cpu-moe), zvyšok na GPU; hodnotu nájdi cez llama-bench
+    cmd: >
+      ${server} -m C:/models/Qwen3.6-35B-A3B-Q4_K_M.gguf
+      -ngl 99 --n-cpu-moe 30 -c 32768
+      --cache-type-k q8_0 --cache-type-v q8_0 --cache-ram 2048 --reasoning-budget 0
+    ttl: 0
+  fast-think:                    # iba pre eval profil B
+    cmd: >
+      ${server} -m C:/models/Qwen3.6-35B-A3B-Q4_K_M.gguf
+      -ngl 99 --n-cpu-moe 30 -c 32768
+      --cache-type-k q8_0 --cache-type-v q8_0 --cache-ram 2048 --reasoning-budget 1024
+    ttl: 0
+  accurate:                      # hustý 27B: -ngl tak, aby ostal ~1 GB voľnej VRAM (v Ollame 24 z 64 vrstiev)
+    cmd: >
+      ${server} -m C:/models/Qwen3.6-27B-Q4_K_M.gguf
+      -ngl 24 -c 16384
+      --cache-type-k q8_0 --cache-type-v q8_0 --cache-ram 2048 --reasoning-budget 2048
+    ttl: 0
+  embed:                         # pooling podľa modelu (bge-m3: cls, qwen3-embedding: last); over
+    cmd: >
+      C:/llama.cpp/llama-server.exe --host 127.0.0.1 --port ${PORT}
+      -m C:/models/bge-m3-Q8_0.gguf --embeddings --pooling cls -ngl 0 -c 8192
+    ttl: 0
+
+groups:
+  llm:
+    swap: true                   # naraz beží iba jeden veľký model
+    exclusive: false             # nevypína skupinu embedding
+    members: [fast, fast-think, accurate]
+  embedding:
+    swap: false
+    exclusive: false
+    persistent: true             # embedding na CPU môže bežať popri veľkom modeli
+    members: [embed]

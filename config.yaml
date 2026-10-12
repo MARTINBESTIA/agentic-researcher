@@ -1,0 +1,325 @@
+# Problem Radar v0.2 – konfigurácia
+# Všetky položky majú predvolené hodnoty (radar/config.py); tu sú tie, ktoré budeš meniť.
+# Relatívne cesty sa berú od priečinka s týmto súborom.
+
+db_path: data/radar.sqlite
+reports_dir: reports
+logs_dir: logs
+exports_dir: exports              # exporty CSV/XLSX (gitignored, mažú sa po 30 dňoch)
+
+# ---------------------------------------------------------------- modely (v0.2: roly)
+# Rýchly model hľadá kandidátov (extrakcia, triedenie), presný rozhoduje (overenie, zaradenie,
+# väzby osoba–problém, návrhy oslovení). Ollama sama vymení model podľa poľa "model" v požiadavke;
+# naraz drží iba jeden veľký model (OLLAMA_MAX_LOADED_MODELS), embedding beží na CPU popri ňom.
+# Alternatíva: llama-swap (llama-swap.example.yaml, start_llm_swap.bat), potom base_url
+# http://127.0.0.1:8080/v1, modely fast/accurate/embed a thinking_on/off cez chat_template_kwargs.
+# Ak sekciu "models" zmažeš, všetky úlohy pôjdu na "llm" nižšie (správanie v0.1).
+models:
+  base_url: http://localhost:11434/v1
+  roles:
+    # qwen3.5:9b, celý na GPU (~43 tok/s); ollama/Modelfile.qwen3.5-9b
+    fast:     {model: radar-qwen3.5-9b, timeout_s: 600, max_tokens: 2048}
+    # qwen3.6:27b-q4_K_M, 24 z 64 vrstiev na GPU (~4 tok/s generovanie, ~200 tok/s prompt);
+    # ollama/Modelfile.qwen3.6-27b. Jedno posúdenie ~30–60 s, s uvažovaním ~5–7 min.
+    accurate: {model: radar-qwen3.6-27b, timeout_s: 1800, max_tokens: 2048}
+    embed:    {model: radar-qwen3-embedding, timeout_s: 120}
+    # Agenti s nástrojmi (scout, test hypotéz, zdroje Brány 1). Tu 9B; v GUI (Správca akcií → Modely) je od 12. 10. 2026
+    # zvolený MoE radar-qwen3.6-35b-a3b (ollama/Modelfile.qwen3.6-35b-a3b): 32,8 tok/s, nástroje OK. Výber v GUI prepíše tento riadok.
+    agent:    {model: radar-qwen3.5-9b, timeout_s: 900, max_tokens: 2048}
+  profile: balanced              # fast | balanced | accurate (napr. víkendový beh: run-all --profile accurate)
+  self_consistency_temperature: 0.7
+  # Ollama nemá rozpočet uvažovania (--reasoning-budget); strop dáva max_tokens úlohy + thinking_extra_tokens.
+  # Orezaný výstup ide do kontroly, nič sa nehádá.
+  thinking_on: {reasoning_effort: medium}
+  thinking_off: {reasoning_effort: none}
+  thinking_extra_tokens: 2048
+  # Routing úloh (zmeny voči predvolenému profilu balanced zo špecifikácie, pozri docs/DECISIONS.md).
+  # Uvažovanie je vypnuté všade: Ollama nemá rozpočet uvažovania a Qwen3.6-27B pri mape rolí premýšľal
+  # > 3 000 tokenov (~12 min na vzorku pri 4,5 tok/s) a aj tak skončil orezaný. Zapína sa iba v eval profiloch B a D.
+  tasks:
+    entail_gate:  {role: accurate, thinking: false, k: 3}
+    critique:     {role: accurate, thinking: false, k: 1}
+    draft_check:  {role: accurate, thinking: false, k: 1}
+    role_map:     {role: accurate, thinking: false, k: 3}
+    market_structure: {role: accurate, thinking: false, k: 1}
+  eval_profiles:
+    A: {model: fast,     thinking: false}
+    B: {model: fast,     thinking: true}
+    C: {model: accurate, thinking: false}
+    D: {model: accurate, thinking: true}
+
+# Model v0.1 (používa sa iba bez sekcie "models").
+llm:
+  base_url: http://localhost:11434/v1
+  api_key: local
+  model: radar-qwen3.5-9b
+  temperature: 0.2
+  max_tokens: 2048
+  timeout_s: 600
+  # Vypne "premýšľanie" modelov Qwen: bez toho model minie tokeny a vráti prázdnu odpoveď.
+  extra_body:
+    reasoning_effort: none
+
+# Lokálne embeddingy na zoskupovanie podobných nálezov. Bežia na CPU, aby nebrali VRAM jazykovému modelu.
+# Pri rolách sa model berie z models.roles.embed.
+embeddings:
+  enabled: true
+  model: radar-qwen3-embedding        # qwen3-embedding:0.6b na CPU, pozri ollama/Modelfile.qwen3-embedding
+  similar_hypotheses: 0.70
+
+search:
+  searxng_url: http://localhost:8888    # SearXNG z docker-compose.yml
+  language: sk
+  results_per_query: 8
+  delay_s: 2
+
+fetch:
+  # Kontakt doplň sám (posiela sa každej stiahnutej stránke); len ASCII znaky.
+  user_agent: "ProblemRadar/0.2 (osobny vyskumny projekt; kontakt: doplnit)"
+  per_domain_delay_s: 3
+  timeout_s: 30
+  max_chars: 200000
+  max_pdf_pages: 40
+  refetch_days: 14
+  respect_robots: true
+
+pipeline:
+  output_language: sk
+  chunk_chars: 6000          # pri kontexte 16k tokenov bezpečná veľkosť časti
+  chunk_overlap: 400
+  max_chunks_per_doc: 8      # dlhé PDF spracuje len po túto časť
+  max_new_docs_per_run: 60
+  max_docs_to_extract: 40
+  max_claims_per_chunk: 5
+  verify_with_llm: true      # false = rýchlejšie, overí sa len citát a čísla
+  quote_match_threshold: 90
+  duplicate_quote_threshold: 92
+  critique_min_claims: 2
+  market_min_claims: 3
+  max_market_per_run: 2
+  market_refresh_days: 30
+  market_preferred_sites: [statistics.sk, ec.europa.eu]   # ŠÚ SR a Eurostat majú prednosť
+  agent_max_steps: 12
+  max_run_minutes: 240
+
+# ---------------------------------------------------------------- rozpracované projekty
+# Nápady, ktoré už sú v ExperimentalProjects. Radar pre každý založí hypotézu (stav "watch"),
+# hľadá k nej dôkazy aj protiargumenty a nové zistenia o tom istom probléme priradí k nej,
+# namiesto toho, aby ich ponúkol ako nový nápad. Segment pri sk-trade-map a lieky-vydavky
+# je môj predpoklad (README projektov zákazníka neuvádzajú) – uprav ho.
+# op-token-analytics tu nie je: ide o osobnú analytiku tokenu, nie o problém zákazníka.
+projects:
+  - name: eurofondy-radar
+    path: ../eurofondy-radar
+    title: Kraje a prijímatelia eurofondov nevidia včas, kde sa projekty zasekávajú
+    segment: koordinátori integrovaných územných investícií vo VÚC a mestách, prijímatelia a poradenské firmy
+    description: >-
+      Projekty eurofondov meškajú a čerpanie je pomalé; hypotéza je, že chýba včasné upozornenie,
+      v ktorom kroku (zámer, žiadosť, zmluva, platba) a prečo sa projekt zasekol.
+    queries:
+      - nízke čerpanie eurofondov integrované územné investície kraje
+      - Program Slovensko meškanie projektov prijímatelia problémy
+      - eurofondy finančné opravy verejné obstarávanie chyby prijímateľov
+      - obce nemajú kapacity na prípravu projektov z eurofondov
+
+  - name: lieky-vydavky
+    path: ../lieky-vydavky
+    title: Verejné výdavky na lieky sa nedajú nezávisle overiť, lebo čisté ceny sú dôverné
+    segment: analytici verejných financií, zdravotné poisťovne, novinári a pacientske organizácie
+    description: >-
+      Z verejných dát (spotreba NCZI, úhrady zo zoznamu kategorizovaných liekov) sa dá spočítať
+      len verejná úhrada × počet balení; dôverné zľavy a vratky chýbajú, skutočný náklad nie je overiteľný.
+    queries:
+      - dôverné zmluvy lieky vratky zdravotné poisťovne transparentnosť
+      - výdavky na lieky Slovensko rast revízia výdavkov
+      - managed entry agreements confidential discounts drug prices transparency
+
+  - name: ai-lead-assistant
+    path: ../ai-lead-assistant
+    title: Malé realitné kancelárie nestíhajú rýchlo a kvalitne spracovať dopyty záujemcov
+    segment: malé realitné kancelárie (1–10 maklérov), pilot v Žilinskom kraji
+    description: >-
+      Dopyty prichádzajú z portálov, webu a e-mailu; hypotéza je, že neskorá odpoveď
+      a chýbajúci follow-up stoja kancelárie klientov.
+    queries:
+      - realitné kancelárie neodpovedajú na dopyty záujemcov skúsenosti
+      - realitný maklér spracovanie dopytov čas odozvy strata klientov
+      - real estate agents lead response time lost leads small agencies
+
+  - name: doklad-ai
+    path: ../doklad-ai
+    title: Účtovné kancelárie strácajú čas ručným prepisovaním údajov z dokladov
+    segment: malé a stredné účtovné kancelárie na Slovensku
+    description: >-
+      Hypotéza: faktúry a bločky od klientov prichádzajú v rôznych formátoch a ručný prepis
+      je pomalý a chybový. Treba overiť aj vplyv povinnej elektronickej fakturácie.
+    queries:
+      - účtovné kancelárie ručné prepisovanie faktúr nedostatok účtovníkov
+      - povinná elektronická fakturácia Slovensko účtovné kancelárie dopad
+      - accounting firms manual data entry invoices automation small firms
+
+  - name: sk-trade-map
+    path: ../sk-trade-map
+    title: Vzťahy medzi verejnými subjektmi a firmami sa ťažko skladajú z roztrúsených registrov
+    segment: investigatívni novinári, analytici verejného obstarávania, compliance a KYC tímy
+    description: >-
+      Zmluvy, obstarávania, vlastníci a finančné výkazy sú v CRZ, ÚVO, RPO, RPVS a RÚZ oddelene;
+      hypotéza je, že ich spájanie je ručné a pomalé.
+    queries:
+      - prepojenie firiem a verejných zákaziek analýza registre CRZ RPVS
+      - analýza dodávateľov verejného obstarávania nástroj novinári Slovensko
+      - overovanie konečných užívateľov výhod register problémy firmy
+
+# ---------------------------------------------------------------- nové témy
+# Pridávaj konkrétne formulácie problému, nie len odvetvia.
+topics:
+  - name: Meškanie dodávok v zákazkovej výrobe
+    queries:
+      - meškanie dodávok komponentov zákazková výroba strojárstvo
+      - engineer to order manufacturer supplier delivery delays late projects
+      - oneskorené dodávky materiálu výroba strojov problém plánovanie
+  - name: Centrá zdieľaných služieb obcí
+    queries:
+      - centrum zdieľaných služieb obce problémy metodika
+  - name: Administratívna záťaž malých firiem
+    queries:
+      - administratívna záťaž podnikateľov Slovensko prieskum najväčšie problémy
+      - malé firmy povinnosti voči štátu náklady čas prieskum
+
+# ---------------------------------------------------------------- pevné zdroje
+# RSS kanály (overené 9. 10. 2026). Pri triage: true model z titulkov vyberie len články,
+# ktoré pravdepodobne opisujú konkrétny problém. SME tu nie je: články vracajú 403 Forbidden.
+feeds:
+  - name: NKÚ – aktuality
+    url: https://www.nku.gov.sk/sk/web/nku/aktuality/-/journal/rss/33855/66340
+    max_items: 20
+  - name: Transparency International Slovensko
+    url: https://transparency.sk/sk/feed/
+  - name: Slovensko.Digital
+    url: https://slovensko.digital/feed
+  - name: INEKO
+    url: https://www.ineko.sk/rss
+  - name: Hospodárske noviny
+    url: https://www.hnonline.sk/rss
+    max_items: 25
+  - name: Forbes Slovensko
+    url: https://www.forbes.sk/feed/
+
+# Stránky bez RSS: zoberú sa odkazy, ktoré zodpovedajú regulárnemu výrazu (v poradí na stránke).
+link_sources:
+  - name: ÚHP – blogy a analýzy
+    url: https://www.mfsr.sk/sk/financie/hodnota-za-peniaze/
+    pattern: 'hodnota-za-peniaze/(blogy-uhp/20\d\d/[^/]+/?$|.+\.pdf$)'
+    max_items: 10
+
+# Konkrétne dokumenty (napr. PDF revízie výdavkov alebo správy NKÚ).
+seed_urls:
+  - https://www.mfsr.sk/files/archiv/62/Revizia-vydavkov-na-lieky_20260213_zverejnenie.pdf
+
+# ---------------------------------------------------------------- objavovanie nových problémov (R-DISC)
+# 30 % dokumentov behu ide na zdroje mimo tém: katalóg sources.yaml (NKÚ, legislatíva, obstarávanie,
+# zväzy, výročné správy…) a matica dopytov "vzor bolesti × odvetvie". Nový problém je najprv
+# "candidate"; hypotézou ("new") sa stane až s 2 overenými tvrdeniami z 2 rôznych domén.
+discovery:
+  enabled: true
+  exploration_share: 0.3
+  min_arm_share: 0.05
+  sources_file: sources.yaml       # zdroj sa použije až po potvrdení (verified: true), pozri sources --check
+  novelty_threshold: 0.55          # pod touto podobnosťou s najbližšou hypotézou = nový kandidát (qwen3-embedding)
+  candidate_promotion: {min_claims: 2, min_domains: 2}
+  queries_per_run: 6               # bunky matice dopytov za beh (rotujú, stav v DB)
+  # pain_patterns a sectors majú predvolené hodnoty zo špecifikácie (radar/config.py); prepíš ich tu.
+
+# ---------------------------------------------------------------- agentické workflowy (tlačidlá v GUI aj run-all)
+# scout = agent hľadá NOVÉ problémy na webe (bunky matice vzor bolesti × odvetvie); validate = agent
+# testuje UŽ ULOŽENÉ hypotézy (dôkazy za aj proti, existujúce riešenia). Agent iba číta a ukladá citáty,
+# každý citát overí kód a presný model; verdikt testu počíta kód z počtu overených tvrdení a domén.
+workflows:
+  scout_sessions_per_run: 2        # sedenia agenta v nočnom run-all
+  scout_sessions_per_job: 6        # tlačidlo "Hľadať nové hypotézy"
+  scout_docs_per_job: 15           # dokumenty z objavovania pri tlačidle
+  scout_max_steps: 10
+  validate_per_run: 6              # hypotéz otestovaných v run-all (~3 min agent + posúdenie)
+  validate_batch: 5                # tlačidlo "Otestovať hypotézy": dávka pred posúdením presným modelom
+  validate_max_steps: 8
+  validate_max_page_claims: 8      # keď agent nič neuloží: najviac 8 tvrdení z prečítaných stránok (najpodobnejšie hypotéze)
+  retest_days: 90                  # otestovaná hypotéza sa po 90 dňoch testuje znova
+  known_titles_in_prompt: 12       # scout dostane podobné známe hypotézy, aby ich neopakoval
+  jobs_log_dir: logs/jobs          # výstup úloh z GUI (maskované e-maily a telefóny)
+
+# ---------------------------------------------------------------- Brána 1 (dáta) a Brána 2 (experimenty)
+# Brána 1 beží pre hypotézy vybrané na Bránu 0 (súbežne s rozhovormi): polia → zdroje (licencia, frekvencia,
+# kvalita) → datasety (DuckDB, data/datasets, mimo gitu) → reprodukcia známeho čísla → pripravenosť dát.
+# Nič sa nevyraďuje automaticky; chýbajúce dáta sú iba príznak. Žiadosti podľa zákona 211/2000 sú návrhy.
+# Brána 2 (po tvojom rozhodnutí „Brána 1 prešla“): hypotéza × organizácia, predregistrácia, spätný test, demo.
+gate1:
+  max_hypotheses_per_run: 2        # nočný run-all
+  max_dataset_mb: 2048             # limit jedného súboru
+  max_total_gb: 50                 # limit všetkých datasetov
+  key_field_weeks: 6               # kľúčové pole nezískané do 6 týždňov → príznak
+  # catalog: známe zdroje (data.slovensko.sk, DATAcube, RÚZ, RPO, CRZ, ÚVO, ITMS, FS, Eurostat, NKÚ, ÚHP) – radar/config.py
+gate2:
+  backtest_folds: 4
+  min_history: 5
+
+# ---------------------------------------------------------------- ľudia a kontakty (R-ORG, R-PPL)
+# Beží iba pre hypotézy vybrané na Bránu 0 (automaticky top 3 podľa sily dôkazov + ručne cez
+# "select" alebo v GUI) a iba po potvrdení LIA (privacy.lia_completed). Iba pracovné kontakty
+# zverejnené organizáciou alebo osobou, vždy so zdrojom a úryvkom; e-maily sa nehádajú,
+# obfuskované adresy sa nedekódujú, LinkedIn sa nesťahuje.
+people:
+  auto_select_top: 3
+  min_strength: stredná
+  max_orgs_per_hypothesis: 30
+  max_people_per_hypothesis: 15
+  max_people_per_org: 2
+  max_experts_per_hypothesis: 3
+  max_contact_pages_per_org: 5
+  registry_delay_s: 1.0            # pauza medzi volaniami RPO a RÚZ
+  registry_cache_days: 30
+  check_mx: false
+  # LinkedIn: URL profilu z odkazu na webe organizácie alebo z výsledku vyhľadávania (meno aj organizácia
+  # musia sedieť), alebo zadaná ručne v GUI. Stránka LinkedIn sa nikdy nesťahuje; označenie "over ručne".
+  search_profiles: true
+  # Kontakty ku konkrétnej osobe (e-mail, telefón): iba z overeného webu jej organizácie alebo z úradných domén.
+  official_domains: [gov.sk, nrsr.sk]
+  max_contact_pages_per_person: 3
+  priority_weights: {role_fit: 0.35, link: 0.25, channel: 0.20, org_fit: 0.20}
+
+# ---------------------------------------------------------------- oslovenia (R-OUT)
+# Systém NIČ NEODOSIELA. Pripraví návrh; ty ho skopíruješ alebo otvoríš v pošte (mailto:) a pošleš sám.
+# Schvaľovanie je zablokované, kým profil odosielateľa obsahuje placeholdery {…}.
+outreach:
+  sender:
+    name: "{MENO_PRIEZVISKO}"
+    email: "{EMAIL_ODOSIELATELA}"
+    phone: ""                                   # voliteľné
+    affiliation: "{AFILIACIA}"                  # napr. "študent inžinierskeho štúdia" – iba ak je to pravda
+    privacy_notice_url: "{URL_INFORMACIE_O_SPRACUVANI}"   # plné znenie čl. 14: docs/LIA_template.md, časť 7
+  language: sk
+  daily_cap: 10                                 # schválení na odoslanie za deň
+  follow_up_business_days: [5, 7]
+  max_follow_ups: 1
+  holidays: []                                  # YYYY-MM-DD, nepočítajú sa ako pracovné dni
+  email_subject_max_chars: 70
+  email_max_words: 150
+  linkedin_note_max_chars: 200                  # bezplatný účet; Premium 300
+  phone_opener_max_words: 80
+  forbidden_phrases: [ponúkame, naše riešenie, náš produkt, demo, zľava, akcia, bezplatná konzultácia, cenová ponuka]
+  exclude_orgs: []                              # IČO alebo domény, ktoré sa nikdy neoslovujú (konflikt záujmov)
+
+# ---------------------------------------------------------------- súkromie (R-PRIV)
+privacy:
+  # true až po vyplnení posúdenia oprávneného záujmu (data/LIA.md podľa docs/LIA_template.md).
+  # Potvrdené 11. 10. 2026 (predvyplnené data/LIA.md; doplň v ňom meno a kontakt).
+  lia_completed: true
+  retention_days_uncontacted: 90
+  retention_days_after_interaction: 365
+  retention_days_declined: 30
+  retention_days_exports: 30
+  pseudonymize_reports: true
+
+# ---------------------------------------------------------------- GUI (python -m radar gui)
+gui:
+  host: 127.0.0.1                  # iba tento počítač; nemeň na 0.0.0.0
+  port: 8501

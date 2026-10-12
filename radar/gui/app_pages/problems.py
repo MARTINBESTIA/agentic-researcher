@@ -1,0 +1,124 @@
+import streamlit as st
+
+from radar.db import HYPOTHESIS_STATUSES
+from radar.gui.common import (
+    cfg, db, esc, highlighted_window, hypothesis_table, jobs_panel, json_or, refresh, safe_url, start_job_button,
+)
+from radar.strength import evidence_strength
+
+d, c = db(), cfg()
+rows = hypothesis_table(c.db_path)
+
+# Predvolene všetky hypotézy (aj slabé a zamietnuté); filtre iba zužujú.
+TESTS = ["podložená", "sporná", "slabá", "nepodložená", "čaká na overenie", "neotestovaná"]
+with st.container(horizontal=True):
+    origins = st.pills("Pôvod", ["topic", "discovery", "manual", "interview"], selection_mode="multi",
+                       default=["topic", "discovery", "manual", "interview"], key="pr_origin")
+    statuses = st.pills("Stav", list(HYPOTHESIS_STATUSES), selection_mode="multi",
+                        default=list(HYPOTHESIS_STATUSES), key="pr_status")
+    strengths = st.pills("Sila dôkazov", ["silnejšia", "stredná", "slabá"], selection_mode="multi",
+                         default=["silnejšia", "stredná", "slabá"], key="pr_strength")
+    tests = st.pills("Test", TESTS, selection_mode="multi", default=TESTS, key="pr_test")
+query = st.text_input("Hľadať v názve", key="pr_q", placeholder="napr. obstarávanie")
+order = {"silnejšia": 2, "stredná": 1, "slabá": 0}
+shown = [r for r in rows if r["pôvod"] in (origins or []) and r["stav"] in (statuses or []) and r["sila"] in (strengths or [])
+         and r["test"] in (tests or []) and (not query or query.lower() in (r["hypotéza"] or "").lower())]
+shown.sort(key=lambda r: (order[r["sila"]], r["overené"], r["domény"]), reverse=True)
+n_tested = sum(1 for r in rows if r["test"] not in ("neotestovaná", "čaká na overenie"))
+st.caption(f"{len(shown)} z {len(rows)} hypotéz · otestované {n_tested} z {len(rows)}. Sila: silnejšia = ≥ 4 overené "
+           "z ≥ 3 domén, stredná = ≥ 2 z 2. Test: verdikt kódu po tom, čo agent dohľadal zdroje za aj proti.")
+st.dataframe(shown, hide_index=True, alt="Hypotézy so silou dôkazov a výsledkom testu", height=360,
+             column_config={"id": st.column_config.NumberColumn("H", format="H%d"),
+                            "protidôkazy": st.column_config.NumberColumn("protidôkazy", format="%d")})
+
+if not shown:
+    st.stop()
+hid = st.selectbox("Detail hypotézy", [r["id"] for r in shown],
+                   format_func=lambda i: f"H{i}: {next(r['hypotéza'] for r in shown if r['id'] == i)[:100]}", key="pr_detail")
+h = d.get_hypothesis(hid)
+evidence = d.evidence_for(hid)
+label, n_ver, n_part, n_dom = evidence_strength(evidence)
+
+with st.container(border=True):
+    st.markdown(f"**{esc(h['title'])}**")
+    st.caption(f"Segment: {h['segment'] or '–'} · pôvod: {h['origin']} · odvetvie: {h['sector'] or '–'} · "
+               f"sila: {label} (overené {n_ver}, čiastočne {n_part}, domény {n_dom})")
+    if h["description"]:
+        st.text(h["description"])
+    with st.form(f"hyp_edit_{hid}"):
+        cols = st.columns(4)
+        people_on = cols[0].toggle("Hľadať ľudí (Brána 0)", value=bool(h["people_enabled"]))
+        status = cols[1].selectbox("Stav", HYPOTHESIS_STATUSES, index=HYPOTHESIS_STATUSES.index(h["status"]))
+        fit_options = ["", "high", "medium", "low", "unknown"]
+        founder = cols[2].selectbox("Zhoda so zakladateľom", fit_options, index=fit_options.index(h["founder_fit"] or ""),
+                                    format_func=lambda v: {"": "–", "high": "vysoká", "medium": "stredná", "low": "nízka",
+                                                           "unknown": "neviem"}[v])
+        note = cols[3].text_input("Poznámka")
+        if st.form_submit_button("Uložiť", icon=":material/save:"):
+            if bool(h["people_enabled"]) != people_on:
+                d.set_people_selection(hid, people_on)
+            if status != h["status"]:
+                d.set_hypothesis_status(hid, status)
+            if (founder or None) != h["founder_fit"]:
+                d.set_hypothesis_fields(hid, founder_fit=founder or None)
+            if note.strip():
+                d.add_note(hid, note.strip(), source="human")
+            refresh()
+
+with st.container(border=True):
+    test = json_or(h["validation_json"], {}) if h["validation_state"] == "tested" else {}
+    if test:
+        z = test.get("z_testu") or {}
+        st.markdown(f"**Test: {esc(test.get('verdikt'))}** ({esc(test.get('pravidlo', ''))}) · {h['validated_at'][:10]}")
+        agent = test.get("agent") or {}
+        if agent.get("ok") is False:
+            st.warning(f"Test je neúplný – agent: {agent.get('chyba', 'zlyhal')}. Verdikt je iba z doterajších dôkazov; "
+                       "použi „Otestovať teraz“.", icon=":material/warning:")
+        st.caption(f"Overené {test.get('overené')} z {test.get('domény')} domén, protidôkazy {test.get('protidôkazy')}, "
+                   f"existujúce riešenia {test.get('existujúce_riešenia')} · agent našiel {z.get('nájdené', 0)} citátov: "
+                   f"{z.get('priradené_sem', 0)} k tejto hypotéze, {z.get('priradené_inam', 0)} inam, "
+                   f"{z.get('zamietnuté', 0)} zamietnutých kontrolou citátu.")
+    elif h["validation_state"] == "searched":
+        st.markdown("**Test: čaká na overenie** – agent dohľadal zdroje, citáty ešte posúdi kód a presný model.")
+    else:
+        st.markdown("**Test: neotestovaná**")
+    with st.container(horizontal=True):
+        start_job_button("validate", "Otestovať teraz", 25, [hid], key=f"val_{hid}", icon=":material/fact_check:")
+        if c.privacy.lia_completed:
+            start_job_button("people", "Hľadať firmy a ľudí k tomuto problému", 90, [hid], key=f"ppl_{hid}",
+                             icon=":material/group_add:",
+                             help="Zapne hypotézu na Bránu 0 a spustí organizácie → ľudia a kontakty → priorita → "
+                                  "LinkedIn (nič sa neodosiela; návrhy oslovení sú samostatná akcia).")
+    jobs_panel(show_last=False)
+
+tab_ev, tab_crit, tab_notes = st.tabs(["Dôkazy", "Kritika a trh", "Poznámky"])
+with tab_ev:
+    for e in evidence[:40]:
+        with st.expander(f"C{e['id']} · {e['status']} · {e['domain']} · {e['problem'][:110]}"):
+            doc = d.get_document(e["document_id"])
+            st.html(highlighted_window(doc["text"] if doc else "", e["quote"]))
+            url = safe_url(e["url"])
+            if url:
+                st.link_button("Otvoriť zdroj", url, icon=":material/open_in_new:")
+            st.caption(f"Stiahnuté {e['fetched_at'][:10]} · {e['verify_note'] or ''}")
+with tab_crit:
+    crit = d.latest_critique(hid)
+    if crit:
+        content = crit["content"]
+        st.markdown("**Zhrnutie (model, len z dôkazov):**")
+        st.text(content.get("summary", ""))
+        for title, key in (("Protiargumenty", "counterarguments"), ("Čo ešte overiť", "missing_evidence"),
+                           ("Otázky na rozhovory", "interview_questions")):
+            if content.get(key):
+                st.markdown(f"**{title}:**")
+                for item in content[key]:
+                    st.text(f"• {item}")
+    else:
+        st.caption("Kritika zatiaľ nie je.")
+    est = d.latest_market_estimate(hid)
+    if est:
+        st.markdown("**Hrubý odhad trhu**")
+        st.json(est["detail"], expanded=False)
+with tab_notes:
+    for n in d.notes_for(hid)[-20:]:
+        st.text(f"{n['created_at'][:10]} ({n['source']}): {n['text'][:2000]}")

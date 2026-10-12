@@ -1,0 +1,164 @@
+"""M4 – organizácie: RPO/RÚZ z fixtures, menované v dôkazoch, overenie webu, exclude_orgs (bez siete)."""
+
+import json
+from pathlib import Path
+
+import httpx
+
+from radar.config import Config, EmbeddingsConfig, ModelsConfig, OutreachConfig
+from radar.db import DB
+from radar.orgs import OrgFinder, icos_in, run_orgs, select_people_hypotheses
+from radar.registers import RPOClient, RUZClient, org_info_from_rpo, sanitize_rpo
+from radar.search import SearchResult
+from radar.util import Deadline
+from tests.fakes import FakeFetcher, FakeSearx, Recorder, make_router
+
+FIX = Path(__file__).parent / "fixtures"
+ENTITY = json.loads((FIX / "rpo_entity.json").read_text(encoding="utf-8"))
+DOC = ("Úvod. " * 60 + "\nFiktívna Strojáreň s.r.o. uviedla, že meškanie dodávok komponentov jej predĺžilo projekty o tri mesiace.\n"
+       + "Záver. " * 60)
+QUOTE = "Fiktívna Strojáreň s.r.o. uviedla, že meškanie dodávok komponentov jej predĺžilo projekty o tri mesiace."
+
+
+def rpo_transport(calls: list[str]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.path.endswith("/search"):
+            params = dict(request.url.params)
+            if params.get("identifier") == "12345678" or "Strojáre" in params.get("fullName", ""):
+                return httpx.Response(200, json={"results": [{"id": 555001, "identifiers": ENTITY["identifiers"],
+                                                              "fullNames": ENTITY["fullNames"]}]})
+            return httpx.Response(200, json={"results": []})
+        if request.url.path.endswith("/entity/555001"):
+            return httpx.Response(200, json=ENTITY)
+        if "uctovne-jednotky" in request.url.path:
+            return httpx.Response(200, json={"id": [77]})
+        if "uctovna-jednotka" in request.url.path:
+            return httpx.Response(200, json={"id": 77, "nazovUJ": "Fiktívna Strojáreň s.r.o.", "skNace": "28290",
+                                             "velkostOrganizacie": "11", "druhVlastnictva": "2", "kraj": "SK031",
+                                             "mesto": "Žilina", "ulica": "Výrobná 3", "psc": "01001", "idVyrocnychSprav": [9]})
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def clients(db, calls):
+    http = httpx.Client(transport=rpo_transport(calls))
+    return RPOClient(db, delay_s=0, http=http), RUZClient(db, delay_s=0, http=http)
+
+
+def setup(tmp_path, exclude=None):
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"), models=ModelsConfig(), embeddings=EmbeddingsConfig(enabled=False),
+                 outreach=OutreachConfig(exclude_orgs=exclude or []))
+    db = DB(cfg.db_path)
+    doc_id, _ = db.upsert_document("https://noviny.sk/clanok", "Článok", "search", "Zákazková výroba", "q", "h", DOC)
+    doc2, _ = db.upsert_document("https://zvaz.sk/prieskum", "Prieskum", "search", "Zákazková výroba", "q", "h2",
+                                 "Prieskum zväzu. " * 30 + "\nVýrobcovia hlásia meškanie dodávok komponentov.\n")
+    hid = db.create_hypothesis("Meškanie dodávok v zákazkovej výrobe", "Popis", "zákazkoví výrobcovia")
+    for d, q in ((doc_id, QUOTE), (doc2, "Výrobcovia hlásia meškanie dodávok komponentov.")):
+        cid = db.insert_claim(d, 0, "Zákazková výroba", "Výrobcovia majú meškanie dodávok.", "výrobcovia", "pain", q)
+        db.set_claim_verification(cid, "verified", 100, "ok")
+        db.assign_claim(hid, cid)
+    rec = Recorder()
+    router = make_router(cfg, db, rec)
+    return cfg, db, hid, rec, router
+
+
+def test_rpo_fixture_maps_fields_without_statutory_address(tmp_path, caplog):
+    cfg, db, hid, rec, router = setup(tmp_path)
+    calls: list[str] = []
+    rpo, ruz = clients(db, calls)
+    info = rpo.lookup_ico("12345678")
+    assert (info.name, info.ico, info.legal_form, info.sk_nace) == ("Fiktívna Strojáreň s.r.o.", "12345678",
+                                                                    "Spoločnosť s ručením obmedzeným", "28290")
+    assert info.region == "Žilinský kraj" and info.municipality == "Žilina"
+    assert [(p.full_name, p.function) for p in info.statutory] == [("Ján Testovací", "konateľ")]  # bývalý konateľ nie
+    stored = " ".join(r["body"] for r in db.conn.execute("SELECT body FROM register_cache"))
+    for secret in ("Súkromná ulica", "Bývalá 1", "Tajná 5", "Spoločník", "Výrobná"):
+        assert secret not in stored  # adresy štatutárov ani spoločníci sa neuložia
+    assert "Súkromná ulica" not in caplog.text
+    # druhé volanie ide z cache
+    n = len(calls)
+    rpo.lookup_ico("12345678")
+    assert len(calls) == n
+    ruz_info = ruz.lookup_ico("12345678")
+    assert ruz_info["size_category"] == "small" and ruz_info["sector_kind"] == "private"
+
+
+def test_sanitize_keeps_only_name_and_function():
+    clean = sanitize_rpo(ENTITY)
+    body = clean["statutoryBodies"][0]
+    assert set(body) == {"personName", "stakeholderType", "validFrom"}
+    assert "stakeholders" not in clean
+    assert "street" not in json.dumps(clean, ensure_ascii=False)
+    assert org_info_from_rpo(ENTITY).statutory[0].titles == "Ing."
+
+
+def test_org_from_evidence_only_when_name_in_quote_or_window(tmp_path):
+    cfg, db, hid, rec, router = setup(tmp_path)
+    rec.responses = {
+        "OrgMentions": lambda m: {"organizations": [
+            {"name": "Fiktívna Strojáreň s.r.o.", "relation": "affected"},
+            {"name": "Vymyslená Firma a.s.", "relation": "affected"},  # v zdroji nie je
+            {"name": "Ministerstvo hospodárstva", "relation": "regulator"},
+        ]},
+        "SegmentFilter": {"sk_nace_prefixes": [], "search_queries": []},
+    }
+    calls: list[str] = []
+    rpo, ruz = clients(db, calls)
+    fetcher = FakeFetcher(htmls={"https://fiktivna-strojaren.sk/": "<html><body>Fiktívna Strojáreň s.r.o., IČO: 12 345 678</body></html>"})
+    searx = FakeSearx({"12345678": [SearchResult("https://fiktivna-strojaren.sk/o-nas", "Fiktívna Strojáreň", "")]})
+    stats = run_orgs(cfg, db, router, searx, fetcher, Deadline(1), [hid], rpo, ruz)
+    orgs = db.orgs_for_hypothesis(hid)
+    assert [o["name"] for o in orgs] == ["Fiktívna Strojáreň s.r.o."]
+    org = orgs[0]
+    assert org["ico"] == "12345678" and org["relation"] == "mentioned_with_problem" and org["sk_nace"] == "28290"
+    assert org["size_category"] == "small"
+    assert stats["mentions_not_in_source"] >= 1
+    assert org["website_verified"] == 1 and "IČO 12345678" in org["website_evidence"]
+
+
+def test_website_verified_only_with_ico_or_exact_name(tmp_path):
+    cfg, db, hid, rec, router = setup(tmp_path)
+    finder = OrgFinder(cfg, db, router, FakeSearx({
+        '"Fiktívna Strojáreň s.r.o." 12345678': [SearchResult("https://ina-firma.sk/", "Iná firma", ""),
+                                                  SearchResult("https://finstat.sk/12345678", "Finstat", "")],
+    }), FakeFetcher(htmls={
+        "https://ina-firma.sk/": "<html><body>Iná strojáreň, IČO: 87 654 321</body></html>",
+        "https://finstat.sk/": "<html><body>Fiktívna Strojáreň s.r.o. IČO 12345678</body></html>",
+    }), None, None, Deadline(1))
+    org_id, _ = db.upsert_organization("Fiktívna Strojáreň s.r.o.", "fiktivna strojaren", "evidence", ico="12345678")
+    assert finder.verify_website(org_id) is False  # cudzí web nemá IČO; katalóg firiem (finstat) sa nepoužije
+    assert db.get_organization(org_id)["website_verified"] == 0
+    org2, _ = db.upsert_organization("Fiktívna Strojáreň s.r.o.", "fiktivna strojaren", "evidence", ico="12345678",
+                                     website="https://strojaren-fikt.sk/")
+    finder.fetcher.htmls["https://strojaren-fikt.sk/"] = "<html><body><h1>Fiktívna Strojáreň s.r.o.</h1> kontakt</body></html>"
+    assert finder.verify_website(org2) is True
+    assert "presný názov" in db.get_organization(org2)["website_evidence"]
+    assert icos_in("IČO: 31 322 832, IČ DPH SK2020") == ["31322832"]
+
+
+def test_excluded_org_never_appears(tmp_path):
+    cfg, db, hid, rec, router = setup(tmp_path, exclude=["12345678"])
+    rec.responses = {
+        "OrgMentions": {"organizations": [{"name": "Fiktívna Strojáreň s.r.o.", "relation": "affected"}]},
+        "SegmentFilter": {"sk_nace_prefixes": [], "search_queries": []},
+    }
+    rpo, ruz = clients(db, [])
+    stats = run_orgs(cfg, db, router, FakeSearx(), FakeFetcher(), Deadline(1), [hid], rpo, ruz)
+    assert db.orgs_for_hypothesis(hid) == []
+    assert stats["excluded"] >= 1
+    # aj podľa domény
+    cfg.outreach.exclude_orgs = ["fiktivna-strojaren.sk"]
+    from radar.orgs import is_excluded
+
+    assert is_excluded(cfg, None, "https://www.fiktivna-strojaren.sk/kontakt")
+
+
+def test_auto_selection_respects_manual_choice(tmp_path):
+    cfg, db, hid, rec, router = setup(tmp_path)
+    weak = db.create_hypothesis("Slabá", "", "x")
+    assert select_people_hypotheses(cfg, db) == [hid]  # stredná sila (2 overené z 2 domén)
+    db.set_people_selection(hid, False)  # ručne vypnuté
+    db.set_people_selection(weak, True)  # ručne zapnuté napriek slabým dôkazom
+    assert select_people_hypotheses(cfg, db) == [weak]

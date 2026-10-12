@@ -1,0 +1,27 @@
+{
+  "id": 555001,
+  "dbModificationDate": "2026-09-05",
+  "identifiers": [{"value": "12345678", "validFrom": "2010-03-01"}],
+  "fullNames": [
+    {"value": "Fiktívna Strojáreň Stará s.r.o.", "validFrom": "2010-03-01", "validTo": "2015-01-01"},
+    {"value": "Fiktívna Strojáreň s.r.o.", "validFrom": "2015-01-02"}
+  ],
+  "addresses": [{"validFrom": "2010-03-01", "street": "Výrobná", "regNumber": 12, "buildingNumber": "3", "postalCodes": ["01001"],
+                 "municipality": {"value": "Žilina", "code": "SK031B517402", "codelistCode": "CL000025"},
+                 "country": {"value": "Slovenská republika", "code": "703"}}],
+  "legalForms": [{"value": {"value": "Spoločnosť s ručením obmedzeným", "code": "112", "codelistCode": "CL000056"}, "validFrom": "2010-03-01"}],
+  "establishment": "2010-03-01",
+  "activities": [{"economicActivityDescription": "Výroba strojov", "validFrom": "2010-03-01"}],
+  "statutoryBodies": [
+    {"stakeholderType": {"value": "konateľ", "code": "1"}, "validFrom": "2015-01-02",
+     "address": {"street": "Súkromná ulica 99", "postalCodes": ["01004"], "municipality": {"value": "Žilina", "code": "SK031B517402"}},
+     "personName": {"familyNames": ["Testovací"], "givenNames": ["Ján"], "prefixes": ["Ing."]}},
+    {"stakeholderType": {"value": "konateľ", "code": "1"}, "validFrom": "2010-03-01", "validTo": "2014-12-31",
+     "address": {"street": "Bývalá 1"}, "personName": {"familyNames": ["Bývalý"], "givenNames": ["Peter"]}}
+  ],
+  "stakeholders": [{"personName": {"familyNames": ["Spoločník"], "givenNames": ["Tajný"]}, "address": {"street": "Tajná 5"}}],
+  "legalStatuses": [],
+  "statisticalCodes": {"mainActivity": {"value": "Výroba ostatných strojov na všeobecné účely", "code": "28290"},
+                       "esa2010": {"value": "Nefinančné korporácie", "code": "11002"}},
+  "license": "ŠÚ SR – podmienky použitia (CC BY 4.0)"
+}

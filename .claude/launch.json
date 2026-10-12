@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "radar-gui",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "radar", "gui"],
+      "port": 8501
+    },
+    {
+      "name": "radar-gui-dev",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "streamlit", "run", "radar/gui/app.py", "--server.address", "127.0.0.1",
+                      "--server.port", "8503", "--server.headless", "true", "--browser.gatherUsageStats", "false"],
+      "port": 8503
+    }
+  ]
+}

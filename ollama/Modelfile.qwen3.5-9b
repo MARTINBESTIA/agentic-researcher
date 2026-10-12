@@ -1,0 +1,15 @@
+# Odvodený model pre Problem Radar: rovnaké váhy ako qwen3.5:9b, len iné predvolené parametre.
+# Vytvorenie (nič sa nesťahuje):  ollama create radar-qwen3.5-9b -f ollama/Modelfile.qwen3.5-9b
+#
+# Prečo: Ollama cez OpenAI API ignoruje num_ctx z požiadavky a dlhší vstup potichu oreže
+# na predvolený kontext (4096). Pri chunk_chars 6000 by model nevidel celý text.
+FROM qwen3.5:9b
+PARAMETER num_ctx 16384
+# Všetkých 34 vrstiev na GPU. Ollama pri automatickom rozdelení dala na GPU len 27–28 vrstiev
+# (zvyšok počítal CPU, GPU bola vyťažená ~30–50 %). Merané 9. 10. 2026 na RTX 5070 Laptop 8 GB:
+# auto 30 tok/s, 15,7 s na časť dokumentu; num_gpu 99 43 tok/s, 11,7 s, GPU 86 %, VRAM 7,2 GB.
+# Ak iný program drží veľa VRAM (hra, video), model sa nezmestí a `doctor` nahlási pomalé generovanie.
+PARAMETER num_gpu 99
+# Predvolená presence_penalty 1.5 (odporúčaná pre "thinking") znevýhodňuje doslovné citovanie.
+PARAMETER presence_penalty 0
+PARAMETER temperature 0.2

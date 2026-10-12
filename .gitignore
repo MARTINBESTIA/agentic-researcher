@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+logs/
+reports/
+exports/
+*.gguf
+llama-swap.yaml
+# Lokálne súbory, ktoré nepatria do repozitára
+searxng/settings.yml
+*.pdf
+*.zip
+.claude/settings.local.json

@@ -1,0 +1,93 @@
+# Katalóg zdrojov na objavovanie nových problémov (R-DISC-1).
+# Zdroj sa použije až po tvojom potvrdení: over ho (python -m radar sources --check), pozri si web
+# a nastav verified: true. Metódy: search (dopyty cez SearXNG v rámci domény), rss, sitemap, seed, api.
+# Kategórie: audit | spending_review | fiscal | ombudsman | legislation | eu_obligations | procurement |
+#            association | annual_report | media | innovation_call | event | other
+
+- category: audit
+  name: NKÚ SR – výsledky kontrol
+  url: https://www.nku.gov.sk
+  method: search
+  queries: ['site:nku.gov.sk kontrola zistenia nedostatky']
+  cadence_days: 14
+  language: sk
+  verified: false
+- category: spending_review
+  name: Útvar hodnoty za peniaze (MF SR) – revízie výdavkov
+  url: https://www.mfsr.sk
+  method: search
+  queries: ['site:mfsr.sk revízia výdavkov opatrenia']
+  cadence_days: 30
+  language: sk
+  verified: false
+- category: fiscal
+  name: Rada pre rozpočtovú zodpovednosť
+  url: https://www.rrz.sk
+  method: search
+  queries: ['site:rrz.sk hodnotenie riziká']
+  cadence_days: 30
+  language: sk
+  verified: false
+- category: ombudsman
+  name: Verejný ochranca práv – správy o činnosti
+  url: https://www.vop.gov.sk
+  method: search
+  queries: ['site:vop.gov.sk správa o činnosti nedostatky']
+  cadence_days: 60
+  language: sk
+  verified: false
+- category: legislation
+  name: Slov-Lex – legislatívny proces a pripomienky
+  url: https://www.slov-lex.sk
+  method: search
+  queries: ['site:slov-lex.sk nová povinnosť od 2027', 'site:slov-lex.sk zásadná pripomienka administratívna záťaž']
+  cadence_days: 7
+  language: sk
+  verified: false
+- category: eu_obligations
+  name: EUR-Lex – nové nariadenia a smernice
+  url: https://eur-lex.europa.eu
+  method: search
+  queries: ['site:eur-lex.europa.eu regulation obligation apply from 2027 companies reporting']
+  cadence_days: 14
+  language: en
+  verified: false
+- category: procurement
+  name: ÚVO – vestník a prípravné trhové konzultácie
+  url: https://www.uvo.gov.sk
+  method: search
+  queries: ['site:uvo.gov.sk "prípravné trhové konzultácie"']
+  cadence_days: 7
+  language: sk
+  verified: false
+- category: procurement
+  name: Centrálny register zmlúv
+  url: https://www.crz.gov.sk
+  method: search
+  queries: ['site:crz.gov.sk zmluva služby analýza procesov']
+  cadence_days: 14
+  language: sk
+  verified: false
+- category: annual_report
+  name: RÚZ – výročné správy (časť o rizikách)
+  url: https://www.registeruz.sk/cruz-public
+  method: api
+  cadence_days: 30
+  language: sk
+  verified: false
+- category: association
+  name: Podnikateľská aliancia Slovenska – prieskumy podnikateľského prostredia
+  url: https://alianciapas.sk
+  method: search
+  queries: ['site:alianciapas.sk prieskum bariéry podnikania']
+  cadence_days: 30
+  language: sk
+  verified: false
+- category: association
+  name: Slovenská obchodná a priemyselná komora
+  url: https://www.sopk.sk
+  method: search
+  queries: ['site:sopk.sk prieskum problémy firiem']
+  cadence_days: 30
+  language: sk
+  verified: false

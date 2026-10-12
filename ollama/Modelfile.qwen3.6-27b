@@ -1,0 +1,18 @@
+# Presný model (rola "accurate") pre Problem Radar v0.2: rovnaké váhy ako qwen3.6:27b-q4_K_M.
+# Vytvorenie (nič ďalšie sa nesťahuje):
+#   ollama pull qwen3.6:27b-q4_K_M
+#   ollama create radar-qwen3.6-27b -f ollama/Modelfile.qwen3.6-27b
+#
+# Prečo: Ollama cez OpenAI API ignoruje num_ctx z požiadavky a dlhší vstup potichu oreže na
+# predvolený kontext. Posúdenia majú vstup 2–4 tisíc tokenov, s uvažovaním do ~8 tisíc.
+# Hustý 27B model sa do 8 GB VRAM nezmestí; Ollama dá na GPU toľko vrstiev, koľko sa zmestí,
+# zvyšok počíta CPU (preto je pomalý, pozri doctor --bench).
+FROM qwen3.6:27b-q4_K_M
+PARAMETER num_ctx 16384
+# Vrstvy na GPU, merané 11. 10. 2026 na RTX 5070 Laptop 8 GB (natívne API, prompt ~1 300 tokenov):
+#   automaticky (~18) 3,3 tok/s generovanie, 89 tok/s prompt; 22: 4,2 / 206; 26: 4,3 / 208 (VRAM 7,1 GB);
+#   30: VRAM pretečie a prompt spadne na 20 tok/s. 24 = rezerva ~1 GB pre iné programy.
+PARAMETER num_gpu 24
+# Predvolená presence_penalty (odporúčaná pre "thinking") znevýhodňuje doslovné citovanie.
+PARAMETER presence_penalty 0
+PARAMETER temperature 0.2

@@ -1,0 +1,8 @@
+# Problem Radar GUI: iba tento počítač a bez telemetrie (R-GUI-1). Rovnaké hodnoty posiela aj python -m radar gui.
+[server]
+address = "127.0.0.1"
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false

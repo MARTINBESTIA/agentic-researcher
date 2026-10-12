@@ -1,0 +1,13 @@
+# Kandidát na rolu "agent" (MoE: ~35B parametrov, ~3B aktívnych na token; ~21 GB pri Q4).
+# Vytvorenie:
+#   ollama pull qwen3.6:35b-a3b
+#   ollama create radar-qwen3.6-35b-a3b -f ollama/Modelfile.qwen3.6-35b-a3b
+# Výber v GUI: Správca akcií → Modely → agent. Rýchlosť: akcia „Zmerať rýchlosť modelov“.
+#
+# Na 8 GB VRAM sa celý nezmestí; Ollama dá na GPU toľko vrstiev, koľko sa zmestí, zvyšok počíta CPU.
+# MoE je pri rovnakej veľkosti rýchlejší ako hustý model, lebo na token počíta iba aktívnych expertov.
+FROM qwen3.6:35b-a3b
+PARAMETER num_ctx 16384
+# Predvolená presence_penalty znevýhodňuje doslovné citovanie (rovnako ako pri 27B).
+PARAMETER presence_penalty 0
+PARAMETER temperature 0.2

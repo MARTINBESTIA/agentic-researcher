@@ -1,0 +1,34 @@
+# Minimálne nastavenie SearXNG pre Problem Radar.
+# Zvyšok sa preberie z predvolených nastavení SearXNG.
+use_default_settings:
+  engines:
+    # Len všeobecné webové vyhľadávače. Prekladače, slovníky a kurzy mien pridávajú šum.
+    # Brave, Google a Qwant pri automatických dopytoch hneď blokujú (overené 9. 10. 2026).
+    keep_only:
+      - google cse
+      - bing
+      - duckduckgo
+      - seznam
+      - yahoo
+      - wikipedia
+
+server:
+  # Náhodný reťazec, vygenerovaný pri inštalácii (python -c "import secrets; print(secrets.token_hex(32))").
+  secret_key: "{NAHODNY_RETAZEC}"   # python -c "import secrets; print(secrets.token_hex(32))"
+  limiter: false        # beží len lokálne, obmedzovač netreba
+  image_proxy: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json              # Problem Radar číta výsledky vo formáte JSON
+
+engines:
+  # Predvolene vypnuté vyhľadávače, ktoré pomáhajú pri slovenských a českých zdrojoch.
+  - name: bing
+    disabled: false
+  - name: seznam
+    disabled: false
+  - name: yahoo
+    disabled: false

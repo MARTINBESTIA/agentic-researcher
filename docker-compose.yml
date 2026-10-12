@@ -1,0 +1,37 @@
+# Lokálny vyhľadávač SearXNG. Spustenie: docker compose up -d
+# Port je naviazaný len na 127.0.0.1, takže služba nie je dostupná zo siete.
+#
+# Voliteľne aj samotný radar v izolovanom kontajneri (profil "agent"):
+#   docker compose --profile agent build
+#   docker compose --profile agent run --rm radar run-all
+#   docker compose --profile agent run --rm radar deep-dive --hypothesis 3
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: radar-searxng
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    restart: unless-stopped
+
+  radar:
+    build: .
+    profiles: ["agent"]
+    depends_on: [searxng]
+    environment:
+      - RADAR_LLM_BASE_URL=http://host.docker.internal:11434/v1   # Ollama na hostiteľovi
+      - RADAR_SEARXNG_URL=http://searxng:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config.yaml:/app/work/config.yaml:ro
+      - ./data:/app/work/data
+      - ./reports:/app/work/reports
+      - ./logs:/app/work/logs
+    read_only: true                 # kód ani systém v kontajneri sa nedajú zmeniť
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
