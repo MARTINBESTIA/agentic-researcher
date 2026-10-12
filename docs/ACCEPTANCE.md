@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 184 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 185 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -117,3 +117,4 @@ Stav 12. 10. 2026: 184 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M5 | GUI Ľudia ukazuje aj zozbieraných, ešte nezoradených ľudí | `test_m2_gui.py::test_people_overview_shows_collected_but_unranked_people` |
 | M1 | config.local.yaml (mimo gitu) prepíše config.yaml po kľúčoch | `test_m1_foundation.py::test_local_config_overrides_without_git` |
 | M6 | rodovo určená 1. osoba bez nastaveného rodu odosielateľa → na úpravu | `test_m6_outreach.py::test_gendered_first_person_needs_edit_unless_sender_gender_set` |
+| M10 | CRZ: denné dávky, zlúčenie podľa ID, bez mien dodávateľov a adries, pokrytie podľa IČO objednávateľa | `test_m10_gates.py::test_crz_daily_exports_deduplicated_without_supplier_names` |

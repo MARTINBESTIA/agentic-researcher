@@ -734,3 +734,38 @@ def test_noncommercial_license_is_not_counted_as_open():
     q = gate1.source_quality(src, {"http_ok": True, "súbory": ["x.csv"]})
     assert q["licencia"] == 0.3 and "NC/ND" in q["obmedzenie_licencie"]
     assert gate1.source_quality(src | {"license": "CC BY 4.0"}, {"http_ok": True})["licencia"] == 1.0
+
+
+def test_crz_daily_exports_deduplicated_without_supplier_names(tmp_path):
+    """Katalóg uvádza iba adresár crz.gov.sk/export/ (HTTP 403); dávky sú denné ZIP s dátumom. Zmluva zmenená
+    v dvoch dňoch ostane raz (posledná zmena); meno dodávateľa (fyzická osoba) ani adresa sa neuložia."""
+    from datetime import date, timedelta
+
+    def zmluva(zid, suma, dodavatel, ico=""):
+        return (f"<zmluva><nazov>Z-{zid}</nazov><ID>{zid}</ID><zs1>Mesto Fiktívne</zs1><zs2>{dodavatel}</zs2>"
+                f"<predmet>Oprava cesty</predmet><datum>2026-09-01</datum><datum_platnost_do>0000-00-00</datum_platnost_do>"
+                f"<suma_zmluva>{suma}</suma_zmluva><suma_spolu>{suma}</suma_spolu><ico>{ico}</ico><ico1>00313271</ico1>"
+                f"<sidlo>Ulica 1, Mesto</sidlo><datum_zverejnene>2026-09-02 10:00:00</datum_zverejnene>"
+                f"<prilohy><priloha><ID>9{zid}</ID><nazov>príloha</nazov></priloha></prilohy></zmluva>")
+
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path, crz_days=3, crz_delay_s=0)
+    export = "http://www.crz.gov.sk/export/"
+    src = db.sources_for(hid)[0]
+    db.update_source(src["id"], checks_json={"http_ok": True, "súbory": [export]})
+    db.add_dataset(hid, src["id"], export, "pending", status="error", note="HTTP 403")  # predchádzajúci pokus
+    end = date.today() - timedelta(days=1)
+    days = [(end - timedelta(days=i)).isoformat() for i in (2, 1, 0)]
+    batches = {days[0]: zmluva(1, "100", "Ing. Fiktívny Živnostník") + zmluva(2, "200", "Firma s.r.o.", "12345678"),
+               days[2]: zmluva(1, "150,5", "Ing. Fiktívny Živnostník")}  # days[1] chýba (404)
+    routes = {f"https://www.crz.gov.sk/export/{d}.zip": httpx.Response(
+        200, content=_zip_bytes(f"{d}.xml", f"<?xml version='1.0' encoding='UTF-8'?><zmluvy>{x}</zmluvy>".encode()),
+        headers={"content-type": "application/zip"}) for d, x in batches.items()}
+    stats = gate1.run_datasets(cfg, db, mock_fetcher(routes), Deadline(1), [hid])
+    assert stats["datasets"] == 1
+    ds = [d for d in db.datasets_for(hid) if d["url"] == export][0]
+    assert ds["status"] == "ok" and "2 denných dávok (1 chýba)" in ds["note"]
+    table = ds["table_name"]
+    cols = json.loads(ds["columns_json"])
+    assert "zs2" not in cols and "sidlo" not in cols and "_den" not in cols and "ico_objednavatel" in cols
+    assert run_query(cfg, hid, f'SELECT COUNT(*), SUM(suma_zmluva) FROM {table}')[0] == (2, 350.5)  # ID 1 iba raz, posledná zmena
+    assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]  # IČO objednávateľa (ico1)

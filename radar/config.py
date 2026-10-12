@@ -334,6 +334,10 @@ class Gate1Config(BaseModel):
     nkod_enabled: bool = True
     nkod_sparql: str = "https://data.slovensko.sk/api/sparql"
     nkod_hits_per_field: int = 2  # hľadanie podľa názvu poľa je zašumené; agent si katalóg prehľadá aj sám
+    # Centrálny register zmlúv: denné dávky crz.gov.sk/export/RRRR-MM-DD.zip (robots.txt: crawl-delay 10 s).
+    # 270 dní = 9 mesačných období pre spätný test Brány 2 (5 histórie + 4 testované); ~1 h sťahovania.
+    crz_days: int = 270
+    crz_delay_s: float = 10.0
     min_wide_periods: int = 3  # široká tabuľka (roky/štvrťroky ako stĺpce) → dlhý tvar dsN_long od 3 období
     max_long_rows: int = 5_000_000  # limit riadkov dlhého tvaru (riadky × obdobia)
     catalog: list[CatalogEntry] = Field(default_factory=lambda: list(DEFAULT_CATALOG))

@@ -27,6 +27,7 @@ from rapidfuzz import fuzz, process
 
 from .agent import ResearchAgent
 from .catalogs import NKOD_DATASET_RE, CatalogDataset, NKODClient
+from .crz import dedupe_latest, download_crz, is_crz_export
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
@@ -549,23 +550,27 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
                 if deadline.expired():
                     return dict(stats)
                 old = existing.get(url)
-                if old is not None and not (paging.get(url) and not (old["note"] or "").startswith("API:")):
+                retry_crz = old is not None and old["status"] == "error" and is_crz_export(url)  # adresár → dávky
+                if old is not None and not retry_crz and not (paging.get(url) and not (old["note"] or "").startswith("API:")):
                     continue  # už stiahnuté (jednostránkové API sa stiahne znova, keď vieme stránkovať)
                 if db.datasets_total_bytes() >= limit_total:
                     stats["total_limit"] += 1
                     return dict(stats)
                 stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url),
-                                          (checks.get("formát_podľa_katalógu") or {}).get(url)))
+                                          (checks.get("formát_podľa_katalógu") or {}).get(url), deadline))
     return dict(stats)
 
 
 def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None,
-                 fmt_hint: str | None = None) -> Counter:
+                 fmt_hint: str | None = None, deadline: Deadline | None = None) -> Counter:
     stats: Counter = Counter()
     dataset_id = db.add_dataset(hid, src["id"], url, "pending", status="error", note="sťahuje sa")
     table = f"ds{dataset_id}"
     try:
-        if paging and paging.get("limit") and any(paging.get(k) for k in ("cursor", "offset", "page")):
+        if is_crz_export(url):  # katalóg uvádza iba adresár; súbory sú denné dávky s dátumom v názve
+            dl = download_crz(cfg, fetcher, hyp_dir(cfg, hid), fetcher.blocked, cfg.gate1.crz_days, deadline)
+            fmt = "json"
+        elif paging and paging.get("limit") and any(paging.get(k) for k in ("cursor", "offset", "page")):
             dl = download_paginated(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked, paging)
             fmt = "json"
         else:
@@ -573,6 +578,8 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
             fmt = file_format(dl.final_url, dl.content_type) or fmt_hint or "bin"  # odkaz z katalógu býva bez prípony
         import_table(cfg, hid, table, dl.path, fmt)
         dl.path.unlink(missing_ok=True)  # v DuckDB je tabuľka; ostáva URL, čas a SHA-256 súboru
+        if is_crz_export(url):
+            dedupe_latest(cfg, hid, table)
         prof = profile_table(cfg, hid, table)
     except DatasetError as exc:
         db.add_dataset(hid, src["id"], url, table, status="too_large" if "limit" in str(exc) else "error",
