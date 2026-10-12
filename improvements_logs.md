@@ -25,7 +25,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-12 – Brána 1 – posúdenie GDPR priamo v GUI pre zablokovaný dataset.** Dataset s osobnými údajmi
   sa dnes neuloží vôbec; tlačidlo „posúdenie GDPR hotové, ponechať iba agregáty“ by uložilo agregovanú
   verziu (napr. GROUP BY bez mien). · 1–2 dni.
-- **2026-10-12 – Brána 1 – ďalšie formáty a archívy.** Podporované sú CSV/XLSX/JSON/Parquet; chýba ZIP (veľa
+- ~~**2026-10-12 – Brána 1 – ďalšie formáty a archívy.**~~ **Hotové 12. 10. 2026** (ZIP, XML; API so stránkovaním). Podporované sú CSV/XLSX/JSON/Parquet; chýba ZIP (veľa
   portálov balí CSV), XML (ITMS, vestník ÚVO) a API so stránkovaním (RÚZ, ITMS2014+). · 2–3 dni.
 - **2026-10-12 – Brána 1 – lepšie časové stĺpce.** Obdobia ako „2021-Q1“, „01/2022“ alebo rok v názve stĺpca
   (široké tabuľky ŠÚ SR) sa dnes neprevedú na časový rad; normalizácia „wide → long“ by sprístupnila DATAcube. · 2 dni.

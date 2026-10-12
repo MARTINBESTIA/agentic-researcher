@@ -444,3 +444,54 @@ def test_paginated_api_replaces_single_page_dataset(tmp_path):
     assert stats["datasets"] == 1 and ds["rows"] == 2500 and ds["note"].startswith("API: 3 strán")
     assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]
     assert gate1.run_datasets(cfg, db, PagedApi("cursor"), Deadline(1), [hid]) == {}  # už stránkované → nesťahuje znova
+
+
+def _zip_bytes(name, data):
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def test_zip_dataset_is_unpacked_safely(tmp_path):
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path)
+    url = "https://data.obce.sk/files/vydavky.zip"
+    src = db.sources_for(hid)[0]
+    db.update_source(src["id"], checks_json={"http_ok": True, "súbory": [url]})
+    body = _zip_bytes("../../zle/vydavky.csv", CSV.encode("cp1250"))  # meno v archíve sa ako cesta nepoužije
+    fetcher = mock_fetcher({url: httpx.Response(200, content=body, headers={"content-type": "application/zip"})})
+    assert gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])["datasets"] == 1
+    ds = [d for d in db.datasets_for(hid) if d["url"] == url][0]
+    assert ds["rows"] == 3 and "ico" in json.loads(ds["columns_json"])
+    assert not (tmp_path / "zle").exists() and not list((tmp_path / "data" / "datasets" / f"H{hid}").glob("*.unzipped*"))
+
+    cfg2, db2, *_, hid2, _, _, _ = _dataset_env(tmp_path / "b", max_dataset_mb=0)  # zip bomba / limit
+    src2 = db2.sources_for(hid2)[0]
+    db2.update_source(src2["id"], checks_json={"http_ok": True, "súbory": [url]})
+    gate1.run_datasets(cfg2, db2, mock_fetcher({url: httpx.Response(200, content=body)}), Deadline(1), [hid2])
+    assert db2.datasets_for(hid2)[0]["status"] == "too_large"
+
+
+def test_xml_records_become_columns_without_external_entities(tmp_path):
+    secret = tmp_path / "tajne.txt"
+    secret.write_text("TAJNY-OBSAH", encoding="utf-8")
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE zakazky [<!ENTITY xxe SYSTEM "file:///{secret.as_posix()}">]>
+<zakazky xmlns="urn:vestnik">
+  <zakazka id="1"><ico>00313271</ico><suma>400000</suma><obstaravatel><nazov>Mesto Fiktívne</nazov></obstaravatel><pozn>&xxe;</pozn></zakazka>
+  <zakazka id="2"><ico>00313271</ico><suma>500000</suma><obstaravatel><nazov>Mesto Fiktívne</nazov></obstaravatel><pozn>x</pozn></zakazka>
+</zakazky>"""
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path)
+    url = "https://data.obce.sk/vestnik.xml"
+    src = db.sources_for(hid)[0]
+    db.update_source(src["id"], checks_json={"http_ok": True, "súbory": [url]})
+    fetcher = mock_fetcher({url: httpx.Response(200, content=xml.encode(), headers={"content-type": "application/xml"})})
+    assert gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid]) == {"datasets": 1, "coverage": 1}
+    ds = [d for d in db.datasets_for(hid) if d["url"] == url][0]
+    cols = json.loads(ds["columns_json"])
+    assert ds["rows"] == 2 and {"id", "ico", "suma", "obstaravatel_nazov"} <= set(cols)
+    rows = run_query(cfg, hid, f"SELECT pozn FROM {ds['table_name']}")
+    assert all("TAJNY" not in str(r[0]) for r in rows)  # externá entita sa nenačítala (XXE)

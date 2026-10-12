@@ -29,8 +29,9 @@ from .fetch import domain_blocked
 
 log = logging.getLogger(__name__)
 
-FILE_EXT = ("csv", "tsv", "txt", "xlsx", "json", "parquet")
-FILE_LINK_RE = re.compile(r"\.(csv|tsv|xlsx|json|parquet)(\?|$)", re.I)
+FILE_EXT = ("csv", "tsv", "txt", "xlsx", "json", "parquet", "zip", "xml")
+FILE_LINK_RE = re.compile(r"\.(csv|tsv|xlsx|json|parquet|zip|xml)(\?|$)", re.I)
+TABLE_FORMATS = ("csv", "tsv", "txt", "xlsx", "json", "parquet", "xml")
 PERSONAL_COLUMN_RE = re.compile(
     r"(^|_|\b)(meno|priezvisko|rodn[eé]|rod_?c|r\.?\s?č\.?|e-?mail|telef|mobil|adres|ulica|bydlisk|narod|"
     r"name|surname|birth|phone|address)", re.I)
@@ -90,7 +91,103 @@ def file_format(url: str, content_type: str = "") -> str | None:
         return "json"
     if "parquet" in ct:
         return "parquet"
+    if "zip" in ct:
+        return "zip"
+    if "xml" in ct and "html" not in ct:
+        return "xml"
     return None
+
+
+def sniff_format(path: Path, fmt: str) -> str:
+    """Formát podľa obsahu, keď ho URL ani hlavička neprezradia (napr. ZIP bez prípony)."""
+    with open(path, "rb") as fh:
+        head = fh.read(64)
+    if head.startswith(b"PK\x03\x04"):
+        return "xlsx" if fmt == "xlsx" else "zip"
+    if fmt in ("bin", "txt") and head.lstrip().startswith(b"<?xml"):
+        return "xml"
+    return fmt
+
+
+def unpack_zip(cfg: Config, path: Path) -> tuple[Path, str, str]:
+    """Najväčší podporovaný súbor z archívu (CSV, XLSX, JSON, Parquet, XML) → (cesta, formát, meno v archíve).
+    Bezpečne: meno súboru z archívu sa nepoužije ako cesta (../), veľkosť je obmedzená (ochrana pred „zip bombou“)."""
+    import zipfile
+
+    limit = cfg.gate1.max_dataset_mb * 1024 * 1024
+    try:
+        zf = zipfile.ZipFile(path)
+    except zipfile.BadZipFile as exc:
+        raise DatasetError("poškodený ZIP") from exc
+    with zf:
+        members = [m for m in zf.infolist() if not m.is_dir() and m.filename.rsplit(".", 1)[-1].lower() in TABLE_FORMATS]
+        if not members:
+            raise DatasetError("ZIP neobsahuje CSV, XLSX, JSON, Parquet ani XML")
+        member = max(members, key=lambda m: m.file_size)
+        if member.file_size > limit:
+            raise DatasetError(f"súbor v ZIP má {member.file_size / 1e6:.0f} MB, limit {cfg.gate1.max_dataset_mb} MB")
+        ext = member.filename.rsplit(".", 1)[-1].lower()
+        fmt = "csv" if ext in ("tsv", "txt") else ext
+        out = path.with_suffix(f".unzipped.{fmt}")
+        written = 0
+        with zf.open(member) as src, open(out, "wb") as dst:
+            while chunk := src.read(1 << 20):
+                written += len(chunk)
+                if written > limit:  # deklarovaná veľkosť môže klamať
+                    dst.close()
+                    out.unlink(missing_ok=True)
+                    raise DatasetError(f"súbor v ZIP presiahol limit {cfg.gate1.max_dataset_mb} MB")
+                dst.write(chunk)
+    return out, fmt, member.filename
+
+
+def _local(tag: Any) -> str:
+    return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+
+
+def xml_to_jsonl(path: Path, sample_events: int = 20000) -> Path:
+    """XML so zoznamom záznamov → JSONL. Záznam = najčastejší prvok s podprvkami (napr. <projekt>, <zakazka>);
+    stĺpce = atribúty a podprvky (jedna úroveň vnorenia ako „rodič_dieťa“). Streamovane, bez externých entít (XXE)."""
+    import json
+    from collections import Counter
+
+    from lxml import etree
+
+    counts: Counter = Counter()
+    for n, (_, el) in enumerate(etree.iterparse(str(path), events=("end",), resolve_entities=False, no_network=True,
+                                                load_dtd=False)):
+        if len(el):
+            counts[_local(el.tag)] += 1
+        if n >= sample_events:
+            break
+    root_like = {t for t, c in counts.items() if c == 1}
+    candidates = [(c, t) for t, c in counts.items() if c > 1 and t not in root_like]
+    if not candidates:
+        raise DatasetError("XML neobsahuje opakujúce sa záznamy")
+    record_tag = max(candidates)[1]
+    out = path.with_suffix(".xml.jsonl")
+    rows = 0
+    with open(out, "w", encoding="utf-8") as fh:
+        for _, el in etree.iterparse(str(path), events=("end",), resolve_entities=False, no_network=True, load_dtd=False):
+            if _local(el.tag) != record_tag:
+                continue
+            rec: dict[str, Any] = {_local(k): v for k, v in el.attrib.items()}
+            for child in el:
+                name = _local(child.tag)
+                if not name:
+                    continue
+                if len(child):
+                    for sub in child:
+                        if _local(sub.tag):
+                            rec.setdefault(f"{name}_{_local(sub.tag)}", (sub.text or "").strip())
+                else:
+                    rec.setdefault(name, (child.text or "").strip())
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            rows += 1
+            el.clear()
+    if not rows:
+        raise DatasetError("XML neobsahuje záznamy")
+    return out
 
 
 def download(cfg: Config, fetcher, url: str, dest_dir: Path, blocked: list[str]) -> Download:
@@ -264,36 +361,56 @@ def _quote(name: str) -> str:
 
 
 def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> None:
-    """Súbor → tabuľka v DuckDB databáze hypotézy (zápis; pred dotazmi modelu sa otvorí iba na čítanie)."""
+    """Súbor → tabuľka v DuckDB databáze hypotézy (zápis; pred dotazmi modelu sa otvorí iba na čítanie).
+    ZIP sa rozbalí (najväčší podporovaný súbor), XML sa prevedie na JSONL, XLSX na CSV, CSV v cp1250 na UTF-8;
+    všetky pomocné súbory sa po importe (aj pri chybe) zmažú."""
     if not re.fullmatch(r"ds\d+", table):
         raise DatasetError("neplatný názov tabuľky")
-    src = path
-    if fmt == "xlsx":
-        src, fmt = _xlsx_to_csv(path), "csv"
-    if fmt == "csv":
-        src = _to_utf8(src)
-        reader = "read_csv(?, auto_detect = true, ignore_errors = true, sample_size = 20000)"
-    elif fmt == "json":
-        # Odpovede API bývajú vnorené (prijimatel.subjekt.ico): rozbalia sa na stĺpce (ico, dic …).
-        reader = "(SELECT unnest(j, recursive := true) FROM read_json_auto(?) AS j)"
-    elif fmt == "parquet":
-        reader = "read_parquet(?)"
-    else:
-        raise DatasetError(f"nepodporovaný formát {fmt}")
-    con = duckdb.connect(str(duck_path(cfg, hid)))
+    cleanup: list[Path] = []
     try:
-        try:
-            con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM {reader}", [str(src)])
-        except duckdb.Error:
-            if fmt != "json":
+        src, fmt = path, sniff_format(path, fmt)
+        if fmt == "zip":
+            src, fmt, _ = unpack_zip(cfg, path)
+            cleanup.append(src)
+        if fmt == "xml":
+            try:
+                src, fmt = xml_to_jsonl(src), "json"
+            except DatasetError:
                 raise
-            con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM read_json_auto(?)", [str(src)])
-    except duckdb.Error as exc:
-        raise DatasetError(f"import zlyhal: {str(exc)[:200]}") from exc
+            except Exception as exc:  # noqa: BLE001 – poškodené XML: chyba datasetu, beh pokračuje
+                raise DatasetError(f"XML sa nedá spracovať: {str(exc)[:150]}") from exc
+            cleanup.append(src)
+        if fmt == "xlsx":
+            src, fmt = _xlsx_to_csv(src), "csv"
+            cleanup.append(src)
+        if fmt == "csv":
+            utf8 = _to_utf8(src)
+            if utf8 != src:
+                cleanup.append(utf8)
+            src = utf8
+            reader = "read_csv(?, auto_detect = true, ignore_errors = true, sample_size = 20000)"
+        elif fmt == "json":
+            # Odpovede API bývajú vnorené (prijimatel.subjekt.ico): rozbalia sa na stĺpce (ico, dic …).
+            reader = "(SELECT unnest(j, recursive := true) FROM read_json_auto(?) AS j)"
+        elif fmt == "parquet":
+            reader = "read_parquet(?)"
+        else:
+            raise DatasetError(f"nepodporovaný formát {fmt}")
+        con = duckdb.connect(str(duck_path(cfg, hid)))
+        try:
+            try:
+                con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM {reader}", [str(src)])
+            except duckdb.Error:
+                if fmt != "json":
+                    raise
+                con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM read_json_auto(?)", [str(src)])
+        except duckdb.Error as exc:
+            raise DatasetError(f"import zlyhal: {str(exc)[:200]}") from exc
+        finally:
+            con.close()
     finally:
-        con.close()
-        for extra in {src, path.with_suffix(".csv"), path.with_suffix(".utf8.csv")} - {path}:
-            if extra.exists() and extra != path:
+        for extra in cleanup:
+            if extra != path:
                 extra.unlink(missing_ok=True)
 
 
