@@ -168,3 +168,24 @@ def preload_modules() -> list[str]:
         importlib.import_module(mod.name)
         loaded.append(mod.name)
     return loaded
+
+
+_TLS = None
+
+
+def tls_context():
+    """Overenie certifikátov cez úložisko operačného systému (truststore): Windows doplní chýbajúce medzicertifikáty,
+    ktoré veľa slovenských úradných webov neposiela (SOPK, ÚRHH, EÚ SAV, pes.minv.sk – s balíkom certifi zlyhajú).
+    Overovanie ostáva zapnuté; bez knižnice truststore predvolené overenie httpx."""
+    global _TLS
+    if _TLS is None:
+        try:
+            import ssl
+
+            import truststore
+
+            _TLS = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        except ImportError:
+            _TLS = True
+    return _TLS
+

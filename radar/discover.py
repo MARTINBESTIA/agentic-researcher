@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 from .config import Config
 from .db import DB
 from .fetch import domain_blocked
-from .util import Deadline, canonical_url, domain_of
+from .util import Deadline, canonical_url, domain_of, tls_context
 
 log = logging.getLogger(__name__)
 
@@ -150,6 +150,14 @@ def _ok_url(cfg: Config, url: str) -> bool:
     return not any(host == a or host.endswith("." + a) for a in ("facebook.com", "youtube.com", "linkedin.com"))
 
 
+def parse_feed(cfg: Config, url: str):
+    """RSS cez httpx s overením certifikátov OS (feedparser sám používa urllib a pri neúplnom reťazci zlyhá)."""
+    resp = httpx.get(url, timeout=20, follow_redirects=True, headers={"User-Agent": cfg.fetch.user_agent},
+                     verify=tls_context())
+    resp.raise_for_status()
+    return feedparser.parse(resp.content)
+
+
 def source_candidates(cfg: Config, db: DB, searx, source: Source, limit: int) -> list[DiscoveryCandidate]:
     out: list[DiscoveryCandidate] = []
     host = domain_of(source.url)
@@ -164,7 +172,7 @@ def source_candidates(cfg: Config, db: DB, searx, source: Source, limit: int) ->
                 log.warning("Objavovanie '%s' zlyhalo: %s", q, exc)
     elif source.method == "rss":
         try:
-            parsed = feedparser.parse(source.url, agent=cfg.fetch.user_agent)
+            parsed = parse_feed(cfg, source.url)
             for e in parsed.entries[: limit * 2]:
                 if e.get("link") and _ok_url(cfg, e["link"]):
                     out.append(DiscoveryCandidate(canonical_url(e["link"]), source.category, None, e.get("title", "")))
@@ -264,7 +272,8 @@ def run_discover(cfg: Config, db: DB, searx, fetcher, deadline: Deadline, budget
 
 def check_sources(cfg: Config, fetcher=None, http: httpx.Client | None = None) -> list[dict[str, Any]]:
     """sources --check: dostupnosť a robots.txt každého zdroja (nič nemení, potvrdzuje človek)."""
-    http = http or httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": cfg.fetch.user_agent})
+    http = http or httpx.Client(timeout=20, follow_redirects=True, headers={"User-Agent": cfg.fetch.user_agent},
+                                verify=tls_context())
     rows = []
     for s in load_sources(cfg):
         row: dict[str, Any] = {"name": s.name, "category": s.category, "url": s.url, "verified": s.verified}

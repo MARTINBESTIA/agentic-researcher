@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .db import DB
+from .util import tls_context
 
 log = logging.getLogger(__name__)
 
@@ -191,7 +192,7 @@ class RegistryClient:
         self.db = db
         self.delay_s = delay_s
         self.cache_days = cache_days
-        self.http = http or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0),
+        self.http = http or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0), verify=tls_context(),
                                          headers={"User-Agent": user_agent, "Accept": "application/json"})
         self._last = 0.0
         self._fails = 0

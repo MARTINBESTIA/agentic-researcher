@@ -12,7 +12,6 @@ from collections import Counter
 from itertools import zip_longest
 from typing import Any, Optional
 
-import feedparser
 from openai import APIError
 from pydantic import BaseModel, Field
 
@@ -22,6 +21,7 @@ from .fetch import Fetcher
 from .models import as_router
 from .prompts import TRIAGE_SYSTEM
 from .search import SearxClient
+from .discover import parse_feed
 from .util import Deadline, canonical_url
 
 log = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def gather_candidates(
 
     for feed in cfg.feeds:
         try:
-            parsed = feedparser.parse(feed.url, agent=cfg.fetch.user_agent)
+            parsed = parse_feed(cfg, feed.url)
         except Exception as exc:
             log.warning("RSS %s zlyhalo: %s", feed.url, exc)
             stats["feed_errors"] += 1

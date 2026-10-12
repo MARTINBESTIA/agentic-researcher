@@ -198,7 +198,7 @@ def test_rss_triage_keeps_selected_entries(tmp_path, monkeypatch):
         {"link": "https://news.sk/sport?utm_source=rss", "title": "Futbal", "summary": "Výsledky zápasu"},
         {"link": "https://news.sk/obce?utm_source=rss", "title": "Obciam chýbajú úradníci", "summary": "<p>Prieskum</p>"},
     ]
-    monkeypatch.setattr("radar.collect.feedparser.parse", lambda url, agent=None: SimpleNamespace(entries=entries))
+    monkeypatch.setattr("radar.collect.parse_feed", lambda cfg, url: SimpleNamespace(entries=entries))
     cfg = Config(db_path=str(tmp_path / "r.sqlite"), feeds=[Feed(name="Správy", url="https://news.sk/rss")])
     db = DB(cfg.db_path)
 

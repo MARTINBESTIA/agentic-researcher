@@ -22,7 +22,7 @@ import trafilatura
 from pypdf import PdfReader
 
 from .config import DEFAULT_BLOCKED_DOMAINS, FetchConfig
-from .util import canonical_url
+from .util import canonical_url, tls_context
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class Fetcher:
         self.cfg = cfg
         self.blocked = sorted(set(blocked_domains or cfg.blocked_domains or DEFAULT_BLOCKED_DOMAINS))
         self.http = httpx.Client(
-            timeout=cfg.timeout_s,
+            timeout=cfg.timeout_s, verify=tls_context(),
             follow_redirects=False,  # presmerovania sledujeme sami (kontrola blokovaných domén)
             headers={"User-Agent": cfg.user_agent, "Accept-Language": "sk,cs;q=0.8,en;q=0.6"},
         )

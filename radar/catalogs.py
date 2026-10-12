@@ -17,6 +17,8 @@ from typing import Any
 
 import httpx
 
+from .util import tls_context
+
 log = logging.getLogger(__name__)
 
 NKOD_SPARQL = "https://data.slovensko.sk/api/sparql"
@@ -137,7 +139,7 @@ def _esc(term: str) -> str:
 class NKODClient:
     def __init__(self, endpoint: str = NKOD_SPARQL, http: httpx.Client | None = None, max_distributions: int = 8):
         self.endpoint = endpoint
-        self.http = http or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0),
+        self.http = http or httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0), verify=tls_context(),
                                          headers={"User-Agent": "ProblemRadar/0.2"})
         self.max_distributions = max_distributions
         self.failed = False  # po chybe sa v tomto behu katalóg už nevolá (beh pokračuje vyhľadávačom)

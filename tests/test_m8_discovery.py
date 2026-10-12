@@ -155,3 +155,14 @@ def test_sources_rotate_within_category_and_rss_always_used(tmp_path):
     second = rotate_sources(cfg, db, searched + [feed, other], "association")
     assert [s.name for s in first] == ["Komora RSS", "Zväz 0", "Zväz 1", "Zväz 2"]
     assert [s.name for s in second] == ["Komora RSS", "Zväz 3", "Zväz 4", "Zväz 0"]
+
+
+def test_tls_uses_os_trust_store_with_verification_on():
+    """Slovenské úradné weby často neposielajú medzicertifikát (SOPK, ÚRHH, EÚ SAV): overenie cez úložisko OS,
+    nie vypnutie overovania."""
+    import ssl
+
+    from radar.util import tls_context
+
+    ctx = tls_context()
+    assert ctx is True or (isinstance(ctx, ssl.SSLContext) and ctx.verify_mode == ssl.CERT_REQUIRED)
