@@ -130,3 +130,55 @@ def dedupe_latest(cfg: Config, hid: int, table: str) -> int:
         return con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
     finally:
         con.close()
+
+
+def append_days(cfg: Config, fetcher, hid: int, table: str, days: list[str], blocked: list[str],
+                sleep: Callable[[float], None] = time.sleep) -> dict:
+    """Doplní konkrétne dni (napr. dávky, ktoré predtým zlyhali) do existujúcej tabuľky: pridá iba zmluvy, ktoré
+    v nej ešte nie sú (verziu už uloženej zmluvy nemožno porovnať – deň dávky sa po zlúčení neukladá)."""
+    import duckdb
+
+    from .datasets import duck_path, hyp_dir
+
+    if not re.fullmatch(r"ds\d+", table):
+        raise DatasetError("neplatný názov tabuľky")
+    tmp = hyp_dir(cfg, hid) / "crz-append.jsonl"
+    got, failed, n = [], [], 0
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for i, day in enumerate(days):
+            if i:
+                sleep(cfg.gate1.crz_delay_s)
+            try:
+                dl = download(cfg, fetcher, CRZ_FILE.format(day=day), hyp_dir(cfg, hid), blocked)
+            except DatasetError as exc:
+                failed.append(day)
+                log.info("CRZ %s: %s", day, exc)
+                continue
+            try:
+                with zipfile.ZipFile(io.BytesIO(dl.path.read_bytes())) as zf:
+                    member = max(zf.infolist(), key=lambda m: m.file_size)
+                    for row in contracts(zf.read(member)):
+                        fh.write(json.dumps({**row, "_den": day}, ensure_ascii=False) + "\n")
+                        n += 1
+                got.append(day)
+            except (zipfile.BadZipFile, etree.XMLSyntaxError) as exc:
+                failed.append(day)
+                log.warning("CRZ %s: poškodená dávka (%s)", day, exc)
+            finally:
+                dl.path.unlink(missing_ok=True)
+    added = 0
+    if n:
+        con = duckdb.connect(str(duck_path(cfg, hid)))
+        try:
+            before = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            target = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+            source = {r[0] for r in con.execute("DESCRIBE SELECT * FROM read_json_auto(?)", [str(tmp)]).fetchall()}
+            cols = ", ".join('"' + c.replace('"', '""') + '"' for c in target if c in source)  # spoločné stĺpce
+            con.execute(f'INSERT INTO {table} ({cols}) SELECT {cols} FROM read_json_auto(?) '
+                        f'WHERE CAST("ID" AS VARCHAR) NOT IN (SELECT CAST("ID" AS VARCHAR) FROM {table}) '
+                        f'QUALIFY ROW_NUMBER() OVER (PARTITION BY "ID" ORDER BY _den DESC) = 1', [str(tmp)])
+            added = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] - before
+        finally:
+            con.close()
+    tmp.unlink(missing_ok=True)
+    return {"days_ok": got, "days_failed": failed, "added": added}

@@ -788,3 +788,21 @@ def test_crz_batch_with_control_character_is_not_dropped():
            "<suma_zmluva>10</suma_zmluva></zmluva></zmluvy>").encode()
     [row] = contracts(xml)
     assert row["predmet"] == "Oprava cesty" and row["suma_zmluva"] == 10.0
+
+
+def test_crz_append_missing_days_adds_only_new_contracts(tmp_path):
+    from radar.crz import append_days
+    from radar.datasets import import_table
+
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path, crz_delay_s=0)
+    seed = tmp_path / "seed.jsonl"
+    seed.write_text('{"ID": "1", "objednavatel": "Mesto Fiktívne", "ico_objednavatel": "00313271", "suma_zmluva": 100.0}\n',
+                    encoding="utf-8")
+    (tmp_path / "data" / "datasets" / f"H{hid}").mkdir(parents=True, exist_ok=True)
+    import_table(cfg, hid, "ds9", seed, "json")
+    xml = ("<?xml version='1.0'?><zmluvy><zmluva><ID>1</ID><suma_zmluva>999</suma_zmluva></zmluva>"
+           "<zmluva><ID>2</ID><zs1>Mesto Fiktívne</zs1><ico1>00313271</ico1><suma_zmluva>50</suma_zmluva></zmluva></zmluvy>")
+    routes = {"https://www.crz.gov.sk/export/2026-01-20.zip": httpx.Response(200, content=_zip_bytes("d.xml", xml.encode()))}
+    res = append_days(cfg, mock_fetcher(routes), hid, "ds9", ["2026-01-20", "2026-02-27"], [])
+    assert res == {"days_ok": ["2026-01-20"], "days_failed": ["2026-02-27"], "added": 1}
+    assert run_query(cfg, hid, "SELECT COUNT(*), SUM(suma_zmluva) FROM ds9")[0] == (2, 150.0)  # ID 1 ostalo pôvodné

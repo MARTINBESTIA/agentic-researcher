@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 185 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 188 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -118,3 +118,6 @@ Stav 12. 10. 2026: 185 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M1 | config.local.yaml (mimo gitu) prepíše config.yaml po kľúčoch | `test_m1_foundation.py::test_local_config_overrides_without_git` |
 | M6 | rodovo určená 1. osoba bez nastaveného rodu odosielateľa → na úpravu | `test_m6_outreach.py::test_gendered_first_person_needs_edit_unless_sender_gender_set` |
 | M10 | CRZ: denné dávky, zlúčenie podľa ID, bez mien dodávateľov a adries, pokrytie podľa IČO objednávateľa | `test_m10_gates.py::test_crz_daily_exports_deduplicated_without_supplier_names` |
+| M10 | CLI kroky brán s --hypotheses | `test_m10_gates.py::test_gate_stage_cli_accepts_hypotheses` |
+| M10 | CRZ: riadiaci znak neplatný v XML nezahodí dávku | `test_m10_gates.py::test_crz_batch_with_control_character_is_not_dropped` |
+| M10 | CRZ: doplnenie chýbajúcich dní pridá iba nové zmluvy | `test_m10_gates.py::test_crz_append_missing_days_adds_only_new_contracts` |
