@@ -94,6 +94,13 @@ def _current(items: list[dict[str, Any]] | None) -> dict[str, Any] | None:
     return (current or items)[-1]
 
 
+def current_name(record: dict[str, Any]) -> str:
+    """Aktuálny názov z RPO (platná položka fullNames). Zoznam obsahuje aj historické názvy v ľubovoľnom poradí –
+    porovnávať s posledným prvkom zlúčilo „Dôvera“ (zdravotná poisťovňa z článku) so spoločenstvom vlastníkov
+    bytov, ktoré malo kedysi podobný názov."""
+    return str(_value(_current(record.get("fullNames"))) or "")
+
+
 def _texts(items: Any) -> list[str]:
     """Zoznam reťazcov z poľa RPO, kde položka býva reťazec alebo číselníková hodnota {"value": …}."""
     out = []
@@ -139,7 +146,7 @@ class OrgInfo:
 
 def org_info_from_rpo(entity: dict[str, Any]) -> OrgInfo:
     entity = sanitize_rpo(entity)
-    name = _value(_current(entity.get("fullNames"))) or ""
+    name = current_name(entity)
     ico = _value(_current(entity.get("identifiers")))
     legal = _current(entity.get("legalForms"))
     stat = entity.get("statisticalCodes") or {}

@@ -34,7 +34,7 @@ from .fetch import domain_blocked
 from .models import ModelRouter, as_router
 from .names import fold, org_name_key
 from .prompts import ORG_MENTIONS_SYSTEM, SEGMENT_FILTER_SYSTEM
-from .registers import RPO_ATTRIBUTION, OrgInfo, RPOClient, RUZClient, org_info_from_rpo
+from .registers import RPO_ATTRIBUTION, OrgInfo, RPOClient, RUZClient, current_name, org_info_from_rpo
 from .strength import STRENGTH_ORDER, evidence_strength, strength_at_least
 from .util import Deadline, domain_of
 from .verify import quote_window
@@ -152,7 +152,7 @@ class OrgFinder:
         if self.rpo is not None and len(key) >= 4:
             scored = []
             for r in self.rpo.search_name(name)[:20]:
-                current = (r.get("fullNames") or [{}])[-1].get("value") or ""
+                current = current_name(r)
                 if r.get("termination"):
                     continue
                 score = fuzz.ratio(org_name_key(current), key)

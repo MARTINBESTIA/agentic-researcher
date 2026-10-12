@@ -236,3 +236,26 @@ def test_segment_candidate_ico_found_on_about_page(tmp_path):
     assert "segment_no_ico" not in stats and stats["orgs_created"] == 1
     org = db.orgs_for_hypothesis(hid)[0]
     assert org["ico"] == "12345678" and org["website_verified"] == 1 and org["relation"] == "segment_match"
+
+
+def test_name_resolution_uses_current_rpo_name_not_last_listed():
+    """Reálny beh #20: „Dôvera“ z článku o poisťovniach sa zlúčila so spoločenstvom vlastníkov bytov, lebo RPO
+    vracia aj historické názvy v ľubovoľnom poradí a kód bral posledný prvok."""
+    import tempfile
+
+    cfg = Config(db_path=f"{tempfile.mkdtemp()}/r.sqlite", models=ModelsConfig(), embeddings=EmbeddingsConfig(enabled=False))
+    db = DB(cfg.db_path)
+
+    names = [{"value": "Spoločenstvo vlastníkov bytov Fiktívna Dôvera", "validFrom": "2005-01-01"},
+             {"value": "Fiktívna Dôvera", "validFrom": "1995-01-01", "validTo": "2004-12-31"}]
+
+    def handler(request):
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"results": [{"id": 9001, "fullNames": names}]})
+        if request.url.path.endswith("/entity/9001"):
+            return httpx.Response(200, json={**ENTITY, "id": 9001, "fullNames": names})
+        return httpx.Response(404)
+
+    rpo = RPOClient(db, delay_s=0, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    finder = OrgFinder(cfg, db, None, FakeSearx(), FakeFetcher(), rpo, None, Deadline(1))
+    assert finder.resolve_name("Fiktívna Dôvera") is None  # historický názov inej organizácie nestačí
