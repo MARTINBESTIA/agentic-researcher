@@ -381,7 +381,7 @@ def test_openapi_endpoints_become_json_datasets_with_nested_fields(tmp_path):
 def test_backtest_groups_date_column_by_period(tmp_path):
     """Reálne dáta (ITMS): dátum platnosti zmluvy → štvrťroky; inak by každá zmluva bola samostatné obdobie."""
     rows = "".join(f"00313271;{2015 + i // 4}-{(i % 4) * 3 + 1:02d}-15;{100 + 10 * i}\n" for i in range(12))
-    csv = "ico;datum;suma\n" + rows + rows.replace(";1", ";1", 1)
+    csv = "ico;datum;suma\n" + rows + rows.replace(";1", ";1", 1) + "00313271;3202-12-18;999\n"  # preklep v roku (CRZ)
     cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path)
     url = "https://data.obce.sk/files/vydavky.csv"
     gate1.run_datasets(cfg, db, mock_fetcher({url: httpx.Response(200, content=csv.encode(), headers={"content-type": "text/csv"})}),

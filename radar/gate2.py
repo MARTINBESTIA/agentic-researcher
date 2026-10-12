@@ -177,7 +177,11 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
     period = spec.get("period") or "none"
     t = _q(spec["time_column"])
     if period in ("year", "quarter", "month"):  # dátum → obdobie (každá zmluva by inak bola samostatné obdobie)
-        t = f"CAST(date_trunc('{period}', TRY_CAST({t} AS TIMESTAMP)) AS DATE)"
+        raw = t
+        t = f"CAST(date_trunc('{period}', TRY_CAST({raw} AS TIMESTAMP)) AS DATE)"
+        # Preklepy v dátumoch (CRZ: roky 0002, 3202) by vytvorili nezmyselné obdobia na začiatku a konci radu.
+        where += (" AND " if where else "WHERE ") + (f"TRY_CAST({raw} AS TIMESTAMP) BETWEEN TIMESTAMP '1990-01-01' "
+                                                   "AND current_date + INTERVAL 366 DAY")
     sql = (f"SELECT {t} AS t, {agg}(TRY_CAST({_q(spec['value_column'])} AS DOUBLE)) AS y "
            f"FROM {spec['table']} {where} GROUP BY 1 ORDER BY 1")
     rows = run_query(cfg, hid, sql, params)
