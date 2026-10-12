@@ -253,6 +253,9 @@ class DiscoveryConfig(BaseModel):
     candidate_promotion: PromotionConfig = Field(default_factory=PromotionConfig)
     screen_chars: int = 3000  # koľko znakov zo začiatku dokumentu posúdi `screen`
     queries_per_run: int = 6  # bunky matice dopytov (vzor bolesti × odvetvie) za beh
+    # Zo zdrojov s vyhľadávaním (method search) jednej kategórie sa za beh použijú najviac 3 v rotácii; RSS zdroje
+    # vyhľadávač nepotrebujú a idú vždy. Desiatky zväzov a úradov by inak poslali stovky dopytov a SearXNG blokuje.
+    search_sources_per_arm: int = 3
     seed: int | None = None  # pevný seed banditu (testy); None = náhodný
     pain_patterns: list[str] = Field(default_factory=lambda: list(DEFAULT_PAIN_PATTERNS))
     sectors: list[str] = Field(default_factory=lambda: list(DEFAULT_SECTORS))

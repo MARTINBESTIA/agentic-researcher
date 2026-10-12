@@ -140,3 +140,18 @@ def test_demand_signal_needs_procurement_or_call_wording():
     assert checked_claim_type("demand_signal", "Mesto vyhlasuje prípravné trhové konzultácie na dodávku systému.") == "demand_signal"
     assert checked_claim_type("demand_signal", "Nemocnica opakovane vyhlásila súťaž na správu liekov.") == "demand_signal"
     assert checked_claim_type("regulation", "Od roku 2027 musia firmy…") == "regulation"
+
+
+def test_sources_rotate_within_category_and_rss_always_used(tmp_path):
+    """Desiatky zväzov a úradov: za beh iba 3 zdroje s vyhľadávaním (rotácia), RSS vždy – inak stovky dopytov."""
+    from radar.discover import Source, rotate_sources
+
+    cfg = cfg_for(tmp_path)
+    db = DB(cfg.db_path)
+    searched = [Source(category="association", name=f"Zväz {i}", url=f"https://zvaz{i}.sk", verified=True) for i in range(5)]
+    feed = Source(category="association", name="Komora RSS", url="https://komora.sk/rss", method="rss", verified=True)
+    other = Source(category="audit", name="Úrad", url="https://urad.sk", verified=True)
+    first = rotate_sources(cfg, db, searched + [feed, other], "association")
+    second = rotate_sources(cfg, db, searched + [feed, other], "association")
+    assert [s.name for s in first] == ["Komora RSS", "Zväz 0", "Zväz 1", "Zväz 2"]
+    assert [s.name for s in second] == ["Komora RSS", "Zväz 3", "Zväz 4", "Zväz 0"]

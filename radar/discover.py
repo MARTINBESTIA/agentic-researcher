@@ -16,6 +16,7 @@ import math
 import random
 from collections import Counter
 from dataclasses import dataclass, field
+from itertools import zip_longest
 from typing import Any
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -110,6 +111,21 @@ def allocate(arms: list[str], total: int, stats: dict[str, Any], min_share: floa
             draws[a] = rng.betavariate(1 + s, 1 + f)
         alloc[max(draws, key=draws.get)] += 1
     return alloc
+
+
+def rotate_sources(cfg: Config, db: DB, sources: list[Source], arm: str) -> list[Source]:
+    """Zdroje kategórie pre tento beh: všetky RSS a seed (bez vyhľadávača) a najviac
+    discovery.search_sources_per_arm zdrojov s vyhľadávaním v rotácii (kurzor v DB pokračuje ďalším behom)."""
+    mine = [s for s in sources if s.category == arm]
+    direct = [s for s in mine if s.method in ("rss", "seed", "api")]
+    searched = [s for s in mine if s not in direct]
+    k = min(cfg.discovery.search_sources_per_arm, len(searched))
+    if not k:
+        return direct
+    cursor = int(db.get_cursor(arm + ":sources") or 0) % len(searched)
+    pick = [searched[(cursor + i) % len(searched)] for i in range(k)]
+    db.record_arm(arm + ":sources", cursor=str((cursor + k) % len(searched)))
+    return direct + pick
 
 
 # ------------------------------------------------------------------ kandidáti
@@ -223,7 +239,9 @@ def run_discover(cfg: Config, db: DB, searx, fetcher, deadline: Deadline, budget
         if arm == MATRIX_ARM:
             cands = matrix_candidates(cfg, db, searx, n)
         else:
-            cands = [c for s in sources if s.category == arm for c in source_candidates(cfg, db, searx, s, n)]
+            # Kandidáti striedavo zo všetkých zdrojov kategórie (inak by prvý zdroj v zozname vyčerpal celý rozpočet).
+            per_source = [source_candidates(cfg, db, searx, s, n) for s in rotate_sources(cfg, db, sources, arm)]
+            cands = [c for group in zip_longest(*per_source) for c in group if c is not None]
         fetched = 0
         for cand in cands:
             if fetched >= n or deadline.expired():
