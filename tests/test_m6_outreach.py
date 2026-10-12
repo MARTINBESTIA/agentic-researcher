@@ -208,3 +208,18 @@ def test_refresh_draft_rechecks_without_regenerating(tmp_path):
     row = db.get_outreach(oid)
     assert row["subject"] and "Test Odosielateľ" in row["body"] and "zvaz.sk" not in row["subject"]
     assert [c[0] for c in rec.calls] == ["DraftCheck"]  # iba kontrola faktov, žiadne nové generovanie
+
+
+def test_gendered_first_person_needs_edit_unless_sender_gender_set(tmp_path):
+    """Reálny návrh #45: „Rád by som sa dozvedel…“, hoci rod odosielateľa nie je určený (nehádame ho z mena)."""
+    cfg, db, hid, pid, org_id, rec, router = setup(tmp_path, REAL_SENDER)
+    core = "Zaujíma ma, ako riešite finančné opravy. Rád by som sa dozvedel, kedy sa to stalo naposledy."
+    subject, body = compose(cfg, "email", person_row(), None, core, "Otázka", "https://x.sk")
+    checks = check_draft(cfg, "email", subject, body, core, [], "https://x.sk")
+    assert not checks["ok"] and "rád by som" in " ".join(checks["problems"])
+    neutral = "Zaujíma ma, ako riešite finančné opravy a kedy sa to stalo naposledy. Obecná rada to schválila?"
+    subject, body = compose(cfg, "email", person_row(), None, neutral, "Otázka", "https://x.sk")
+    assert check_draft(cfg, "email", subject, body, neutral, [], "https://x.sk")["ok"]
+    cfg.outreach.sender.gender = "m"  # človek zvolil rod v config.local.yaml
+    subject, body = compose(cfg, "email", person_row(), None, core, "Otázka", "https://x.sk")
+    assert check_draft(cfg, "email", subject, body, core, [], "https://x.sk")["ok"]

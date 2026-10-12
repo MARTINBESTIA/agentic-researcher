@@ -167,8 +167,7 @@ Rules:
 - Do not sell: no offer, product, demo, price, discount or free consultation.
 - The reason why this person is contacted may use ONLY the numbered FACTS. Do not state anything else about the person, the organization or the problem. Do not use numbers that are not in the facts. No URLs.
 - No flattery, no invented mutual contacts, no false urgency, no mention of any employer of the sender.
-- Formal Slovak ("vy"), plain and specific, {max_words} words at most. The gender of the sender is unknown: avoid gendered
-  first-person forms ("rád/rada", "mal/mala som"); write e.g. "Chcem sa opýtať", "Zaujíma ma".
+- Formal Slovak ("vy"), plain and specific, {max_words} words at most. {sender_gender}
 - Variant A: start from the public statement or evidence in the facts. Variant B: start from the role of the person and the type of organization.
 - Channel "linkedin": one or two sentences, at most {linkedin_chars} characters. Channel "phone": a spoken opener with one question.
 Return "subject" (e-mail only, max {subject_chars} characters, no sender name), "body" and "facts_used" (ids like "F1" of the facts you used)."""

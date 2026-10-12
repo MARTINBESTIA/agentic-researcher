@@ -163,6 +163,19 @@ def facts_text(facts: list[dict[str, Any]]) -> str:
 
 
 # ======================================================================= kontroly
+SENDER_GENDER = {
+    "": ('The gender of the sender is unknown: avoid gendered first-person forms ("rád/rada", "chcel/chcela by som", '
+         '"mal/mala som", "dozvedel/dozvedela"); write e.g. "Chcem sa opýtať", "Zaujíma ma", "Uvítam".'),
+    "m": 'The sender is a man: use masculine first-person forms ("rád by som", "chcel by som").',
+    "f": 'The sender is a woman: use feminine first-person forms ("rada by som", "chcela by som").',
+}
+# Rodovo určená 1. osoba odosielateľa (iba spojenia, ktoré nemajú iný význam: „rada“ samotné je aj podstatné meno).
+GENDERED_FIRST_PERSON_RE = re.compile(
+    r"\b(?:(?:rád|rada|chcel|chcela|mal|mala|bol|bola|uvítal|uvítala|dozvedel|dozvedela) by som|"
+    r"by som (?:sa )?(?:rád|rada|chcel|chcela|dozvedel|dozvedela)|som (?:rád|rada)|"
+    r"(?:mal|mala|bol|bola|robil|robila|hovoril|hovorila|čítal|čítala|zistil|zistila) som)\b", re.I)
+
+
 def check_draft(cfg: Config, channel: str, subject: str | None, body: str, core: str, facts: list[dict[str, Any]],
                 source_url: str) -> dict[str, Any]:
     """Deterministické kontroly návrhu (R-OUT-6). Vráti {"ok": bool, "problems": [...], ...}."""
@@ -192,6 +205,11 @@ def check_draft(cfg: Config, channel: str, subject: str | None, body: str, core:
     bad = [p for p in o.forbidden_phrases if re.search(r"(?<![a-z])" + re.escape(fold(p)) + r"(?![a-z])", folded)]
     if bad:
         problems.append("Zakázané frázy: " + ", ".join(bad) + ".")
+    if not o.sender.gender:  # rod odosielateľa sa neodhaduje: buď neutrálne, alebo outreach.sender.gender
+        gendered = sorted({m.group(0).lower() for m in GENDERED_FIRST_PERSON_RE.finditer(main)})
+        if gendered:
+            problems.append("Rodovo určená 1. osoba (" + ", ".join(gendered[:3]) + "): prepíš neutrálne alebo nastav "
+                            "outreach.sender.gender v config.local.yaml.")
     allowed = {u.rstrip("/.,") for u in (o.sender.privacy_notice_url, source_url) if u}
     allowed |= {f["url"].rstrip("/.,") for f in facts if f.get("url")}
     urls = [u.rstrip("/.,;") for u in URL_RE.findall(body)]
@@ -261,7 +279,8 @@ def draft_messages(cfg: Config, hyp, person, org, link_type: str, variant: str, 
     max_words = max(40, o.email_max_words - fixed) if channel == "email" else o.phone_opener_max_words - 25
     linkedin_chars = o.linkedin_note_max_chars - len(f"Dobrý deň,  Info o údajoch: {o.sender.privacy_notice_url}")
     system = DRAFT_SYSTEM.format(max_words=max_words, linkedin_chars=max(60, linkedin_chars),
-                                 subject_chars=o.email_subject_max_chars)
+                                 subject_chars=o.email_subject_max_chars, sender_gender=SENDER_GENDER.get(
+                                     o.sender.gender, SENDER_GENDER[""]))
     addressee = "a generic organization mailbox: ask to be directed to the right person" if generic else "the person"
     user = (
         f"CHANNEL: {channel}\nVARIANT: {variant}\nADDRESSEE: {addressee}\n"

@@ -394,6 +394,8 @@ class SenderConfig(BaseModel):
     phone: str = ""
     affiliation: str = "{AFILIACIA}"
     privacy_notice_url: str = "{URL_INFORMACIE_O_SPRACUVANI}"
+    # Gramatický rod v 1. osobe („rád/rada by som“): "" = neutrálne formulácie (rod sa neodhaduje z mena), "m" alebo "f".
+    gender: str = ""
 
 
 class OutreachConfig(BaseModel):
