@@ -495,3 +495,29 @@ def test_xml_records_become_columns_without_external_entities(tmp_path):
     assert ds["rows"] == 2 and {"id", "ico", "suma", "obstaravatel_nazov"} <= set(cols)
     rows = run_query(cfg, hid, f"SELECT pozn FROM {ds['table_name']}")
     assert all("TAJNY" not in str(r[0]) for r in rows)  # externá entita sa nenačítala (XXE)
+
+
+def test_search_retries_blocked_engines_relaxes_quotes_and_caches(monkeypatch):
+    """Reálne behy: DuckDuckGo CAPTCHA a Google CSE limit – zopakovanie po pauze, potom bez úvodzoviek, pamäť dopytov."""
+    from radar.config import SearchConfig
+    from radar.search import SearxClient
+
+    sleeps, calls = [], []
+    monkeypatch.setattr("radar.search.time.sleep", lambda s: sleeps.append(s))
+    blocked = {"results": [], "unresponsive_engines": [["duckduckgo", "CAPTCHA"], ["google cse", "too many requests"]]}
+    found = {"results": [{"url": "https://www.fiktivne-mesto.sk/urad/kontakty", "title": "Kontakty", "content": "Jana"}]}
+
+    def handler(request):
+        q = request.url.params["q"]
+        calls.append(q)
+        if '"' in q:
+            return httpx.Response(200, json=blocked)  # presná fráza nič nenájde ani po zopakovaní
+        return httpx.Response(200, json=found)
+
+    client = SearxClient(SearchConfig(delay_s=0), "test")
+    client.http = httpx.Client(transport=httpx.MockTransport(handler))
+    res = client.search('"Jana Nováková" site:fiktivne-mesto.sk')
+    assert [r.url for r in res] == ["https://www.fiktivne-mesto.sk/urad/kontakty"]
+    assert calls == ['"Jana Nováková" site:fiktivne-mesto.sk'] * 2 + ["Jana Nováková site:fiktivne-mesto.sk"]
+    assert 4.0 in sleeps and client.penalty == 2.0  # pauza po blokovaní, po úspechu sa zmenší
+    assert client.search('"Jana  Nováková" site:fiktivne-mesto.sk') == res and len(calls) == 3  # z pamäte

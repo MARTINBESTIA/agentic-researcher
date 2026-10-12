@@ -155,6 +155,11 @@ class SearchConfig(BaseModel):
     language: str = "sk"
     results_per_query: int = 8
     delay_s: float = 2.0  # pauza medzi dopytmi, aby vyhľadávače SearXNG neobmedzili
+    # Keď nič nevráti a vyhľadávače hlásia CAPTCHA/limit: jedno zopakovanie po narastajúcej pauze (max. 30 s)
+    # a pri presnej fráze v úvodzovkách ešte pokus bez úvodzoviek (výsledky aj tak overuje kód).
+    retry_on_empty: bool = True
+    max_backoff_s: float = 30.0
+    cache_minutes: float = 60.0  # rovnaký dopyt v jednom behu sa neposiela znova
 
 
 DEFAULT_BLOCKED_DOMAINS = ["linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com"]

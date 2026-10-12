@@ -68,6 +68,7 @@ embeddings:
   similar_hypotheses: 0.70
 
 search:
+  # retry_on_empty: true, max_backoff_s: 30, cache_minutes: 60 – zopakovanie pri blokovaných vyhľadávačoch (radar/config.py)
   searxng_url: http://localhost:8888    # SearXNG z docker-compose.yml
   language: sk
   results_per_query: 8

@@ -36,7 +36,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   prepojenie s formulárom Rozhovory (expert, dátum, citát) by dalo históriu a metriku „nové poznatky“. · 1 deň.
 - **2026-10-12 – modely – automatický eval po zmene modelu v GUI.** Po výbere nového modelu pre rolu by sa
   mohol spustiť benchmark a eval na označených príkladoch a ukázať rozdiel oproti predchádzajúcemu. · 1–2 dni.
-- **2026-10-12 – vyhľadávanie – spoľahlivejší vyhľadávač.** SearXNG má pri automatických dopytoch funkčný
+- **2026-10-12 – vyhľadávanie – spoľahlivejší vyhľadávač.** *Čiastočne hotové 12. 10. 2026: tempo, zopakovanie, dopyt bez úvodzoviek, pamäť dopytov; ostáva lokálny index domén a iný zdroj výsledkov.* SearXNG má pri automatických dopytoch funkčný
   najmä Bing a Yahoo (DuckDuckGo CAPTCHA, Google CSE limit, Seznam timeout; Mojeek a Startpage sú v novej
   verzii SearXNG vypnuté pre proof-of-work CAPTCHA). Kontakty k osobe a agenti tým strácajú väčšinu
   dopytov. Možnosti: tempo dopytov a rotácia vyhľadávačov v SearxClient, lokálny index vybraných domén
