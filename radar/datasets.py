@@ -619,10 +619,26 @@ def schema_text(cfg: Config, hid: int, tables: list[str], samples: int = 3) -> s
             n = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
             head = ", ".join(f"{c[0]} {c[1]}" for c in cols)
             sample = "\n".join("  " + " | ".join(str(v)[:40] for v in r) for r in rows)
-            parts.append(f"TABLE {t} ({n} rows): {head}\n{sample}")
+            values = _category_values(con, t, [c[0] for c in cols if c[1] == "VARCHAR"])
+            parts.append(f"TABLE {t} ({n} rows): {head}\n{sample}" + (f"\n  values: {values}" if values else ""))
     finally:
         con.close()
     return "\n\n".join(parts)
+
+
+def _category_values(con, table: str, columns: list[str], max_values: int = 30, max_columns: int = 8) -> str:
+    """Všetky hodnoty textových stĺpcov s malým počtom hodnôt (kraj, ukazovateľ): model z nich berie presné filtre.
+    Počíta sa zo vzorky 100 000 riadkov (veľké tabuľky); stĺpce s mnohými hodnotami (názvy, IČO) sa vynechajú."""
+    out = []
+    for col in columns:
+        if len(out) >= max_columns:
+            break
+        q = _quote(col)
+        vals = con.execute(f"SELECT DISTINCT {q} FROM (SELECT {q} FROM {table} LIMIT 100000) WHERE {q} IS NOT NULL "
+                           f"LIMIT {max_values + 1}").fetchall()
+        if 2 <= len(vals) <= max_values:
+            out.append(f"{col} = " + " | ".join(sorted(str(v[0])[:40] for v in vals)))
+    return "; ".join(out)
 
 
 def check_sql(sql: str) -> str:

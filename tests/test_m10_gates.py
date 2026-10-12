@@ -626,7 +626,7 @@ def test_backtest_season_length_and_new_models():
 
 
 def test_prereg_filters_select_one_indicator_of_long_table(tmp_path):
-    from radar.datasets import hyp_dir, import_table, wide_to_long
+    from radar.datasets import hyp_dir, import_table, schema_text, wide_to_long
 
     cfg, *_ = setup(tmp_path)
     hid = 7  # DuckDB databáza hypotézy (riadok hypotézy v SQLite netreba)
@@ -637,6 +637,7 @@ def test_prereg_filters_select_one_indicator_of_long_table(tmp_path):
     path.write_text("kraj;ukazovatel;" + ";".join(str(2016 + i) for i in range(8)) + "\n" + rows, encoding="utf-8")
     import_table(cfg, hid, "ds1", path, "csv")
     assert wide_to_long(cfg, hid, "ds1")["riadky"] == 24
+    assert "values: kraj = NR | ZA; ukazovatel = príjmy | výdavky" in schema_text(cfg, hid, ["ds1"])  # presné hodnoty filtrov
     spec = {"table": "ds1_long", "time_column": "obdobie", "value_column": "hodnota", "aggregation": "sum",
             "filters": {"kraj": "ZA", "ukazovatel": "výdavky"}, "model": "auto"}
     assert gate2.validate_spec(cfg, hid, spec) == []

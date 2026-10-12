@@ -56,7 +56,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-12 – agenti – prompt a nástroje pre modely, ktoré iba čítajú.** 9B aj MoE 35B agent číta, ale nástroj
   na uloženie takmer nevolá; dnes to dorovnáva extrakcia z prečítaných stránok. Skúsiť: nástroj read_page vracia
   rovno „kandidátske citáty“ na potvrdenie, alebo vynútiť record po každom read_page (tool_choice). · 1 deň.
-- **2026-10-12 – Brána 2 – hodnoty filtrov z dát.** Model pri predregistrácii vidí iba 3 ukážkové riadky, takže
+- ~~**2026-10-12 – Brána 2 – hodnoty filtrov z dát.**~~ **Hotové 12. 10. 2026** (schéma pre model uvádza všetky hodnoty textových stĺpcov s ≤ 30 hodnotami; výber v GUI zo zoznamu ostáva). Model pri predregistrácii vidí iba 3 ukážkové riadky, takže
   hodnotu filtra (presný názov ukazovateľa alebo kraja) často nepozná. Zoznam odlišných hodnôt nízkokardinalitných
   stĺpcov (napr. ≤ 50) v schéme a výber filtra v GUI zo zoznamu by znížili počet chybných návrhov. · 0,5 dňa.
 
