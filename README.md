@@ -71,8 +71,10 @@ Tento počítač je nastavený (11. 10. 2026). Postup pre iný počítač:
 4. **Kontrola a benchmark:** `.venv\Scripts\python -m radar doctor --bench`
 5. **Posúdenie oprávneného záujmu:** doplň meno a kontakt v `data/LIA.md` a skontroluj text.
    Bez `privacy.lia_completed: true` sa ľudia nehľadajú.
-6. **Profil odosielateľa** v `config.yaml → outreach.sender` (meno, e-mail, afiliácia iba ak je
-   pravdivá, URL informácie o spracúvaní). Kým sú tam placeholdery `{…}`, schvaľovanie je zablokované.
+6. **Profil odosielateľa** v `config.local.yaml` (skopíruj `config.local.example.yaml`; git ho ignoruje,
+   hodnoty prepíšu `config.yaml`): meno, e-mail, afiliácia iba ak je pravdivá, URL informácie o spracúvaní.
+   `config.yaml` je v repozitári – osobné údaje doň nepíš. Kým sú v profile placeholdery `{…}`, schvaľovanie
+   je zablokované; návrhy oslovení sa vytvoria aj tak (pätička s placeholdermi).
 
 ## Každodenné použitie
 

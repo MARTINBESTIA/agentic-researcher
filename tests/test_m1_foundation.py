@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+from pathlib import Path
 
 from radar.config import Config, EmbeddingsConfig, ModelsConfig, PipelineConfig
 from radar.db import DB, SCHEMA_VERSION
@@ -196,3 +197,16 @@ def test_log_does_not_contain_email_or_phone(tmp_path):
         assert secret not in text
     assert "IČO 00397563" in text  # IČO nie je osobný údaj, nemaskuje sa
     assert mask_text("bez kontaktov 2 890 obcí") == "bez kontaktov 2 890 obcí"
+
+
+def test_local_config_overrides_without_git(tmp_path):
+    """Profil odosielateľa (meno, e-mail) patrí do config.local.yaml, ktorý git ignoruje."""
+    from radar.config import load_config
+
+    (tmp_path / "config.yaml").write_text("outreach:\n  sender:\n    name: \"{MENO_PRIEZVISKO}\"\n    email: \"{EMAIL}\"\n"
+                                         "  daily_cap: 10\n", encoding="utf-8")
+    (tmp_path / "config.local.yaml").write_text("outreach:\n  sender:\n    name: Fiktívny Odosielateľ\n", encoding="utf-8")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg.outreach.sender.name == "Fiktívny Odosielateľ" and cfg.outreach.sender.email == "{EMAIL}"
+    assert cfg.outreach.daily_cap == 10
+    assert "config.local.yaml" in (Path(__file__).resolve().parent.parent / ".gitignore").read_text(encoding="utf-8")

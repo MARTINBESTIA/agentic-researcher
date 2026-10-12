@@ -523,11 +523,22 @@ ENV_OVERRIDES = {
 }
 
 
+def deep_merge(base: dict, override: dict) -> dict:
+    """Hodnoty z override prepíšu base; vnorené slovníky sa zlúčia po kľúčoch (zoznamy sa nahradia celé)."""
+    out = dict(base)
+    for key, value in override.items():
+        out[key] = deep_merge(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
 def load_config(path: str | Path) -> Config:
     """Relatívne cesty (databáza, správy, logy, projekty) sa berú od priečinka s config.yaml,
     takže na pracovnom priečinku nezáleží (napr. pri spúšťaní z Plánovača úloh)."""
     path = Path(path).resolve()
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    local = path.with_name("config.local.yaml")  # osobné údaje (profil odosielateľa) mimo gitu
+    if local.exists():
+        data = deep_merge(data, yaml.safe_load(local.read_text(encoding="utf-8")) or {})
     cfg = Config.model_validate(data)
     for env, (section, field) in ENV_OVERRIDES.items():
         if os.environ.get(env):

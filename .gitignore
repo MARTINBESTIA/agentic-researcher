@@ -12,3 +12,4 @@ searxng/settings.yml
 *.pdf
 *.zip
 .claude/settings.local.json
+config.local.yaml
