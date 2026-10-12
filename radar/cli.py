@@ -406,7 +406,7 @@ def cmd_progress(app: App, args: argparse.Namespace) -> int:
 EXTRA_CLI_STAGES = ["screen", "verify-code", "embed", "people-rank", "prepare-next", "purge", "scout",
                     "validate-search", "validate-verify", "validate-cluster", "validate-finish", "profiles", "contacts",
                     "gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-repro", "gate1-finish",
-                    "gate2-prereg", "gate2-backtest", "gate2-demo", "bench"]
+                    "gate2-prereg", "gate2-backtest", "gate2-demo", "bench", "source-types"]
 
 
 def build_parser() -> argparse.ArgumentParser:

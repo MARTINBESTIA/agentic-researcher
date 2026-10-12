@@ -7,7 +7,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 
 ---
 
-- **2026-10-11 – dôkazy – rozpoznať typ zdroja (dodávateľ / médiá / úrad / výskum).** Agent pri teste
+- ~~**2026-10-11 – dôkazy – rozpoznať typ zdroja (dodávateľ / médiá / úrad / výskum).**~~ **Hotové 12. 10. 2026** (pravidlá + model raz na doménu; dodávatelia sa nepočítajú do sily). Agent pri teste
   hypotéz občas berie text z blogu dodávateľa softvéru ako podporu problému. Klasifikátor zdroja
   (doména + model) by vedel váhovať dôkazy a v GUI označiť „marketing dodávateľa“. · 1–2 dni.
 - **2026-10-11 – hypotézy – hlbšie zlučovanie príliš úzkych hypotéz.** Jeden beh vytvoril 18 hypotéz

@@ -7,10 +7,15 @@ STRENGTH_ORDER = {"silnejšia": 2, "stredná": 1, "slabá": 0}
 NOT_SUPPORTING = {"counter": "protidôkaz", "existing_solution": "existujúce riešenie"}
 
 
+def is_vendor(e) -> bool:
+    """Citát z webu dodávateľa (marketing vlastného produktu) – nie je nezávislý dôkaz problému."""
+    return "source_type" in e.keys() and e["source_type"] == "vendor"
+
+
 def evidence_strength(evidence: list) -> tuple[str, int, int, int]:
     """(štítok, overené, čiastočné, rôzne domény overených tvrdení). Počítajú sa len tvrdenia,
-    ktoré problém dokladajú – protidôkazy a existujúce riešenia silu nezvyšujú."""
-    evidence = [e for e in evidence if e["claim_type"] not in NOT_SUPPORTING]
+    ktoré problém dokladajú – protidôkazy, existujúce riešenia a citáty dodávateľov silu nezvyšujú."""
+    evidence = [e for e in evidence if e["claim_type"] not in NOT_SUPPORTING and not is_vendor(e)]
     verified = [e for e in evidence if e["status"] == "verified"]
     partial = [e for e in evidence if e["status"] == "partial"]
     domains = {e["domain"] for e in verified}

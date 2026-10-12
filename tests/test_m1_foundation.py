@@ -44,7 +44,7 @@ def test_v01_database_is_migrated_with_backup(tmp_path):
     path.parent.mkdir()
     v01_database(path)
     db = DB(path)
-    assert db.schema_version() == SCHEMA_VERSION == 4
+    assert db.schema_version() == SCHEMA_VERSION == 5
     assert db.migration["backup"] is not None
     backups = list((tmp_path / "data" / "backup").glob("radar-v1-*.sqlite"))
     assert len(backups) == 1
@@ -54,19 +54,19 @@ def test_v01_database_is_migrated_with_backup(tmp_path):
     assert h["origin"] == "manual" and h["people_enabled"] == 0 and h["gate0_status"] == "not_started"
     tables = {r[0] for r in db.conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"organizations", "people", "contact_points", "outreach", "model_judgments", "review_queue", "labels", "jobs", "settings", "data_fields",
-            "data_sources", "datasets", "reproductions", "info_requests", "gate_decisions", "experiments"} <= tables
+            "data_sources", "datasets", "reproductions", "info_requests", "gate_decisions", "experiments", "domain_types"} <= tables
     assert h["validation_state"] is None and h["validation_runs"] == 0  # v3: testovanie hypotéz
     db.close()
     # druhé spustenie nič nezmení
     db = DB(path)
-    assert db.migration == {"from": 4, "to": 4, "backup": None}
+    assert db.migration == {"from": 5, "to": 5, "backup": None}
     assert len(list((tmp_path / "data" / "backup").glob("*.sqlite"))) == 1
     db.close()
 
 
 def test_new_database_has_latest_schema_without_backup(tmp_path):
     db = DB(tmp_path / "new.sqlite")
-    assert db.schema_version() == 4
+    assert db.schema_version() == 5
     assert db.migration["backup"] is None
     assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
 

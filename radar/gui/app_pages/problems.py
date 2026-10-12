@@ -4,6 +4,7 @@ from radar.db import HYPOTHESIS_STATUSES
 from radar.gui.common import (
     cfg, db, esc, highlighted_window, hypothesis_table, jobs_panel, json_or, refresh, safe_url, start_job_button,
 )
+from radar.publishers import TYPE_LABELS
 from radar.strength import evidence_strength
 
 d, c = db(), cfg()
@@ -75,7 +76,8 @@ with st.container(border=True):
             st.warning(f"Test je neúplný – agent: {agent.get('chyba', 'zlyhal')}. Verdikt je iba z doterajších dôkazov; "
                        "použi „Otestovať teraz“.", icon=":material/warning:")
         st.caption(f"Overené {test.get('overené')} z {test.get('domény')} domén, protidôkazy {test.get('protidôkazy')}, "
-                   f"existujúce riešenia {test.get('existujúce_riešenia')} · agent našiel {z.get('nájdené', 0)} citátov: "
+                   f"existujúce riešenia {test.get('existujúce_riešenia')}, od dodávateľov {test.get('od_dodávateľov', 0)} "
+                   f"(nepočítajú sa) · agent našiel {z.get('nájdené', 0)} citátov: "
                    f"{z.get('priradené_sem', 0)} k tejto hypotéze, {z.get('priradené_inam', 0)} inam, "
                    f"{z.get('zamietnuté', 0)} zamietnutých kontrolou citátu.")
     elif h["validation_state"] == "searched":
@@ -94,7 +96,8 @@ with st.container(border=True):
 tab_ev, tab_crit, tab_notes = st.tabs(["Dôkazy", "Kritika a trh", "Poznámky"])
 with tab_ev:
     for e in evidence[:40]:
-        with st.expander(f"C{e['id']} · {e['status']} · {e['domain']} · {e['problem'][:110]}"):
+        vyd = TYPE_LABELS.get(e["source_type"], "") if "source_type" in e.keys() else ""
+        with st.expander(f"C{e['id']} · {e['status']} · {e['domain']}{' (' + vyd + ')' if vyd else ''} · {e['problem'][:100]}"):
             doc = d.get_document(e["document_id"])
             st.html(highlighted_window(doc["text"] if doc else "", e["quote"]))
             url = safe_url(e["url"])

@@ -22,7 +22,8 @@ from .util import Deadline
 
 log = logging.getLogger("radar")
 
-FAST_STAGES = ["discover", "scout", "collect", "screen", "extract", "verify-code", "orgs", "people", "gate1-sources",
+FAST_STAGES = ["discover", "scout", "collect", "screen", "extract", "verify-code", "source-types", "orgs", "people",
+               "gate1-sources",
                "gate1-check", "gate1-datasets", "gate2-backtest", "validate-search"]
 ACCURATE_STAGES = ["people-rank", "contacts", "drafts", "verify", "cluster", "validate-finish", "gate1-fields",
                    "gate1-repro", "gate1-finish", "gate2-prereg", "gate2-demo", "prepare-next", "critique", "market"]

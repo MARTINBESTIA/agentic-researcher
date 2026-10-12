@@ -504,3 +504,21 @@ CREATE TABLE IF NOT EXISTS experiments (    -- Brána 2: hypotéza × organizác
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 """
+
+# ---------------------------------------------------------------- v5: typ vydavateľa zdroja
+V5_COLUMNS = {
+    "documents": {
+        "source_type": "TEXT",                    # government | media | research | association | vendor | other
+    },
+}
+
+SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS domain_types (   -- typ vydavateľa podľa domény (pravidlo alebo rýchly model, raz na doménu)
+  domain TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL,
+  method TEXT NOT NULL,                     -- rule | model | manual
+  reason TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_documents_domain ON documents(domain);
+"""

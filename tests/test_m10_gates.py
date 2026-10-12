@@ -521,3 +521,33 @@ def test_search_retries_blocked_engines_relaxes_quotes_and_caches(monkeypatch):
     assert calls == ['"Jana Nováková" site:fiktivne-mesto.sk'] * 2 + ["Jana Nováková site:fiktivne-mesto.sk"]
     assert 4.0 in sleeps and client.penalty == 2.0  # pauza po blokovaní, po úspechu sa zmenší
     assert client.search('"Jana  Nováková" site:fiktivne-mesto.sk') == res and len(calls) == 3  # z pamäte
+
+
+def test_publisher_types_rules_model_once_per_domain_and_vendor_not_counted(tmp_path):
+    from radar.publishers import rule_type, run_source_types
+    from radar.strength import evidence_strength
+
+    assert rule_type("www.nku.gov.sk") == "government" and rule_type("ec.europa.eu") == "government"
+    assert rule_type("domov.sme.sk") == "media" and rule_type("ineko.sk") == "research" and rule_type("firma.sk") is None
+    QUOTE = "Malé obce nemajú kapacitu na verejné obstarávanie."
+    DOC = "Úvod. " * 30 + QUOTE + " Záver. " * 30
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kapacita obcí na obstarávanie", "", "obce")
+    docs = []
+    for i, url in enumerate(["https://www.nku.gov.sk/a", "https://softver-firma.sk/blog/a", "https://softver-firma.sk/blog/b",
+                             "https://ina-firma.sk/riesenie"]):
+        doc, _ = db.upsert_document(url, "T", "search", "t", "q", f"h{i}", DOC)
+        cid = db.insert_claim(doc, 0, "t", "Obce nemajú kapacitu", "obce", "pain", QUOTE + f" {i}")
+        db.set_claim_verification(cid, "verified", 100, "ok")
+        db.assign_claim(hid, cid)
+        docs.append(doc)
+    assert evidence_strength(db.evidence_for(hid))[0] == "silnejšia"  # bez typov: 4 overené z 3 domén
+    rec.responses["SourceTypeVerdict"] = {"source_type": "vendor", "reason": "predáva softvér"}
+    stats = run_source_types(cfg, db, router, Deadline(1))
+    assert stats["rule:government"] == 1 and stats["model:vendor"] == 2
+    assert rec.models_for("SourceTypeVerdict") == ["radar-qwen3.5-9b"] * 2  # raz na doménu, nie na dokument
+    label, n_ver, _, n_dom = evidence_strength(db.evidence_for(hid))
+    assert (label, n_ver, n_dom) == ("slabá", 1, 1)  # citáty dodávateľov sa nepočítajú
+    doc, _ = db.upsert_document("https://softver-firma.sk/blog/c", "T", "search", "t", "q", "h9", DOC)
+    assert run_source_types(cfg, db, router, Deadline(1))["from_known_domains"] == 1  # nový dokument známej domény
+    assert db.get_document(doc)["source_type"] == "vendor"

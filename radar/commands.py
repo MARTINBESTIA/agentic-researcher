@@ -62,6 +62,13 @@ def stage_validate_finish(app, deadline: Deadline) -> dict:
     return run_validate_finish(app.cfg, app.db, deadline)
 
 
+def stage_source_types(app, deadline: Deadline) -> dict:
+    """Typ vydavateľa zdrojov (pravidlo podľa domény, inak rýchly model raz na doménu)."""
+    from .publishers import run_source_types
+
+    return run_source_types(app.cfg, app.db, app.router, deadline)
+
+
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu)."""
     from .person_contacts import run_person_contacts
@@ -216,6 +223,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "validate-finish": stage_validate_finish,
     "profiles": stage_profiles,
     "contacts": stage_contacts,
+    "source-types": stage_source_types,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
     "gate1-check": stage_gate1("check"),
@@ -252,6 +260,7 @@ STAGE_HELP = {
     "gate2-backtest": "Brána 2: spätný test uzamknutých experimentov (iba Python a DuckDB).",
     "gate2-demo": "Brána 2: demo pre organizáciu (HTML; text iba z vypočítaných faktov).",
     "bench": "Rýchlosť a schopnosti modelov každej roly (do Eval a výberu modelov).",
+    "source-types": "Typ vydavateľa zdrojov: úrad, médiá, výskum, združenie, dodávateľ (dodávatelia sa nepočítajú do sily).",
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",

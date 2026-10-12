@@ -394,7 +394,7 @@ class EvidenceMixin:
         Prebratý text (duplicate_of) sa predvolene nezapočítava – nejde o nezávislý zdroj."""
         dup = "" if include_duplicates else "AND c.duplicate_of IS NULL"
         return self._all(
-            f"""SELECT c.*, d.url, d.domain, d.title AS doc_title, d.fetched_at
+            f"""SELECT c.*, d.url, d.domain, d.title AS doc_title, d.fetched_at, d.source_type
                FROM hypothesis_claims hc
                JOIN claims c ON c.id = hc.claim_id
                JOIN documents d ON d.id = c.document_id
@@ -471,6 +471,39 @@ class EvidenceMixin:
 
     def notes_for(self, hid: int) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM notes WHERE hypothesis_id = ? ORDER BY id", (hid,))
+
+    # --------------------------------------------------------- typ vydavateľa (v5)
+    def untyped_domains(self, limit: int) -> list[sqlite3.Row]:
+        """Domény dokumentov bez typu vydavateľa a bez záznamu v domain_types, s jedným vzorovým dokumentom."""
+        return self._all(
+            """SELECT d.domain, MIN(d.id) AS doc_id FROM documents d
+               WHERE d.source_type IS NULL AND d.domain != ''
+                 AND NOT EXISTS (SELECT 1 FROM domain_types t WHERE t.domain = d.domain)
+               GROUP BY d.domain ORDER BY COUNT(*) DESC LIMIT ?""",
+            (limit,),
+        )
+
+    def set_domain_type(self, domain: str, source_type: str, method: str, reason: str | None = None) -> None:
+        self.conn.execute(
+            "INSERT INTO domain_types (domain, source_type, method, reason, updated_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT (domain) DO UPDATE SET source_type = excluded.source_type, method = excluded.method, "
+            "reason = excluded.reason, updated_at = excluded.updated_at",
+            (domain, source_type, method, reason, utcnow()),
+        )
+        self._exec("UPDATE documents SET source_type = ? WHERE domain = ?", (source_type, domain))
+
+    def apply_domain_types(self) -> int:
+        """Nové dokumenty z už známych domén dostanú typ bez modelu."""
+        return self._exec(
+            """UPDATE documents SET source_type = (SELECT t.source_type FROM domain_types t WHERE t.domain = documents.domain)
+               WHERE source_type IS NULL AND domain IN (SELECT domain FROM domain_types)"""
+        ).rowcount
+
+    def domain_types(self) -> list[sqlite3.Row]:
+        return self._all(
+            """SELECT t.*, (SELECT COUNT(*) FROM documents d WHERE d.domain = t.domain) AS documents
+               FROM domain_types t ORDER BY documents DESC, t.domain"""
+        )
 
     # --------------------------------------------------------- testovanie hypotéz (v3)
     def validation_queue(self, limit: int, retest_before: str | None = None,
@@ -564,7 +597,7 @@ class EvidenceMixin:
         """Tvrdenia pre GUI (Dôkazy) s filtrami; najnovšie prvé."""
         statuses, origins = list(statuses) or ["-"], list(origins) or ["-"]
         sql = f"""SELECT c.id, c.status, c.claim_type, c.origin, c.problem, c.affected_party, c.quote, c.effective_date,
-                         d.domain, d.url, d.fetched_at, c.verify_note, c.document_id
+                         d.domain, d.url, d.fetched_at, c.verify_note, c.document_id, d.source_type
                   FROM claims c JOIN documents d ON d.id = c.document_id
                   WHERE c.status IN ({",".join("?" * len(statuses))}) AND c.origin IN ({",".join("?" * len(origins))})"""
         params: list = statuses + origins

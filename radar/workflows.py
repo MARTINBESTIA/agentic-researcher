@@ -201,7 +201,7 @@ def _scout(app, deadline: Deadline, run, ids, report_progress) -> None:
     app.discover_budget = w.scout_docs_per_job
     app.scout_sessions = w.scout_sessions_per_job
     fast = deadline.sub(deadline.remaining_minutes() * 0.55)
-    for stage in ("discover", "scout", "screen", "extract", "verify-code"):
+    for stage in ("discover", "scout", "screen", "extract", "verify-code", "source-types"):
         run(stage, fast)
     run("embed", deadline.sub(min(10.0, deadline.remaining_minutes())))
     # Presný model: posúdenie najviac 60 % zvyšného času, zvyšok zaradenie – nové hypotézy vznikajú až v cluster
@@ -228,6 +228,7 @@ def _validate(app, deadline: Deadline, run, ids: list[int] | None, report_progre
         report_progress(dávka=rounds, hypotézy=[f"H{h['id']}" for h in queue])
         if queue and not run("validate-search", deadline.sub(deadline.remaining_minutes() * 0.6)):
             break  # model nebeží alebo krok zlyhal: zvyšok fronty počká na ďalší beh
+        run("source-types", deadline.sub(min(5.0, deadline.remaining_minutes())))
         run("embed", deadline.sub(min(5.0, deadline.remaining_minutes())))
         # Iba tvrdenia z tejto dávky (nie celý zásobník z iných zdrojov): verdikty prídu po minútach, nie hodinách.
         accurate_min = max(0.0, deadline.remaining_minutes() - 1)
@@ -276,7 +277,7 @@ def _evidence(app, deadline: Deadline, run, ids, report_progress) -> None:
 
 def _topics(app, deadline: Deadline, run, ids, report_progress) -> None:
     fast = deadline.sub(deadline.remaining_minutes() * 0.5)
-    for stage in ("collect", "screen", "extract", "verify-code"):
+    for stage in ("collect", "screen", "extract", "verify-code", "source-types"):
         run(stage, fast)
     run("embed", deadline.sub(min(10.0, deadline.remaining_minutes())))
     accurate_min = max(0.0, deadline.remaining_minutes() - 2)

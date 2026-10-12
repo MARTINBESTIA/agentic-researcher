@@ -23,7 +23,7 @@ from .agent import ResearchAgent
 from .config import Config
 from .critic import evidence_block
 from .db import DB
-from .strength import evidence_strength
+from .strength import evidence_strength, is_vendor
 from .util import Deadline, utc_days_ago
 
 log = logging.getLogger(__name__)
@@ -135,6 +135,7 @@ def validation_result(db: DB, hid: int, search_info: dict[str, Any] | None = Non
     label, n_ver, n_part, n_dom = evidence_strength(evidence)
     counter = [e for e in evidence if e["claim_type"] == "counter" and e["status"] == "verified"]
     solutions = [e for e in evidence if e["claim_type"] == "existing_solution" and e["status"] == "verified"]
+    vendor = [e for e in evidence if is_vendor(e) and e["status"] == "verified"]
     hinted = db.hinted_claims(hid)
 
     def assigned(c) -> set[str]:
@@ -154,6 +155,7 @@ def validation_result(db: DB, hid: int, search_info: dict[str, Any] | None = Non
     return {
         "verdikt": verdict, "pravidlo": VERDICTS[verdict], "sila": label, "overené": n_ver, "čiastočne": n_part,
         "domény": n_dom, "protidôkazy": len(counter), "existujúce_riešenia": len(solutions),
+        "od_dodávateľov": len(vendor),
         "z_testu": {"nájdené": len(hinted), "priradené_sem": len(here), "priradené_inam": len(elsewhere),
                     "zamietnuté": len(rejected)},
         "agent": (search_info or {}).get("agent"),

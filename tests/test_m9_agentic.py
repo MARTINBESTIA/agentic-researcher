@@ -183,7 +183,8 @@ def test_workflow_runs_stages_by_model_and_records_job(tmp_path):
     calls = []
     job = db.create_job("scout", {"minutes": 5})
     result = run_workflow(app, "scout", 5, job_id=job, run_stage=lambda a, s, dl: calls.append(s) or {"ok": 1})
-    assert calls == ["discover", "scout", "screen", "extract", "verify-code", "embed", "verify", "cluster", "report"]
+    assert calls == ["discover", "scout", "screen", "extract", "verify-code", "source-types", "embed", "verify",
+                     "cluster", "report"]
     assert app.discover_budget == cfg.workflows.scout_docs_per_job and app.scout_sessions == cfg.workflows.scout_sessions_per_job
     row = db.get_job(job)
     assert row["status"] == "done" and json.loads(row["stats_json"])["workflow"] == "scout"
@@ -427,7 +428,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
     hid = db.create_hypothesis("H", "", "x")
     expected = {
         "evidence": ["verify", "embed", "cluster", "validate-finish", "report"],
-        "topics": ["collect", "screen", "extract", "verify-code", "embed", "verify", "cluster", "report"],
+        "topics": ["collect", "screen", "extract", "verify-code", "source-types", "embed", "verify", "cluster", "report"],
         "critique": ["critique", "market"],
         "drafts": ["drafts"],
         "contacts": ["contacts", "profiles"],

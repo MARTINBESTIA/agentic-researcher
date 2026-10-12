@@ -77,6 +77,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "gate2_prereg": _route("accurate"),  # Brána 2: návrh predregistrácie (hypotéza, metrika, postup)
     "gate2_demo": _route("accurate"),  # Brána 2: text dema iba z vypočítaných faktov
     "org_mentions": _route("fast"),
+    "source_type": _route("fast"),  # typ vydavateľa neznámej domény (raz na doménu)
     "person_mentions": _route("fast"),
     "segment_filter": _route("accurate"),
     "contact_assoc": _route("fast"),
