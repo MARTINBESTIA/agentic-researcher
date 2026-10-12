@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import httpx
+import numpy as np
 import pytest
 
 from radar import gate1, gate2
@@ -601,3 +602,46 @@ def test_wide_table_with_periods_as_columns_gets_long_form(tmp_path):
     assert len(data) == 6 and data[0][1] == 1202.0 and data[-1][1] == 1450.25
     drop_table(cfg, hid, table)
     assert table_columns(cfg, hid, f"{table}_long") == []
+
+
+def test_backtest_season_length_and_new_models():
+    assert gate2.season_length("month", []) == 12 and gate2.season_length("quarter", []) == 4
+    assert gate2.season_length("none", ["2020-01-01", "2020-04-01", "2020-07-01", "2020-10-01"]) == 4
+    assert gate2.season_length("none", ["2020-01-01", "2020-02-01", "2020-03-01"]) == 12
+    assert gate2.season_length("none", [2015, 2016, 2017]) == 1
+    # Štvrťročná sezónnosť s rastom: sezónny model ju zachytí, trend nie; sezónny naivný odhad berie hodnotu spred 4 období.
+    pattern = [10, 20, 15, 30]
+    y = [p + i for i, p in enumerate(pattern * 4)]
+    seasonal = gate2.backtest_series(y, "seasonal_naive", "seasonal_trend", folds=4, min_history=8, season=4)
+    trend = gate2.backtest_series(y, "seasonal_naive", "linear_trend", folds=4, min_history=8, season=4)
+    assert seasonal["model_error"] < 1e-6 and trend["model_error"] > 3 and seasonal["baseline_error"] == 4
+    assert gate2.backtest_series(y, "seasonal_naive", "linear_trend", 4, 8)["baseline_error"] != 4  # bez sezóny = posledná hodnota
+    # auto vyberá iba z histórie pred predpoveďou; na čistom trende nájde presný model
+    auto = gate2.backtest_series([3 * t + 2 for t in range(12)], "last_value", "auto", folds=4, min_history=6)
+    assert auto["model_error"] < 1e-6 and all(f["vybraný_model"] for f in auto["folds"])
+    level = [50.0] * 6 + [80.0] * 6  # skok úrovne: exponenciálne vyrovnávanie sa prispôsobí
+    assert gate2.forecast(np.asarray(level), "ses") > 75 and 50 < gate2.forecast(np.asarray(level), "holt_damped") < 110
+    with pytest.raises(ValueError):
+        gate2.forecast(np.asarray(level), "prophet")
+
+
+def test_prereg_filters_select_one_indicator_of_long_table(tmp_path):
+    from radar.datasets import hyp_dir, import_table, wide_to_long
+
+    cfg, *_ = setup(tmp_path)
+    hid = 7  # DuckDB databáza hypotézy (riadok hypotézy v SQLite netreba)
+    hyp_dir(cfg, hid).mkdir(parents=True)
+    path = tmp_path / "wide.csv"
+    rows = "".join(f"{kraj};{ind};" + ";".join(str(base + 10 * i) for i in range(8)) + "\n"
+                   for kraj, ind, base in [("ZA", "výdavky", 100), ("ZA", "príjmy", 900), ("NR", "výdavky", 200)])
+    path.write_text("kraj;ukazovatel;" + ";".join(str(2016 + i) for i in range(8)) + "\n" + rows, encoding="utf-8")
+    import_table(cfg, hid, "ds1", path, "csv")
+    assert wide_to_long(cfg, hid, "ds1")["riadky"] == 24
+    spec = {"table": "ds1_long", "time_column": "obdobie", "value_column": "hodnota", "aggregation": "sum",
+            "filters": {"kraj": "ZA", "ukazovatel": "výdavky"}, "model": "auto"}
+    assert gate2.validate_spec(cfg, hid, spec) == []
+    data = gate2.series(cfg, hid, spec)
+    assert [v for _, v in data] == [100.0 + 10 * i for i in range(8)]
+    assert gate2.validate_spec(cfg, hid, spec | {"filters": {"okres": "x"}, "model": "prophet"}) == [
+        "stĺpec filtra 'okres' nie je v tabuľke", "neznámy model 'prophet' (možnosti: linear_trend, ar1, ses, holt_damped, "
+        "seasonal_trend, auto)"]

@@ -418,6 +418,15 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
                 if fmt != "json":
                     raise
                 con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM read_json_auto(?)", [str(src)])
+            if fmt == "csv":
+                # Hlavička z rokov („2016;2017…“) má rovnaký typ ako číselné dáta, takže ju DuckDB nespozná
+                # (stĺpce column0…); keď prvý riadok vyzerá ako obdobia, načíta sa znova s hlavičkou.
+                names = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+                if names and all(re.fullmatch(r"column\d+", n) for n in names):
+                    first = con.execute(f"SELECT * FROM {table} LIMIT 1").fetchone() or ()
+                    if period_columns([str(v) for v in first if v is not None], cfg.gate1.min_wide_periods)[1]:
+                        con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM "
+                                    f"{reader.replace('auto_detect = true', 'auto_detect = true, header = true')}", [str(src)])
         except duckdb.Error as exc:
             raise DatasetError(f"import zlyhal: {str(exc)[:200]}") from exc
         finally:

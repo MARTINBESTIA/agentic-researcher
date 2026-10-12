@@ -7,6 +7,8 @@ organizáciám (pokrytie podľa IČO z Brány 1).
    model a pravidlo úspechu. Človek ho v GUI potvrdí a uzamkne (hash + čas); potom sa už nemení.
 2. gate2-backtest (iba Python a DuckDB): spätný test na historických dátach – predpoveď na posledných
    obdobiach (rolling origin) modelom aj naivným odhadom, MAE/MAPE, bootstrap interval rozdielu.
+   Modely: lineárny trend, AR(1), exponenciálne vyrovnávanie (ses, holt_damped), trend + sezónnosť a „auto“
+   (výber modelu iba z histórie pred každou predpoveďou). Sezóna: mesiac 12, štvrťrok 4, inak z rozostupu dátumov.
    Príznak „model neprekonal naivný odhad“ (nevyraďuje sa automaticky).
 3. gate2-demo: HTML správa pre konkrétnu organizáciu (graf, čísla, pôvod dát, predregistrácia); krátky text
    píše model iba z vypočítaných faktov a kód kontroluje, že nepoužil iné čísla.
@@ -17,11 +19,14 @@ from __future__ import annotations
 
 import hashlib
 import html
+import itertools
 import json
 import logging
 import re
 from collections import Counter
+from datetime import date
 from pathlib import Path
+from statistics import median
 from typing import Any, Literal
 
 import numpy as np
@@ -43,11 +48,12 @@ class Prereg(BaseModel):
     time_column: str
     value_column: str
     entity_column: str = ""
+    filters: dict[str, str] = {}  # rovnosť stĺpec = hodnota (kraj, ukazovateľ v dlhej tabuľke)
     aggregation: Literal["sum", "avg", "count"] = "sum"
     period: Literal["year", "quarter", "month", "none"] = "none"  # zoskupenie dátumového stĺpca
     metric: Literal["MAE", "MAPE"] = "MAE"
     baseline: Literal["last_value", "mean", "seasonal_naive"] = "last_value"
-    model: Literal["linear_trend", "ar1"] = "linear_trend"
+    model: Literal["linear_trend", "ar1", "ses", "holt_damped", "seasonal_trend", "auto"] = "linear_trend"
     success_rule: str = "MAE modelu je nižšia ako MAE naivného odhadu"
 
 
@@ -77,6 +83,13 @@ def validate_spec(cfg: Config, hid: int, spec: dict[str, Any]) -> list[str]:
     errors = [f"stĺpec {spec.get(k)!r} nie je v tabuľke" for k in ("time_column", "value_column") if spec.get(k) not in cols]
     if spec.get("entity_column") and spec["entity_column"] not in cols:
         errors.append(f"stĺpec entity {spec['entity_column']!r} nie je v tabuľke")
+    filters = spec.get("filters") or {}
+    if not isinstance(filters, dict):
+        errors.append("filters musí byť objekt {\"stĺpec\": \"hodnota\"}")
+    else:
+        errors += [f"stĺpec filtra {k!r} nie je v tabuľke" for k in filters if k not in cols]
+    if spec.get("model", "linear_trend") not in MODELS:
+        errors.append(f"neznámy model {spec.get('model')!r} (možnosti: {', '.join(MODELS)})")
     return errors
 
 
@@ -112,7 +125,7 @@ def run_prereg(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
             p = res.value
             spec = {"table": p.table, "time_column": p.time_column, "value_column": p.value_column,
                     "entity_column": p.entity_column if t["org_id"] else "", "entity_value": t["ico"] if t["org_id"] else None,
-                    "aggregation": p.aggregation, "period": p.period, "model": p.model}
+                    "aggregation": p.aggregation, "period": p.period, "model": p.model, "filters": p.filters}
             if t["org_id"] and t["entity_column"] and not spec["entity_column"]:
                 spec["entity_column"] = t["entity_column"]
             errors = validate_spec(cfg, hid, spec)
@@ -153,10 +166,14 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
     if validate_spec(cfg, hid, spec):
         raise DatasetError("špecifikácia odkazuje na neexistujúcu tabuľku alebo stĺpec")
     agg = {"sum": "SUM", "avg": "AVG", "count": "COUNT"}[spec.get("aggregation", "sum")]
-    where, params = "", []
+    conds, params = [], []
     if spec.get("entity_column") and spec.get("entity_value"):
-        where = f"WHERE lpad(trim(CAST({_q(spec['entity_column'])} AS VARCHAR)), 8, '0') = ?"
-        params = [str(spec["entity_value"]).zfill(8)]
+        conds.append(f"lpad(trim(CAST({_q(spec['entity_column'])} AS VARCHAR)), 8, '0') = ?")
+        params.append(str(spec["entity_value"]).zfill(8))
+    for col, value in (spec.get("filters") or {}).items():
+        conds.append(f"trim(CAST({_q(col)} AS VARCHAR)) = ?")
+        params.append(str(value).strip())
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
     period = spec.get("period") or "none"
     t = _q(spec["time_column"])
     if period in ("year", "quarter", "month"):  # dátum → obdobie (každá zmluva by inak bola samostatné obdobie)
@@ -167,15 +184,71 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
     return [(t, float(y)) for t, y in rows if t is not None and y is not None]
 
 
-def forecast(history: np.ndarray, kind: str, season: int = 12) -> float:
+MODELS = ("linear_trend", "ar1", "ses", "holt_damped", "seasonal_trend", "auto")
+AUTO_CANDIDATES = ("linear_trend", "ar1", "ses", "holt_damped", "seasonal_trend")
+GRID = (0.1, 0.2, 0.3, 0.5, 0.7, 0.9)
+
+
+def season_length(period: str | None, labels: list[Any]) -> int:
+    """Dĺžka sezóny: podľa zoskupenia (mesiac 12, štvrťrok 4, rok 1), inak z mediánu rozostupu dátumov."""
+    if period in ("month", "quarter", "year"):
+        return {"month": 12, "quarter": 4, "year": 1}[period]
+    days = []
+    for t in labels:
+        try:
+            days.append(date.fromisoformat(str(t)[:10]).toordinal())
+        except ValueError:
+            return 1  # roky ako čísla, texty: bez sezónnosti
+    gaps = [b - a for a, b in zip(days, days[1:]) if b > a]
+    if not gaps:
+        return 1
+    gap = median(gaps)
+    return 12 if gap <= 35 else 4 if 80 <= gap <= 100 else 1
+
+
+def _ses(y: np.ndarray, alpha: float) -> tuple[float, float]:
+    """(predpoveď na ďalšie obdobie, súčet štvorcov chýb predpovedí o jedno obdobie v histórii)."""
+    level, sse = y[0], 0.0
+    for v in y[1:]:
+        sse += (v - level) ** 2
+        level = alpha * v + (1 - alpha) * level
+    return float(level), float(sse)
+
+
+def _holt_damped(y: np.ndarray, alpha: float, beta: float, phi: float = 0.9) -> tuple[float, float]:
+    level, trend, sse = y[1], y[1] - y[0], 0.0
+    for v in y[2:]:
+        pred = level + phi * trend
+        sse += (v - pred) ** 2
+        new_level = alpha * v + (1 - alpha) * pred
+        trend = beta * (new_level - level) + (1 - beta) * phi * trend
+        level = new_level
+    return float(level + phi * trend), float(sse)
+
+
+def _auto(history: np.ndarray, season: int, inner: int = 3) -> str:
+    """Model s najmenšou chybou predpovedí o jedno obdobie na posledných `inner` bodoch histórie
+    (každá z predchádzajúcich hodnôt) – testované obdobie sa do výberu nedostane."""
+    n = len(history)
+    start = max(3, n - inner)
+    if start >= n:
+        return "linear_trend"
+    errors = {k: float(np.mean([abs(forecast(history[:i], k, season) - history[i]) for i in range(start, n)]))
+              for k in AUTO_CANDIDATES}
+    return min(AUTO_CANDIDATES, key=lambda k: errors[k])  # pri zhode vyhrá jednoduchší (poradie zoznamu)
+
+
+def forecast(history: np.ndarray, kind: str, season: int = 1) -> float:
     n = len(history)
     if kind == "last_value":
         return float(history[-1])
     if kind == "mean":
         return float(history.mean())
     if kind == "seasonal_naive":
-        return float(history[-season]) if n >= season else float(history[-1])
+        return float(history[-season]) if season > 1 and n >= season else float(history[-1])
     if kind == "linear_trend":
+        if n < 2:
+            return float(history[-1])
         a, b = np.polyfit(np.arange(n), history, 1)
         return float(a * n + b)
     if kind == "ar1":  # y_t = c + phi * y_{t-1} (najmenšie štvorce)
@@ -184,11 +257,28 @@ def forecast(history: np.ndarray, kind: str, season: int = 12) -> float:
             return float(history[-1])
         phi, c = np.polyfit(x, y, 1)
         return float(c + phi * history[-1])
+    if kind == "ses":  # jednoduché exponenciálne vyrovnávanie, alfa z mriežky podľa chýb v histórii
+        if n < 3:
+            return float(history[-1])
+        return min((_ses(history, a) for a in GRID), key=lambda r: r[1])[0]
+    if kind == "holt_damped":  # Holt s tlmeným trendom (phi 0,9)
+        if n < 4:
+            return forecast(history, "ses", season)
+        return min((_holt_damped(history, a, b) for a, b in itertools.product(GRID, (0.1, 0.3))), key=lambda r: r[1])[0]
+    if kind == "seasonal_trend":  # trend + sezónne fiktívne premenné (najmenšie štvorce); bez sezóny = trend
+        if season <= 1 or n < 2 * season:
+            return forecast(history, "linear_trend", season)
+        t = np.arange(n + 1)
+        X = np.column_stack([np.ones(n + 1), t] + [(t % season == s).astype(float) for s in range(1, season)])
+        coef, *_ = np.linalg.lstsq(X[:n], history, rcond=None)
+        return float(X[n] @ coef)
+    if kind == "auto":
+        return forecast(history, _auto(history, season), season)
     raise ValueError(f"neznámy postup {kind}")
 
 
 def backtest_series(values: list[float], baseline: str, model: str, folds: int, min_history: int, metric: str = "MAE",
-                    bootstrap: int = 1000, seed: int = 0) -> dict[str, Any]:
+                    bootstrap: int = 1000, seed: int = 0, season: int = 1) -> dict[str, Any]:
     """Rolling origin: pre každé z posledných `folds` období predpoveď z predchádzajúcich hodnôt."""
     y = np.asarray(values, dtype=float)
     if len(y) < min_history + 1:
@@ -197,7 +287,11 @@ def backtest_series(values: list[float], baseline: str, model: str, folds: int, 
     rows = []
     for i in range(len(y) - folds, len(y)):
         hist = y[:i]
-        rows.append({"index": i, "actual": float(y[i]), "model": forecast(hist, model), "baseline": forecast(hist, baseline)})
+        row = {"index": i, "actual": float(y[i]), "model": forecast(hist, model, season),
+               "baseline": forecast(hist, baseline, season)}
+        if model == "auto":
+            row["vybraný_model"] = _auto(hist, season)
+        rows.append(row)
     err = lambda pred, act: abs(pred - act) / abs(act) * 100 if metric == "MAPE" and act else abs(pred - act)  # noqa: E731
     e_model = np.array([err(r["model"], r["actual"]) for r in rows])
     e_base = np.array([err(r["baseline"], r["actual"]) for r in rows])
@@ -209,7 +303,7 @@ def backtest_series(values: list[float], baseline: str, model: str, folds: int, 
     improvement = (1 - m_model / m_base) if m_base else 0.0
     return {"folds": rows, "metric": metric, "model_error": round(m_model, 4), "baseline_error": round(m_base, 4),
             "improvement": round(improvement, 4), "diff_ci95": [round(float(lo), 4), round(float(hi), 4)],
-            "n_periods": int(len(y)), "n_folds": len(rows)}
+            "n_periods": int(len(y)), "n_folds": len(rows), "model": model, "season": season}
 
 
 def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -> dict:
@@ -226,7 +320,8 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
             try:
                 data = series(cfg, hyp["id"], spec)
                 res = backtest_series([v for _, v in data], exp["baseline"], spec.get("model", "linear_trend"),
-                                      cfg.gate2.backtest_folds, cfg.gate2.min_history, exp["metric"], cfg.gate2.bootstrap)
+                                      cfg.gate2.backtest_folds, cfg.gate2.min_history, exp["metric"], cfg.gate2.bootstrap,
+                                      season=season_length(spec.get("period"), [t for t, _ in data]))
             except (DatasetError, ValueError, np.linalg.LinAlgError) as exc:
                 flags["chyba_testu"] = str(exc)[:200]
                 db.update_experiment(exp["id"], status="failed", flags_json=flags)

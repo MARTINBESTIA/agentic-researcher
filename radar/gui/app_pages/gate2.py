@@ -82,12 +82,16 @@ if res:
             st.metric("Chyba naivného odhadu", res["baseline_error"], border=True)
             st.metric("Zlepšenie", f"{res['improvement']:.1%}", border=True)
             st.metric("95 % interval rozdielu", f"{res['diff_ci95'][0]} až {res['diff_ci95'][1]}", border=True)
+        if res.get("model"):
+            st.caption(f"model {res['model']} · sezóna {res.get('season', 1)} "
+                       f"{'(bez sezónnosti)' if res.get('season', 1) == 1 else 'období'}")
         if flags.get("model_neprekonal_naivny_odhad"):
             st.warning("Stop podmienka: model neprekonal naivný odhad.", icon=":material/flag:")
         if flags.get("malo_obdobi"):
             st.info("Málo období na spoľahlivý záver (interval je široký).", icon=":material/info:")
         st.dataframe([{"obdobie": res["periods"][f["index"]], "skutočnosť": f["actual"], "model": round(f["model"], 2),
-                       "naivný": round(f["baseline"], 2)} for f in res["folds"]], hide_index=True, alt="Predpovede po obdobiach")
+                       "naivný": round(f["baseline"], 2)} | ({"vybraný model": f["vybraný_model"]} if "vybraný_model" in f else {})
+                      for f in res["folds"]], hide_index=True, alt="Predpovede po obdobiach")
 if e["demo_path"] and Path(e["demo_path"]).exists():
     html_text = Path(e["demo_path"]).read_text(encoding="utf-8")
     st.download_button("Stiahnuť demo (HTML)", html_text, file_name=Path(e["demo_path"]).name, mime="text/html",

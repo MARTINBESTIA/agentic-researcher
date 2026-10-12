@@ -29,7 +29,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   portálov balí CSV), XML (ITMS, vestník ÚVO) a API so stránkovaním (RÚZ, ITMS2014+). · 2–3 dni.
 - ~~**2026-10-12 – Brána 1 – lepšie časové stĺpce.**~~ **Hotové 12. 10. 2026** (dlhý tvar `dsN_long`; ostáva: exporty DATAcube s viacriadkovou hlavičkou nad tabuľkou – CSV sa načíta s nesprávnymi názvami stĺpcov, treba nájsť riadok hlavičky). Obdobia ako „2021-Q1“, „01/2022“ alebo rok v názve stĺpca
   (široké tabuľky ŠÚ SR) sa dnes neprevedú na časový rad; normalizácia „wide → long“ by sprístupnila DATAcube. · 2 dni.
-- **2026-10-12 – Brána 2 – viac modelov a sezónnosť.** Spätný test má lineárny trend a AR(1) proti naivnému odhadu;
+- ~~**2026-10-12 – Brána 2 – viac modelov a sezónnosť.**~~ **Čiastočne hotové 12. 10. 2026** (sezóna podľa obdobia, ses, holt_damped, seasonal_trend, auto; ostáva model naprieč organizáciami – pooled). Spätný test má lineárny trend a AR(1) proti naivnému odhadu;
   automatická detekcia periódy (mesačné dáta), exponenciálne vyrovnávanie a model naprieč organizáciami
   (pooled) by dali férovejšie porovnanie. · 2–3 dni.
 - **2026-10-12 – Brána 2 – sledovanie expertov.** Spätná väzba expertov je dnes jedno pole pri experimente;
@@ -56,3 +56,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-12 – agenti – prompt a nástroje pre modely, ktoré iba čítajú.** 9B aj MoE 35B agent číta, ale nástroj
   na uloženie takmer nevolá; dnes to dorovnáva extrakcia z prečítaných stránok. Skúsiť: nástroj read_page vracia
   rovno „kandidátske citáty“ na potvrdenie, alebo vynútiť record po každom read_page (tool_choice). · 1 deň.
+- **2026-10-12 – Brána 2 – hodnoty filtrov z dát.** Model pri predregistrácii vidí iba 3 ukážkové riadky, takže
+  hodnotu filtra (presný názov ukazovateľa alebo kraja) často nepozná. Zoznam odlišných hodnôt nízkokardinalitných
+  stĺpcov (napr. ≤ 50) v schéme a výber filtra v GUI zo zoznamu by znížili počet chybných návrhov. · 0,5 dňa.
+
