@@ -28,8 +28,8 @@ from .agent import ResearchAgent
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
-    FILE_LINK_RE, DatasetError, coverage, download, drop_table, file_format, hyp_dir, import_table, profile_table,
-    run_query, schema_text,
+    FILE_LINK_RE, DatasetError, coverage, download, download_paginated, drop_table, file_format, hyp_dir, import_table,
+    profile_table, run_query, schema_text,
 )
 from .db import DB
 from .models import as_router
@@ -312,11 +312,26 @@ def source_quality(src, checks: dict[str, Any]) -> dict[str, Any]:
 API_SPEC_PATHS = ("swagger.json", "openapi.json", "v1/swagger.json", "v2/swagger.json", "v3/api-docs", "v2/api-docs",
                   "api/swagger.json", "api/openapi.json")
 LIMIT_PARAMS = ("limit", "pageSize", "page_size", "size", "per_page", "rows")
+CURSOR_PARAMS = ("minId", "min_id", "since_id", "sinceId", "afterId", "after_id", "startId")
+OFFSET_PARAMS = ("offset", "skip", "start")
+PAGE_PARAMS = ("page", "pageNumber", "page_number")
 
 
-def api_endpoints(spec: dict[str, Any], base_url: str, topic: str, max_endpoints: int = 3) -> list[str]:
+def paging_of(params: set[str]) -> dict[str, Any] | None:
+    """Ako endpoint stránkuje (z mien parametrov v popise API); None = nevieme (stiahne sa jedna odpoveď)."""
+    limit = next((p for p in LIMIT_PARAMS if p in params), None)
+    cursor = next((p for p in CURSOR_PARAMS if p in params), None)
+    offset = next((p for p in OFFSET_PARAMS if p in params), None)
+    page = next((p for p in PAGE_PARAMS if p in params), None)
+    if not (cursor or offset or page):
+        return {"limit": limit} if limit else None
+    return {"limit": limit, "cursor": cursor, "offset": offset, "page": page}
+
+
+def api_endpoints(spec: dict[str, Any], base_url: str, topic: str, max_endpoints: int = 3,
+                  paging: dict[str, Any] | None = None) -> list[str]:
     """GET endpointy bez parametrov v ceste z popisu OpenAPI/Swagger, najpodobnejšie téme poľa.
-    Ak endpoint pozná parameter limitu, pridá sa limit 1000 (prvá strana; stránkovanie je v improvements_logs)."""
+    Ak endpoint pozná limit, pridá sa limit 1000; spôsob stránkovania sa zapíše do `paging` (URL → parametre)."""
     from urllib.parse import urljoin, urlparse
 
     if spec.get("servers"):
@@ -337,13 +352,20 @@ def api_endpoints(spec: dict[str, Any], base_url: str, topic: str, max_endpoints
         limit = next((p for p in LIMIT_PARAMS if p in params), None)
         if limit:
             url += f"?{limit}=1000"
+        if paging is not None and paging_of(params):
+            paging[url] = paging_of(params)
         words = " ".join(re.split(r"[/_\-]", path)) + " " + str(get.get("summary") or "")
         out.append((fuzz.token_set_ratio(words.lower(), topic.lower()), url))
     out.sort(key=lambda x: -x[0])
-    return [u for _, u in out[:max_endpoints]]
+    chosen = [u for _, u in out[:max_endpoints]]
+    if paging is not None:
+        for u in list(paging):
+            if u not in chosen:
+                del paging[u]
+    return chosen
 
 
-def discover_api(fetcher, page_url: str, topic: str) -> list[str]:
+def discover_api(fetcher, page_url: str, topic: str, paging: dict[str, Any] | None = None) -> list[str]:
     from urllib.parse import urljoin, urlparse
 
     parsed = urlparse(page_url)
@@ -352,7 +374,7 @@ def discover_api(fetcher, page_url: str, topic: str) -> list[str]:
         for path in API_SPEC_PATHS:
             spec = fetcher.fetch_json(urljoin(root, path)) if hasattr(fetcher, "fetch_json") else None
             if isinstance(spec, dict) and spec.get("paths"):
-                return api_endpoints(spec, urljoin(root, path), topic)
+                return api_endpoints(spec, urljoin(root, path), topic, paging=paging)
     return []
 
 
@@ -373,9 +395,11 @@ def check_source(fetcher, src, topic: str = "") -> dict[str, Any]:
         formats = sorted({file_format(u) or "?" for u in links})
         low = page.html.lower()
         if not links and ("swagger" in low or "openapi" in low or "api" in (src["formats"] or "").lower()):
-            endpoints = discover_api(fetcher, page.final_url or url, topic)  # API s popisom OpenAPI/Swagger
+            paging: dict[str, Any] = {}
+            endpoints = discover_api(fetcher, page.final_url or url, topic, paging)  # API s popisom OpenAPI/Swagger
             if endpoints:
                 checks["api_endpointy"] = endpoints
+                checks["stránkovanie"] = paging
                 links, formats = endpoints, ["json"]
         checks["súbory"] = links
         checks["súbory_formáty"] = formats
@@ -388,7 +412,10 @@ def run_check(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int] |
         for src in db.sources_for(hyp["id"]):
             if deadline.expired():
                 return dict(stats)
-            if src["status"] == "rejected" or json.loads(src["checks_json"] or "{}").get("http_stav"):
+            old = json.loads(src["checks_json"] or "{}")
+            # znova skontrolovať aj API zistené pred stránkovaním (12. 10. 2026), inak sa stiahne iba prvá strana
+            if src["status"] == "rejected" or (old.get("http_stav") and not (old.get("api_endpointy")
+                                                                            and "stránkovanie" not in old)):
                 continue
             field = db.get_field(src["field_id"])
             checks = check_source(fetcher, src, f"{field['name']} {field['description'] or ''}" if field else "")
@@ -430,25 +457,32 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
             if src["status"] != "verified":
                 continue
             checks = json.loads(src["checks_json"] or "{}")
+            paging = checks.get("stránkovanie") or {}
+            existing = {d["url"]: d for d in db.datasets_for(hid)}
             for url in (checks.get("súbory") or [])[: cfg.gate1.max_files_per_source]:
                 if deadline.expired():
                     return dict(stats)
-                if db.has_dataset_url(hid, url):
-                    continue
+                old = existing.get(url)
+                if old is not None and not (paging.get(url) and not (old["note"] or "").startswith("API:")):
+                    continue  # už stiahnuté (jednostránkové API sa stiahne znova, keď vieme stránkovať)
                 if db.datasets_total_bytes() >= limit_total:
                     stats["total_limit"] += 1
                     return dict(stats)
-                stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs))
+                stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url)))
     return dict(stats)
 
 
-def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs) -> Counter:
+def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None) -> Counter:
     stats: Counter = Counter()
     dataset_id = db.add_dataset(hid, src["id"], url, "pending", status="error", note="sťahuje sa")
     table = f"ds{dataset_id}"
     try:
-        dl = download(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked)
-        fmt = file_format(dl.final_url, dl.content_type) or "bin"
+        if paging and paging.get("limit") and any(paging.get(k) for k in ("cursor", "offset", "page")):
+            dl = download_paginated(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked, paging)
+            fmt = "json"
+        else:
+            dl = download(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked)
+            fmt = file_format(dl.final_url, dl.content_type) or "bin"
         import_table(cfg, hid, table, dl.path, fmt)
         dl.path.unlink(missing_ok=True)  # v DuckDB je tabuľka; ostáva URL, čas a SHA-256 súboru
         prof = profile_table(cfg, hid, table)
@@ -467,7 +501,7 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs) ->
         stats["personal_blocked"] += 1
         return stats
     db.add_dataset(hid, src["id"], url, table, format=fmt, size_bytes=dl.size, sha256=dl.sha256, rows=prof["rows"],
-                   columns_json=[c["name"] for c in prof["columns"]], profile_json=prof, status="ok", note=None)
+                   columns_json=[c["name"] for c in prof["columns"]], profile_json=prof, status="ok", note=dl.note)
     for org_id, col, n in coverage(cfg, hid, table, prof["ico_columns"], orgs):
         db.set_coverage(dataset_id, org_id, col, n)
         stats["coverage"] += 1

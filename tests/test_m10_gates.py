@@ -390,3 +390,57 @@ def test_backtest_groups_date_column_by_period(tmp_path):
             "aggregation": "sum", "period": "quarter"}
     data = gate2.series(cfg, hid, spec)
     assert len(data) == 12 and str(data[0][0]) == "2015-01-01" and data[0][1] == 200  # dva riadky v štvrťroku sa sčítajú
+
+
+class PagedApi:
+    """Falošné API: 2 500 záznamov, stránkovanie kurzorom minId (ako ITMS2014+) alebo offsetom."""
+
+    def __init__(self, mode="cursor", n=2500, ignore_paging=False):
+        self.mode, self.n, self.ignore, self.calls = mode, n, ignore_paging, []
+        self.blocked = []
+
+    def fetch_json(self, url):
+        from urllib.parse import parse_qs, urlparse
+
+        self.calls.append(url)
+        q = {k: v[0] for k, v in parse_qs(urlparse(url).query).items()}
+        limit = int(q.get("limit", 100))
+        start = 0 if self.ignore else (int(q.get("minId", 0)) if self.mode == "cursor" else int(q.get("offset", 0)))
+        recs = [{"id": i, "suma": i * 10, "prijimatel": {"subjekt": {"ico": "00313271"}}}
+                for i in range(start + 1, min(self.n, start + limit) + 1)]
+        return recs if self.mode == "cursor" else {"data": recs, "total": self.n}
+
+
+def test_api_pagination_cursor_offset_and_ignored_paging(tmp_path):
+    from radar.datasets import download_paginated
+
+    cfg, db, rec, router = setup(tmp_path)
+    assert gate1.paging_of({"limit", "minId", "modifiedSince"}) == {"limit": "limit", "cursor": "minId", "offset": None,
+                                                                     "page": None}
+    assert gate1.paging_of({"vyzvaId"}) is None
+    api = PagedApi("cursor")
+    dl = download_paginated(cfg, api, "https://api.example.sk/v2/projekty?limit=1000", tmp_path / "d", [],
+                            {"limit": "limit", "cursor": "minId"})
+    lines = dl.path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2500 and json.loads(lines[-1])["id"] == 2500 and len(api.calls) == 3
+    assert "minId=2000" in api.calls[-1] and dl.note == "API: 3 strán, 2500 záznamov"
+    api = PagedApi("offset")
+    dl = download_paginated(cfg, api, "https://api.example.sk/items", tmp_path / "d", [], {"limit": "limit", "offset": "offset"})
+    assert len(dl.path.read_text(encoding="utf-8").splitlines()) == 2500 and "offset=2000" in api.calls[-1]
+    api = PagedApi("cursor", ignore_paging=True)  # server ignoruje minId → po opakovanej strane koniec
+    dl = download_paginated(cfg, api, "https://api.example.sk/v2/projekty", tmp_path / "d", [], {"limit": "limit", "cursor": "minId"})
+    assert len(api.calls) == 2 and len(dl.path.read_text(encoding="utf-8").splitlines()) == 1000
+
+
+def test_paginated_api_replaces_single_page_dataset(tmp_path):
+    cfg, db, rec, router, hid, fid, org, _ = _dataset_env(tmp_path)
+    url = "https://api.example.sk/v2/projekty?limit=1000"
+    src = db.sources_for(hid)[0]
+    db.add_dataset(hid, src["id"], url, "ds99", status="ok", rows=1000, note=None)  # stará prvá strana
+    db.update_source(src["id"], checks_json={"http_ok": True, "súbory": [url],
+                                             "stránkovanie": {url: {"limit": "limit", "cursor": "minId"}}})
+    stats = gate1.run_datasets(cfg, db, PagedApi("cursor"), Deadline(1), [hid])
+    ds = [d for d in db.datasets_for(hid) if d["url"] == url][0]
+    assert stats["datasets"] == 1 and ds["rows"] == 2500 and ds["note"].startswith("API: 3 strán")
+    assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]
+    assert gate1.run_datasets(cfg, db, PagedApi("cursor"), Deadline(1), [hid]) == {}  # už stránkované → nesťahuje znova

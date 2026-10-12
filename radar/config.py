@@ -304,6 +304,8 @@ class Gate1Config(BaseModel):
     max_dataset_mb: int = 2048  # limit jedného súboru
     max_total_gb: int = 50  # limit všetkých datasetov spolu
     max_files_per_source: int = 3
+    api_page_size: int = 1000  # záznamov na stranu pri sťahovaní z API (limit, minId/offset/page)
+    max_api_pages: int = 200  # najviac strán na endpoint (aj limit veľkosti max_dataset_mb)
     key_field_weeks: int = 6  # kľúčové pole nezískané do 6 týždňov → príznak (nie vyradenie)
     repro_match: float = 0.01  # relatívna odchýlka pre „zhoda“
     repro_close: float = 0.10  # pre „blízko“

@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 152 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v4).
+Stav 12. 10. 2026: 154 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v4).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -87,3 +87,4 @@ Stav 12. 10. 2026: 152 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M13 | 4 dátumový stĺpec zoskupený po obdobiach (štvrťrok) | `test_backtest_groups_date_column_by_period` |
 | M10 | 4 stránka osoby zo sitemap.xml bez vyhľadávača | `test_sitemap_finds_person_page_without_search_engine` |
 | M9 | 16 test hypotézy: tvrdenia z prečítaných stránok, keď agent nič neuloží | `test_m9_agentic.py::test_validation_agent_that_only_reads_gets_claims_from_extraction` |
+| M12 | 7 stránkovanie API (kurzor, offset, ignorované stránkovanie), náhrada jednostránkového datasetu | `test_api_pagination_cursor_offset_and_ignored_paging`, `test_paginated_api_replaces_single_page_dataset` |

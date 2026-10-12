@@ -65,6 +65,7 @@ class Download:
     size: int
     final_url: str
     content_type: str
+    note: str | None = None  # napr. počet strán API alebo skrátenie na limit
 
 
 def hyp_dir(cfg: Config, hid: int) -> Path:
@@ -133,6 +134,93 @@ def download(cfg: Config, fetcher, url: str, dest_dir: Path, blocked: list[str])
     path = dest_dir / f"{sha[:16]}.{fmt}"
     tmp.replace(path)
     return Download(path, sha, size, final, ctype)
+
+
+LIST_KEYS = ("data", "items", "results", "content", "records", "rows", "value", "hodnoty", "zoznam")
+
+
+def _records(data: Any) -> list[Any] | None:
+    """Záznamy z odpovede API: zoznam, alebo zoznam pod bežným kľúčom (data, items, results …)."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in LIST_KEYS:
+            if isinstance(data.get(key), list):
+                return data[key]
+    return None
+
+
+def download_paginated(cfg: Config, fetcher, url: str, dest_dir: Path, blocked: list[str],
+                       paging: dict[str, Any]) -> Download:
+    """API po stranách → JSONL (jeden záznam na riadok). Kurzor (napr. ITMS minId = posledné id), offset alebo
+    číslo strany; koniec pri prázdnej alebo neúplnej strane, opakovanej strane, limite strán alebo veľkosti."""
+    import json
+    from urllib.parse import parse_qsl, urlencode, urlparse
+
+    limit_bytes = cfg.gate1.max_dataset_mb * 1024 * 1024
+    size_param = paging.get("limit")
+    page_size = cfg.gate1.api_page_size
+    parsed = urlparse(url)
+    base_q = dict(parse_qsl(parsed.query))
+    if size_param:
+        base_q[size_param] = str(page_size)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest_dir / ("api-" + hashlib.sha1(url.encode()).hexdigest()[:12] + ".part")
+    digest = hashlib.sha256()
+    size = rows = pages = 0
+    cursor, offset, page_no = None, 0, int(paging.get("first_page", 1))
+    seen: set[str] = set()
+    note = None
+    with open(tmp, "wb") as out:
+        for _ in range(cfg.gate1.max_api_pages):
+            q = dict(base_q)
+            if paging.get("cursor") and cursor is not None:
+                q[paging["cursor"]] = str(cursor)
+            elif paging.get("offset"):
+                q[paging["offset"]] = str(offset)
+            elif paging.get("page"):
+                q[paging["page"]] = str(page_no)
+            page_url = parsed._replace(query=urlencode(q)).geturl()
+            if domain_blocked(page_url, blocked):
+                raise DatasetError("blokovaná doména")
+            records = _records(fetcher.fetch_json(page_url))
+            if records is None:
+                break  # na prvej strane = chyba (nižšie), neskôr = koniec dát
+            if not records:
+                break
+            first = json.dumps(records[0], sort_keys=True, ensure_ascii=False)[:300]
+            if first in seen:  # server ignoruje stránkovanie a vracia stále to isté
+                break
+            seen.add(first)
+            for rec in records:
+                line = (json.dumps(rec, ensure_ascii=False) + "\n").encode("utf-8")
+                size += len(line)
+                digest.update(line)
+                out.write(line)
+            rows += len(records)
+            pages += 1
+            if size > limit_bytes:
+                note = f"skrátené na limit {cfg.gate1.max_dataset_mb} MB"
+                break
+            if not size_param or len(records) < page_size or not any(paging.get(k) for k in ("cursor", "offset", "page")):
+                break
+            if paging.get("cursor"):
+                ids = [r.get("id") for r in records if isinstance(r, dict) and isinstance(r.get("id"), (int, float))]
+                if not ids:
+                    break
+                cursor = max(ids)
+            offset += len(records)
+            page_no += 1
+        else:
+            note = f"skrátené na {cfg.gate1.max_api_pages} strán"
+    if rows == 0:
+        tmp.unlink(missing_ok=True)
+        raise DatasetError("API nevrátilo zoznam záznamov")
+    sha = digest.hexdigest()
+    path = dest_dir / f"{sha[:16]}.jsonl"
+    tmp.replace(path)
+    return Download(path, sha, size, url, "application/x-ndjson",
+                    f"API: {pages} strán, {rows} záznamov" + (f"; {note}" if note else ""))
 
 
 def _to_utf8(path: Path) -> Path:

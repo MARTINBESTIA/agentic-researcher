@@ -42,7 +42,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   dopytov. Možnosti: tempo dopytov a rotácia vyhľadávačov v SearxClient, lokálny index vybraných domén
   (sitemap + crawl webov organizácií z DB), prípadne API s bezplatným limitom (pozor: odosiela mená osôb
   tretej strane – vyžaduje posúdenie v LIA). · 1–3 dni.
-- **2026-10-12 – Brána 1 – stránkovanie API.** Endpoint API sa sťahuje iba prvou stranou (`limit=1000`); ITMS2014+
+- ~~**2026-10-12 – Brána 1 – stránkovanie API.**~~ **Hotové 12. 10. 2026** (kurzor/offset/page z popisu OpenAPI). Endpoint API sa sťahuje iba prvou stranou (`limit=1000`); ITMS2014+
   stránkuje cez `minId`. Generické stránkovanie (limit/offset, minId, odkaz next) s limitom veľkosti by dalo
   úplný dataset na reprodukciu a spätný test. · 1 deň.
 - **2026-10-12 – modely – MoE 35B ako presná rola?** qwen3.6:35b-a3b generuje 32,8 tok/s oproti 4,1 tok/s hustého
