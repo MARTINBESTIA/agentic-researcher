@@ -48,7 +48,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-12 – modely – MoE 35B ako presná rola?** qwen3.6:35b-a3b generuje 32,8 tok/s oproti 4,1 tok/s hustého
   27B. Ak eval (gold labely z Kontroly, ≥ 50 na úlohu) ukáže porovnateľnú presnosť pri entail/cluster_assign,
   nočný beh by stihol rádovo viac posúdení. Treba najprv nazbierať labely. · 0,5 dňa + labely.
-- **2026-10-12 – modely – menej výmen modelov v run-all.** S rolou agent (35B) sa v rýchlej fáze strieda 9B a 35B;
+- ~~**2026-10-12 – modely – menej výmen modelov v run-all.**~~ **Čiastočne hotové 12. 10. 2026** (extrakcia po agentoch celej dávky v teste aj v Bráne 1; poradie krokov run-all ostáva kvôli prednosti Brány 1; ďalší krok: zmerať čas výmeny z logu Ollama `load_duration` a podľa toho rozhodnúť). S rolou agent (35B) sa v rýchlej fáze strieda 9B a 35B;
   zoskupiť kroky agenta (scout, gate1-sources, validate-search) za sebou by ušetrilo ~1 min na výmenu. · 0,5 dňa.
 - **2026-10-12 – prevádzka – nočný beh odolný voči spánku a výpadkom.** Teraz sa počítač neuspí pre nečinnosť a limit sa
   neráta počas spánku; po zatvorení veka však beh stojí. Plánovač úloh s „Wake the computer to run this task“ a

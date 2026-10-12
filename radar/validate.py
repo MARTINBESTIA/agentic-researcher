@@ -89,6 +89,17 @@ def run_validate_search(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline:
     w = cfg.workflows
     stats: Counter = Counter()
     queue = db.validation_queue(limit or w.validate_per_run, utc_days_ago(w.retest_days), ids)
+    # Extrakcia z prečítaných stránok (rýchly model) beží až po všetkých agentoch dávky: agent (35B) a extrakcia (9B)
+    # sa na 8 GB VRAM nezmestia naraz a striedanie po každej hypotéze stálo dve výmeny modelu na hypotézu.
+    pending: list[tuple[Any, ResearchAgent, dict[str, Any]]] = []
+
+    def searched(hyp, agent: ResearchAgent, info: dict[str, Any]) -> None:
+        info.update(kroky=agent.steps, tvrdenia=len(agent.claim_ids), prečítané_zdroje=len(agent.pages))
+        db.set_validation_searched(hyp["id"], {"agent": info})
+        stats["searched"] += 1
+        stats["claims"] += len(agent.claim_ids)
+        log.info("Test H%s: %d tvrdení na overenie", hyp["id"], len(agent.claim_ids))
+
     for hyp in queue:
         if deadline.expired():
             break
@@ -104,12 +115,6 @@ def run_validate_search(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline:
             log.warning("Test H%s: agent zlyhal: %s", hyp["id"], exc)
             info = {"ok": False, "chyba": str(exc)[:200]}
             stats["errors"] += 1
-        if info["ok"] and not agent.claim_ids and agent.pages and not deadline.expired():
-            extracted = claims_from_read_pages(cfg, db, llm, agent, hyp)
-            agent.claim_ids += extracted
-            info["z_prečítaných_stránok"] = len(extracted)
-            stats["claims_from_pages"] += len(extracted)
-        info.update(kroky=agent.steps, tvrdenia=len(agent.claim_ids), prečítané_zdroje=len(agent.pages))
         if agent.stopped_by_deadline and not agent.claim_ids:
             stats["deferred"] += 1  # čas behu vypršal skôr, než agent niečo našiel: test pri ďalšom behu
             break
@@ -122,10 +127,18 @@ def run_validate_search(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline:
                 log.info("Test H%s: agent neprečítal žiadny zdroj, hypotéza sa zopakuje neskôr", hyp["id"])
                 continue
             info.update(ok=False, chyba="agent neprečítal žiadny zdroj")
-        db.set_validation_searched(hyp["id"], {"agent": info})
-        stats["searched"] += 1
-        stats["claims"] += len(agent.claim_ids)
-        log.info("Test H%s: agent uložil %d tvrdení na overenie", hyp["id"], len(agent.claim_ids))
+        if info["ok"] and not agent.claim_ids and agent.pages:
+            pending.append((hyp, agent, info))
+            continue
+        searched(hyp, agent, info)
+    # Ohraničené (najviac 4 stránky × 2 časti na hypotézu), preto beží aj po vypršaní času: inak by sa stratila
+    # práca agenta. Pri výpadku modelu (APIConnectionError) ostanú hypotézy nepreskúmané a test sa zopakuje.
+    for hyp, agent, info in pending:
+        extracted = claims_from_read_pages(cfg, db, llm, agent, hyp)
+        agent.claim_ids += extracted
+        info["z_prečítaných_stránok"] = len(extracted)
+        stats["claims_from_pages"] += len(extracted)
+        searched(hyp, agent, info)
     return dict(stats)
 
 

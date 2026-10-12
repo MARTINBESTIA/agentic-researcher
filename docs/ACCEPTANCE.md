@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 162 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v5).
+Stav 12. 10. 2026: 163 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v5).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -95,3 +95,4 @@ Stav 12. 10. 2026: 162 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M11 | široká tabuľka (obdobia ako stĺpce) → dlhý tvar, chýbajúce hodnoty NULL, časový rad Brány 2 | `test_m10_gates.py::test_wide_table_with_periods_as_columns_gets_long_form` |
 | M11 | sezóna podľa obdobia, modely ses / holt_damped / seasonal_trend / auto (výber iba z histórie) | `test_m10_gates.py::test_backtest_season_length_and_new_models` |
 | M11 | filtre predregistrácie (ukazovateľ, kraj) nad dlhou tabuľkou; neznámy model a stĺpec filtra sú chyby návrhu | `test_m10_gates.py::test_prereg_filters_select_one_indicator_of_long_table` |
+| M9 | extrakcia z prečítaných stránok až po všetkých agentoch dávky (menej výmen modelu) | `test_m9_agentic.py::test_validation_extracts_after_all_agents_of_batch` |

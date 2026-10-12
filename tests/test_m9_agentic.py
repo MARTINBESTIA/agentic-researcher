@@ -523,3 +523,20 @@ def test_validation_agent_that_only_reads_gets_claims_from_extraction(tmp_path):
     assert rec.models_for("ExtractionResult") == ["radar-qwen3.5-9b"]  # extrakcia na rýchlom modeli
     info = json.loads(db.get_hypothesis(hid)["validation_json"])["agent"]
     assert info["z_prečítaných_stránok"] == 1
+
+
+def test_validation_extracts_after_all_agents_of_batch(tmp_path):
+    """Agent (35B) a extrakcia (9B) sa na 8 GB VRAM nezmestia naraz: extrakcia beží až po agentoch celej dávky."""
+    cfg, db, rec, router = setup(tmp_path)
+    url2 = "https://www.example-urad.sk/sprava-2.html"
+    h1 = db.create_hypothesis("Kapacita obcí na obstarávanie", "", "malé obce")
+    h2 = db.create_hypothesis("Obce nestíhajú eurofondy", "", "malé obce")
+    rec.responses["tools"] = [step(call("read_page", {"url": URL})), step(call("finish", {"summary": "a"}, "2")),
+                              step(call("read_page", {"url": url2}, "3")), step(call("finish", {"summary": "b"}, "4"))]
+    rec.responses["ExtractionResult"] = {"relevant": True, "claims": [
+        {"problem": "Malé obce nemajú kapacitu.", "affected_party": "malé obce", "claim_type": "pain", "quote": QUOTE}]}
+    stats = run_validate_search(cfg, db, router, FakeSearx({}), FakeFetcher({URL: DOC, url2: DOC}), Deadline(1), ids=[h1, h2])
+    assert stats["searched"] == 2 and stats["claims_from_pages"] == 2
+    kinds = [s for s, *_ in rec.calls]
+    assert kinds.index("ExtractionResult") > max(i for i, k in enumerate(kinds) if k == "tools")
+    assert all(db.get_hypothesis(h)["validation_state"] == "searched" for h in (h1, h2))

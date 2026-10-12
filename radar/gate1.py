@@ -257,6 +257,7 @@ def catalog_text(cfg: Config) -> str:
 
 def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, ids: list[int] | None) -> dict:
     stats: Counter = Counter()
+    done: list[tuple[Any, SourceAgent, list]] = []  # extrakcia (presný model) až po všetkých agentoch: menej výmen modelu
     for hyp in _hypotheses(cfg, db, ids):
         if deadline.expired():
             break
@@ -281,6 +282,8 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
                 raise
             log.warning("Brána 1: agent zdrojov H%s zlyhal: %s", hyp["id"], exc)
             stats["errors"] += 1
+        done.append((hyp, agent, todo))
+    for hyp, agent, todo in done:
         if not agent.saved and agent.pages:
             stats["sources_from_pages"] += sources_from_read_pages(cfg, db, llm, agent)
         stats["sources"] += len(agent.saved)
