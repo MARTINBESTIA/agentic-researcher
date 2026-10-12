@@ -223,3 +223,17 @@ def test_problems_theme_view_and_rename(gui):
     db = DB(load_config(gui / "config.yaml").db_path)
     assert db.get_theme(tid)["name"] == "Obce – kapacita na projekty" and db.get_theme(tid)["name_method"] == "manual"
     db.close()
+
+
+def test_action_manager_offers_resume_after_interruption(gui):
+    db = DB(load_config(gui / "config.yaml").db_path)
+    job = db.create_job("validate", {"minutes": 240, "hypotheses": [1]})
+    db.update_job(job, pid=999_999_999, status="running")  # proces už neexistuje (reštart počítača)
+    db.create_job("themes", {"minutes": 15}, status="queued")
+    db.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/actions.py").run()
+    assert not at.exception, at.exception
+    assert any("Poradie stojí" in w.value for w in at.warning)
+    labels = [b.label for b in at.button]
+    assert "Pokračovať v poradí" in labels and "Spustiť znova" in labels

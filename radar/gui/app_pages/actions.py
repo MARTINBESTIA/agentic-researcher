@@ -1,7 +1,9 @@
 import streamlit as st
 
-from radar.gui.common import JOB_STATUS, action_card, cfg, db, job_label, jobs_panel, json_or
-from radar.jobs import gpu_status, ollama_models, refresh_jobs, unload_gpu
+from radar.gui.common import JOB_STATUS, action_card, cfg, config_path, db, job_label, jobs_panel, json_or
+from radar.jobs import (
+    gpu_status, interrupted_jobs, ollama_models, queue_stalled, refresh_jobs, restart_job, start_next, unload_gpu,
+)
 from radar.models import MODEL_SETTINGS_KEY, PROFILES
 
 d, c = db(), cfg()
@@ -77,6 +79,22 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
                    "Bežiaca akcia si ponechá modely, s ktorými začala. Rýchlosť zmeria akcia „Zmerať rýchlosť modelov“.")
 
 st.subheader("Bežiaca akcia a poradie")
+if queue_stalled(d):
+    st.warning(f"Poradie stojí: nič nebeží a {len(queued)} akcií čaká (napr. po reštarte alebo uspatí počítača "
+               "sa ďalšia akcia sama nespustí).", icon=":material/pause_circle:")
+    if st.button("Pokračovať v poradí", icon=":material/play_arrow:", key="am_resume_queue"):
+        job_id = start_next(c, d)
+        st.toast(f"Spustená úloha #{job_id} z poradia.", icon=":material/rocket_launch:")
+        st.rerun()
+for j in interrupted_jobs(d)[:3]:
+    with st.container(horizontal=True, vertical_alignment="center"):
+        st.caption(f"Prerušená #{j['id']} · {job_label(j['kind'])} · {(j['started_at'] or '')[:16].replace('T', ' ')} UTC. "
+                   "Rozpracovaný stav je v databáze – akcia pokračuje tam, kde prestala.")
+        if st.button("Spustiť znova", icon=":material/replay:", key=f"am_restart_{j['id']}",
+                     help="Rovnaký limit a hypotézy; ak niečo beží, zaradí sa do poradia."):
+            new_id = restart_job(c, d, config_path(), j["id"])
+            st.toast(f"Úloha #{new_id}: {job_label(j['kind'])}", icon=":material/replay:")
+            st.rerun()
 if not active and not queued:
     st.caption("Nič nebeží.")
 jobs_panel(show_last=False)

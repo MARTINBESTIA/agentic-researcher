@@ -131,6 +131,35 @@ def start_next(cfg: Config, db: DB, popen: Callable[..., Any] = subprocess.Popen
     return _spawn(cfg, db, queued[0]["id"], popen) if queued else None
 
 
+def queue_stalled(db: DB, alive: Callable[[int | None], bool] = pid_alive) -> bool:
+    """Poradie stojí: nič nebeží, ale v poradí niečo čaká (ďalšiu úlohu spúšťa až koniec bežiacej, takže po
+    reštarte alebo prerušení počítača sa poradie samo nepohne)."""
+    refresh_jobs(db, alive)
+    return not db.active_jobs() and bool(db.queued_jobs())
+
+
+def interrupted_jobs(db: DB, limit: int = 25) -> list:
+    """Prerušené úlohy, po ktorých už rovnaká akcia nebežala (kandidáti na „Spustiť znova“)."""
+    out, later_done = [], set()
+    for job in db.recent_jobs(limit):  # od najnovšej
+        if job["status"] == "interrupted" and job["kind"] not in later_done:
+            out.append(job)
+        later_done.add(job["kind"])  # novšia úloha tej istej akcie (aj zastavená) → staršiu neponúkať
+    return out
+
+
+def restart_job(cfg: Config, db: DB, config_path: str | Path, job_id: int, popen: Callable[..., Any] = subprocess.Popen,
+                alive: Callable[[int | None], bool] = pid_alive) -> int:
+    """Rovnaká akcia s rovnakým limitom a hypotézami ako prerušená úloha (ak niečo beží, zaradí sa do poradia).
+    Rozpracovaný stav je v databáze, takže akcia pokračuje tam, kde prestala (nie od začiatku)."""
+    job = db.get_job(job_id)
+    if job is None:
+        raise ValueError("Úloha neexistuje.")
+    args = json.loads(job["args_json"] or "{}")
+    return start_job(cfg, db, config_path, job["kind"], args.get("minutes") or 60, args.get("hypotheses") or None,
+                     popen=popen, alive=alive, mode="queue")
+
+
 def stop_job(db: DB, job_id: int, run: Callable[..., Any] = subprocess.run) -> bool:
     job = db.get_job(job_id)
     if job is None:

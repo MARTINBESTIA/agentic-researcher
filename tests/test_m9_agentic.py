@@ -541,3 +541,30 @@ def test_validation_extracts_after_all_agents_of_batch(tmp_path):
     kinds = [s for s, *_ in rec.calls]
     assert kinds.index("ExtractionResult") > max(i for i, k in enumerate(kinds) if k == "tools")
     assert all(db.get_hypothesis(h)["validation_state"] == "searched" for h in (h1, h2))
+
+
+def test_interrupted_job_stalls_queue_until_resumed_or_restarted(tmp_path):
+    """Reštart počítača počas akcie: akcia je prerušená a poradie stojí; GUI ponúkne pokračovať a spustiť znova."""
+    from radar.jobs import interrupted_jobs, queue_stalled, restart_job, start_next
+
+    cfg, db, rec, router = setup(tmp_path)
+    spawned, alive = [], {}
+
+    def popen(cmd, **kw):
+        spawned.append(cmd)
+        pid = 2000 + len(spawned)
+        alive[pid] = True
+        return SimpleNamespace(pid=pid)
+
+    is_alive = lambda pid: alive.get(pid, False)  # noqa: E731
+    first = start_job(cfg, db, "config.yaml", "validate", 240, [7], popen=popen, alive=is_alive)
+    queued = start_job(cfg, db, "config.yaml", "themes", 15, popen=popen, alive=is_alive, mode="queue")
+    assert not queue_stalled(db, is_alive)
+    alive[2001] = False  # počítač sa reštartoval: proces zmizol bez zápisu výsledku
+    assert queue_stalled(db, is_alive) and db.get_job(first)["status"] == "interrupted"
+    assert [j["id"] for j in interrupted_jobs(db)] == [first]
+    assert start_next(cfg, db, popen=popen, alive=is_alive) == queued  # „Pokračovať v poradí“
+    again = restart_job(cfg, db, "config.yaml", first, popen=popen, alive=is_alive)
+    assert db.get_job(again)["status"] == "queued"  # niečo beží → do poradia, s rovnakými parametrami
+    assert json.loads(db.get_job(again)["args_json"])["hypotheses"] == [7]
+    assert interrupted_jobs(db) == []  # novšia úloha tej istej akcie už existuje

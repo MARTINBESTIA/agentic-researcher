@@ -50,7 +50,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   nočný beh by stihol rádovo viac posúdení. Treba najprv nazbierať labely. · 0,5 dňa + labely.
 - ~~**2026-10-12 – modely – menej výmen modelov v run-all.**~~ **Čiastočne hotové 12. 10. 2026** (extrakcia po agentoch celej dávky v teste aj v Bráne 1; poradie krokov run-all ostáva kvôli prednosti Brány 1; ďalší krok: zmerať čas výmeny z logu Ollama `load_duration` a podľa toho rozhodnúť). S rolou agent (35B) sa v rýchlej fáze strieda 9B a 35B;
   zoskupiť kroky agenta (scout, gate1-sources, validate-search) za sebou by ušetrilo ~1 min na výmenu. · 0,5 dňa.
-- **2026-10-12 – prevádzka – nočný beh odolný voči spánku a výpadkom.** Teraz sa počítač neuspí pre nečinnosť a limit sa
+- **2026-10-12 – prevádzka – nočný beh odolný voči spánku a výpadkom.** *Čiastočne hotové 12. 10. 2026: „Pokračovať v poradí“ a „Spustiť znova“ v Správcovi akcií; ostáva úloha v Plánovači s prebudením (zmena nastavení systému – zaregistruješ ty, skript treba pripraviť).* Teraz sa počítač neuspí pre nečinnosť a limit sa
   neráta počas spánku; po zatvorení veka však beh stojí. Plánovač úloh s „Wake the computer to run this task“ a
   kontrolou nabíjačky, plus obnovenie prerušenej akcie z poradia po štarte, by noc využili celú. · 0,5–1 deň.
 - **2026-10-12 – agenti – prompt a nástroje pre modely, ktoré iba čítajú.** 9B aj MoE 35B agent číta, ale nástroj
