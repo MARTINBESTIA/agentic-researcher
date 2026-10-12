@@ -769,3 +769,12 @@ def test_crz_daily_exports_deduplicated_without_supplier_names(tmp_path):
     assert "zs2" not in cols and "sidlo" not in cols and "_den" not in cols and "ico_objednavatel" in cols
     assert run_query(cfg, hid, f'SELECT COUNT(*), SUM(suma_zmluva) FROM {table}')[0] == (2, 350.5)  # ID 1 iba raz, posledná zmena
     assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]  # IČO objednávateľa (ico1)
+
+
+def test_gate_stage_cli_accepts_hypotheses():
+    """Bez zadania spracuje krok najviac gate1.max_hypotheses_per_run hypotéz (CRZ pre H11 sa preto nespustilo)."""
+    from radar.cli import build_parser
+
+    args = build_parser().parse_args(["gate1-datasets", "--hypotheses", "11,4", "--minutes", "90"])
+    assert args.hypotheses == [11, 4] and args.minutes == 90
+    assert build_parser().parse_args(["gate2-backtest", "--hypotheses", "1"]).hypotheses == [1]

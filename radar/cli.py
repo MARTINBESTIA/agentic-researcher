@@ -288,6 +288,8 @@ def cmd_run_all(app: App, args: argparse.Namespace) -> int:
 
 
 def cmd_stage(app: App, args: argparse.Namespace) -> int:
+    if getattr(args, "hypotheses", None):
+        app.gate_ids = args.hypotheses
     stats = run_stage(app, args.command, Deadline(args.minutes or app.cfg.pipeline.max_run_minutes))
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
@@ -428,6 +430,8 @@ def build_parser() -> argparse.ArgumentParser:
     for stage in PIPELINE + EXTRA_CLI_STAGES:
         stage_parser = sub.add_parser(stage, help=commands.STAGE_HELP.get(stage, f"Iba krok '{stage}'."))
         stage_parser.add_argument("--minutes", type=float, default=None)
+        if stage.startswith(("gate1-", "gate2-")):  # bez zadania najviac gate1.max_hypotheses_per_run hypotéz
+            stage_parser.add_argument("--hypotheses", type=commands._id_list, default=None, help="ID hypotéz, napr. 11,4.")
     commands.add_parsers(sub)
 
     deep = sub.add_parser("deep-dive", help="Výskumný agent pre jednu hypotézu alebo otázku.")
