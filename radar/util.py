@@ -147,3 +147,24 @@ def fmt_num(x: float | None) -> str:
     if abs(x) >= 1000:
         return f"{x:,.0f}".replace(",", " ")
     return f"{x:.3g}".replace(".", ",")
+
+
+LONG_COMMANDS = ("workflow", "run-all")
+
+
+def preload_modules() -> list[str]:
+    """Načíta všetky moduly balíka radar (okrem GUI) hneď pri štarte dlhého behu. Kroky inak importujú moduly až
+    vtedy, keď na ne príde rad, a úprava kódu počas behu by zmiešala staré a nové verzie (reálny beh 12. 10. 2026:
+    ImportError a chýbajúce pole konfigurácie v dvoch krokoch run-all). Beh tak používa kód z chvíle štartu."""
+    import importlib
+    import pkgutil
+
+    import radar
+
+    loaded = []
+    for mod in pkgutil.walk_packages(radar.__path__, "radar."):
+        if mod.name.startswith("radar.gui") or mod.name == "radar.__main__":
+            continue
+        importlib.import_module(mod.name)
+        loaded.append(mod.name)
+    return loaded

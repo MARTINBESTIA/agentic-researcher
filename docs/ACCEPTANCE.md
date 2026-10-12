@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 174 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 175 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -107,3 +107,4 @@ Stav 12. 10. 2026: 174 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M10 | národný katalóg: kmene bez diakritiky, uvoľnenie dopytu, text metadát s licenciou, výpadok | `test_m10_gates.py::test_nkod_search_terms_metadata_text_and_failure` |
 | M10 | kandidát z katalógu → zdroj (licencia a periodicita z metadát) → súbory z distribúcií → import podľa formátu z katalógu | `test_m10_gates.py::test_catalog_candidates_become_sources_with_files_and_typed_download` |
 | M10 | licencia NC/ND nie je otvorená | `test_m10_gates.py::test_noncommercial_license_is_not_counted_as_open` |
+| M9 | dlhé behy načítajú všetky moduly pri štarte (úpravy kódu počas behu nemiešajú verzie) | `test_m9_agentic.py::test_long_runs_preload_whole_package_at_start` |

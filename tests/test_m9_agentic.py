@@ -595,3 +595,13 @@ def test_job_command_queues_like_gui_and_waits_for_end(tmp_path, monkeypatch):
 
     assert cmd_job(app, args, sleep=sleep) == 0 and len(ticks) == 2
     assert created == [("run-all", 480, None, "queue")]
+
+
+def test_long_runs_preload_whole_package_at_start():
+    """Úprava kódu počas behu nesmie zmiešať verzie: workflow a run-all si načítajú všetky moduly pri štarte."""
+    from radar.util import LONG_COMMANDS, preload_modules
+
+    loaded = preload_modules()
+    assert {"radar.validate", "radar.gate1", "radar.gate2", "radar.themes", "radar.catalogs", "radar.strength"} <= set(loaded)
+    assert not any(m.startswith("radar.gui") for m in loaded) and "radar.__main__" not in loaded
+    assert set(LONG_COMMANDS) == {"workflow", "run-all"}

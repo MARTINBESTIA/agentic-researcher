@@ -29,7 +29,7 @@ from .privacy import install_log_masking
 from .prompts import EXTRACT_SYSTEM
 from .report import build_report, evidence_strength
 from .search import SearxClient
-from .util import Deadline
+from .util import LONG_COMMANDS, Deadline, preload_modules
 from .verify import run_verify
 from . import commands
 
@@ -497,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
     args = build_parser().parse_args(argv)
+    if args.command in LONG_COMMANDS:
+        preload_modules()  # celý kód z chvíle štartu (úpravy počas behu sa do neho nedostanú)
     config_path = Path(args.config) if args.config else default_config_path()
     if not config_path.exists():
         print(f"Konfigurácia {config_path} neexistuje.")
