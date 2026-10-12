@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 191 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 194 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -124,3 +124,6 @@ Stav 12. 10. 2026: 191 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M8 | rotácia zdrojov s vyhľadávaním v kategórii, RSS vždy | `test_m8_discovery.py::test_sources_rotate_within_category_and_rss_always_used` |
 | M8 | TLS cez úložisko OS s overovaním | `test_m8_discovery.py::test_tls_uses_os_trust_store_with_verification_on` |
 | M8 | GUI Zdroje: katalóg zdrojov objavovania s výťažnosťou podľa kategórie a domény | `test_m2_gui.py::test_every_page_loads[sources]` |
+| M9 | autopilot: kolo iba z akcií s prácou, úseky do zvyšného času, zber ľudí iba pre zapnuté hypotézy, ďalšie kolo | `test_m9_agentic.py::test_autopilot_plans_round_by_work_and_time_and_continues` |
+| M9 | autopilot číta svoj koniec a naplánuje kolo | `test_m9_agentic.py::test_autopilot_job_reads_its_end_time_and_plans` |
+| M9 | ostré spustenie úlohy s konfiguráciou inej databázy sa odmietne | `test_m9_agentic.py::test_real_spawn_refuses_config_of_another_database` |

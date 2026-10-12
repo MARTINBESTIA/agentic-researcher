@@ -446,7 +446,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
     app = SimpleNamespace(cfg=cfg, db=db, router=router, collect_budget=None)
     result = run_workflow(app, "run-all", 60, run_stage=lambda a, s, dl: calls.append(s) or {})
     assert calls[0] == "discover" and calls[-2:] == ["report", "purge"] and len(result["stages"]) == len(calls)
-    assert set(ACTIONS) == set(expected) | {"scout", "validate", "people", "run-all"}
+    assert set(ACTIONS) == set(expected) | {"scout", "validate", "people", "run-all", "autopilot"}
 
     # po skončení úlohy z GUI sa spustí ďalšia z poradia
     started = []
@@ -617,3 +617,60 @@ def test_people_workflow_leaves_time_for_people_after_orgs(tmp_path):
             None, lambda **kw: None)
     assert list(budgets) == ["prepare-next", "orgs", "people", "people-rank", "contacts"]
     assert 32 <= budgets["orgs"] <= 33 and 64 <= budgets["people"] <= 65.1
+
+
+def test_autopilot_plans_round_by_work_and_time_and_continues(tmp_path):
+    """„Nechať bežať všetko“: kolo iba z akcií s prácou, v poradí závislostí, úseky do zvyšného času; zber ľudí iba
+    pre hypotézy zapnuté na Bránu 0 (bez automatického výberu); na konci ďalší autopilot s rovnakým koncom."""
+    from datetime import datetime, timedelta, timezone
+
+    from radar.autopilot import pending_work, plan_round
+
+    cfg, db, rec, router = setup(tmp_path)
+    h1 = db.create_hypothesis("Kapacita obcí na obstarávanie", "", "malé obce")  # neotestovaná → validate
+    h2 = db.create_hypothesis("Iná hypotéza", "", "firmy")
+    db.set_people_selection(h1, True)
+    org, _ = db.upsert_organization("Obec Fiktívna", "obec fiktivna", "evidence")
+    db.insert_person(org, "Peter Vzorový", "peter vzorovy", "https://obec-fikt.sk/urad", "Peter Vzorový, prednosta", h1)
+    work = pending_work(cfg, db)
+    assert {"scout", "topics", "validate", "people", "contacts", "gate1"} <= set(work) and "gate2" not in work
+    now = datetime(2026, 10, 12, 20, 0, tzinfo=timezone.utc)
+    plan = plan_round(cfg, db, "config.yaml", now + timedelta(minutes=185), 1, now=now)
+    kinds = [(p["akcia"], p["minúty"]) for p in plan["naplánované"]]
+    assert kinds == [("scout", 60), ("topics", 30), ("validate", 60), ("themes", 10), ("people", 25)]
+    assert plan["preskočené"]["contacts"] == "nezmestí sa do času" and plan["preskočené"]["gate2"] == "bez práce"
+    queued = db.queued_jobs()
+    people_job = [j for j in queued if j["kind"] == "people"][0]
+    assert json.loads(people_job["args_json"])["hypotheses"] == [h1]  # iba zapnuté, h2 nie
+    assert db.get_hypothesis(h2)["people_enabled"] == 0
+    nxt = json.loads(queued[-1]["args_json"])
+    assert queued[-1]["kind"] == "autopilot" and nxt["round"] == 2 and nxt["until"] == "2026-10-12T23:05:00+00:00"
+    late = plan_round(cfg, db, "config.yaml", now + timedelta(minutes=5), 2, now=now)
+    assert late["naplánované"] == [] and late["ďalšie_kolo"] is None  # čas vypršal → reťaz končí
+
+
+def test_autopilot_job_reads_its_end_time_and_plans(tmp_path, monkeypatch):
+    from radar.workflows import run_workflow
+
+    cfg, db, rec, router = setup(tmp_path)
+    started = []
+    monkeypatch.setattr("radar.jobs.start_next", lambda cfg_, db_, *a, **k: started.append(1))  # žiadny ostrý proces
+    job = db.create_job("autopilot", {"minutes": 480, "hypotheses": [], "config": "config.yaml"})
+    app = SimpleNamespace(cfg=cfg, db=db, router=router)
+    run_workflow(app, "autopilot", 480, job_id=job, run_stage=lambda app, stage, dl: {})
+    plan = json.loads(db.get_job(job)["progress_json"])["autopilot"]
+    assert plan["kolo"] == 1 and [p["akcia"] for p in plan["naplánované"]][:2] == ["scout", "topics"]
+    assert [j["kind"] for j in db.queued_jobs()][-1] == "autopilot" and started == [1]
+
+
+def test_real_spawn_refuses_config_of_another_database(tmp_path):
+    """Test spustil ostrý proces: relatívna cesta config.yaml ukazovala na skutočnú databázu, nie na testovaciu."""
+    import subprocess
+
+    from radar.jobs import JobConfigMismatch, _spawn
+
+    cfg, db, rec, router = setup(tmp_path)
+    job = db.create_job("scout", {"minutes": 60, "hypotheses": [], "config": "config.yaml"}, status="queued")
+    with pytest.raises(JobConfigMismatch):
+        _spawn(cfg, db, job, subprocess.Popen)
+    assert db.get_job(job)["status"] == "queued"

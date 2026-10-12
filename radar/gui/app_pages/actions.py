@@ -1,10 +1,27 @@
 import streamlit as st
 
-from radar.gui.common import JOB_STATUS, action_card, cfg, config_path, db, job_label, jobs_panel, json_or
+from radar.gui.common import (
+    JOB_STATUS, action_card, cfg, config_path, db, job_label, jobs_panel, json_or, start_job_button,
+)
 from radar.jobs import (
     gpu_status, interrupted_jobs, ollama_models, queue_stalled, refresh_jobs, restart_job, start_next, unload_gpu,
 )
 from radar.models import MODEL_SETTINGS_KEY, PROFILES
+from radar.workflows import ACTIONS
+
+ACTIONS_INFO = ACTIONS["autopilot"]
+
+
+def autopilot_status(d) -> dict | None:
+    """Plán posledného kola, ak autopilot ešte beží (v poradí alebo práve beží niektorá jeho úloha)."""
+    import json
+
+    for j in d.recent_jobs(40):
+        if j["kind"] == "autopilot" and j["status"] in ("done", "running"):
+            plan = (json.loads(j["progress_json"] or "{}") or {}).get("autopilot")
+            alive = any(q["kind"] == "autopilot" for q in d.queued_jobs()) or d.active_jobs()
+            return plan if plan and alive else None
+    return None
 
 d, c = db(), cfg()
 refresh_jobs(d)
@@ -77,6 +94,19 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
                 st.rerun()
         st.caption("Na 8 GB VRAM sa zmestí jeden veľký model; väčšie modely (napr. 27B, MoE 35B) bežia čiastočne na CPU. "
                    "Bežiaca akcia si ponechá modely, s ktorými začala. Rýchlosť zmeria akcia „Zmerať rýchlosť modelov“.")
+
+with st.container(border=True):
+    st.markdown("**Nechať bežať všetko (autopilot)**")
+    st.caption(ACTIONS_INFO.what)
+    plan = autopilot_status(d)
+    if plan:
+        st.info(f"Autopilot beží do {plan['do'].replace('T', ' ')} UTC · kolo {plan['kolo']} · naplánované: "
+                + (", ".join(f"{p['akcia']} ({p['minúty']} min)" for p in plan["naplánované"]) or "nič")
+                + ((" · bez práce: " + ", ".join(k for k, v in plan["preskočené"].items() if v == "bez práce"))
+                   if plan.get("preskočené") else ""), icon=":material/autorenew:")
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        hours = st.number_input("Ako dlho (hodiny)", 1, 72, 8, key="am_auto_hours")
+        start_job_button("autopilot", ACTIONS_INFO.label, hours * 60, key="am_auto_go", icon=":material/autorenew:")
 
 st.subheader("Bežiaca akcia a poradie")
 if queue_stalled(d):

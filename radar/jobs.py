@@ -79,6 +79,23 @@ def _minutes_ago(minutes: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat(timespec="seconds")
 
 
+class JobConfigMismatch(RuntimeError):
+    pass
+
+
+def _check_same_database(cfg: Config, config_path: str | Path, job_id: int) -> None:
+    """Proces úlohy musí pracovať s tou istou databázou, v ktorej je riadok úlohy. Inak (12. 10. 2026: test
+    s relatívnou cestou config.yaml) by sa spustila ostrá akcia nad skutočnou databázou a prepísala cudziu úlohu."""
+    from .config import load_config
+
+    path = Path(config_path)
+    if not path.is_absolute():
+        path = ROOT / path
+    target = Path(load_config(path).db_path).resolve() if path.exists() else None
+    if target != Path(cfg.db_path).resolve():
+        raise JobConfigMismatch(f"Úloha #{job_id}: konfigurácia {path} ukazuje na inú databázu – nespustí sa.")
+
+
 def _spawn(cfg: Config, db: DB, job_id: int, popen: Callable[..., Any]) -> int:
     """Spustí proces pre existujúci riadok úlohy (nový alebo z poradia)."""
     job = db.get_job(job_id)
@@ -90,8 +107,10 @@ def _spawn(cfg: Config, db: DB, job_id: int, popen: Callable[..., Any]) -> int:
     flags = 0
     if os.name == "nt":  # bez okna konzoly a vo vlastnej skupine (Ctrl+C v termináli GUI ju nezastaví)
         flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-    cmd = job_command(args.get("config") or Path(cfg.config_dir) / "config.yaml", job["kind"], args.get("minutes", 60),
-                      job_id, args.get("hypotheses") or None)
+    config = args.get("config") or Path(cfg.config_dir) / "config.yaml"
+    if popen is subprocess.Popen:
+        _check_same_database(cfg, config, job_id)
+    cmd = job_command(config, job["kind"], args.get("minutes", 60), job_id, args.get("hypotheses") or None)
     with open(log_path, "ab") as out:
         proc = popen(cmd, cwd=str(ROOT), stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
                      creationflags=flags)

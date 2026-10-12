@@ -206,6 +206,11 @@ profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je prak
   V detaile témy: **Otestovať neotestované hypotézy témy** a **Zbierať ľudí k téme** (3 najsilnejšie
   hypotézy témy na Bránu 0).
 
+- **Nechať bežať všetko** (Správca akcií, navrchu; predvolene 8 h): autopilot v kolách – v každom kole
+  zistí, kde je práca, a zaradí samostatné akcie v poradí nové hypotézy → zber k témam → test hypotéz → posúdenie
+  dôkazov → témy → ľudia → kontakty → návrhy oslovení → Brána 1 → Brána 2 → kritika; akcie bez práce preskočí.
+  Ľudí zbiera iba pre hypotézy zapnuté na Bránu 0. Zastavíš ho „Zastaviť všetko vrátane poradia“.
+
 Úloha beží ako samostatný proces (aj po zatvorení prehliadača), naraz iba jedna (GPU), dá sa
 zastaviť. Priebeh a koniec výstupu (maskovaný) sú v Prehľade, celý výstup v `logs/jobs/`.
 

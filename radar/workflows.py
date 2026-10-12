@@ -108,6 +108,13 @@ ACTIONS: dict[str, Action] = {
         "Pre každú rolu (rýchly, presný, agent, embeddingy) zmeria načítanie, rýchlosť promptu a generovania a či model "
         "vráti platný JSON a volá nástroje. Pomôže pri výbere modelov.",
         "výsledky v Eval (benchmark)", "všetky roly", 20),
+    "autopilot": Action(
+        "Nechať bežať všetko (autopilot)",
+        "Kolá akcií v poradí podľa závislostí, kým nevyprší zvolený čas: nové hypotézy → zber k témam → test hypotéz → "
+        "posúdenie dôkazov → témy → ľudia → kontakty → návrhy oslovení → Brána 1 → Brána 2 → kritika. Pred každým kolom "
+        "zistí, kde je práca, akcie bez práce preskočí; každá akcia je v poradí samostatná úloha. Ľudí a kontakty zbiera "
+        "iba pre hypotézy, ktoré máš zapnuté na Bránu 0. Zastavíš ho tlačidlom „Zastaviť všetko vrátane poradia“.",
+        "všetko vyššie, opakovane", "všetky", 480),
     "run-all": Action(
         "Celý beh (ako v noci)",
         "Všetko v poradí podľa modelov: objavovanie, prieskum, zber k témam, extrakcia, ľudia, test hypotéz, "
@@ -137,6 +144,7 @@ def run_workflow(app, kind: str, minutes: float, hypothesis_ids: list[int] | Non
     progress: dict[str, Any] = {"workflow": WORKFLOWS[kind]}
     if job_id is not None:
         db.update_job(job_id, pid=os.getpid(), status="running")
+    app.job_id = job_id  # autopilot číta svoje argumenty (koniec, kolo)
 
     def report_progress(**fields: Any) -> None:
         progress.update(fields)
@@ -216,6 +224,20 @@ def _scout(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("cluster", deadline.sub(max(0.0, deadline.remaining_minutes() - 2)))
     run("themes", Deadline(5))  # nové hypotézy hneď v témach (kód + krátke názvy rýchlym modelom)
     run("report", Deadline(5))
+
+
+def _autopilot(app, deadline: Deadline, run, ids, report_progress) -> None:
+    """Naplánuje jedno kolo (úlohy v poradí + ďalší autopilot); samotná práca beží v naplánovaných úlohách."""
+    import json
+    from pathlib import Path
+
+    from .autopilot import plan_round, until_for
+
+    job = app.db.get_job(app.job_id) if getattr(app, "job_id", None) else None
+    args = json.loads(job["args_json"] or "{}") if job is not None else {}
+    until = until_for(job, float(args.get("minutes") or deadline.remaining_minutes()))
+    config = args.get("config") or str(Path(app.cfg.config_dir) / "config.yaml")
+    report_progress(autopilot=plan_round(app.cfg, app.db, config, until, int(args.get("round") or 1)))
 
 
 def _themes(app, deadline: Deadline, run, ids, report_progress) -> None:
@@ -347,5 +369,5 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate2": _gate2, "bench": _bench,
-    "themes": _themes,
+    "themes": _themes, "autopilot": _autopilot,
 }
