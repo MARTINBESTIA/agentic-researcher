@@ -216,6 +216,7 @@ EUR-Lex, ÚVO a PTK, CRZ, zväzy, výročné správy z RÚZ) a rotujúca matica 
 Medzi kategórie sa delí Thompson samplingom (úspech = dokument s overeným tvrdením). Zdroj z
 katalógu sa použije až po potvrdení (`sources --check`, potom `verified: true`); od 12. 10. 2026 je povolených
 146 overených zdrojov (úrady, inšpekcie, analytické útvary, zväzy, komory, kraje, odborné médiá, EÚ), 69 cez RSS.
+Zoznam a výťažnosť (dokumenty a overené tvrdenia podľa kategórie a zdroja) sú v GUI na stránke **Zdroje**.
 Nový problém je najprv „candidate“; hypotézou sa stane až s 2 overenými tvrdeniami z 2 domén.
 Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v správe vlastné sekcie.
 

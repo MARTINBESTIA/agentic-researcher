@@ -18,6 +18,7 @@ page = st.navigation(
             st.Page("app_pages/actions.py", title="Správca akcií", icon=":material/memory:"),
             st.Page("app_pages/problems.py", title="Problémy", icon=":material/lightbulb:"),
             st.Page("app_pages/evidence.py", title="Dôkazy", icon=":material/format_quote:"),
+            st.Page("app_pages/sources.py", title="Zdroje", icon=":material/travel_explore:"),
         ],
         "Brána 0": [
             st.Page("app_pages/orgs.py", title="Organizácie", icon=":material/apartment:"),

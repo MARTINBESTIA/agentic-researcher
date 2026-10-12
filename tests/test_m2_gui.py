@@ -12,7 +12,7 @@ from radar.db import DB
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = str(ROOT / "radar" / "gui" / "app.py")
-PAGES = ["overview", "actions", "problems", "evidence", "orgs", "people", "outreach", "interviews", "gate0", "gate1", "gate2", "review", "eval", "privacy"]
+PAGES = ["overview", "actions", "problems", "evidence", "sources", "orgs", "people", "outreach", "interviews", "gate0", "gate1", "gate2", "review", "eval", "privacy"]
 EVIL = "Úvod. " * 30 + "<script>alert('x')</script> Malé obce nemajú kapacitu na obstarávanie. " + "Záver. " * 30
 
 

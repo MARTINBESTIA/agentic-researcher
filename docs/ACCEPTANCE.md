@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 12. 10. 2026: 190 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 12. 10. 2026: 191 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -123,3 +123,4 @@ Stav 12. 10. 2026: 190 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M10 | CRZ: doplnenie chýbajúcich dní pridá iba nové zmluvy | `test_m10_gates.py::test_crz_append_missing_days_adds_only_new_contracts` |
 | M8 | rotácia zdrojov s vyhľadávaním v kategórii, RSS vždy | `test_m8_discovery.py::test_sources_rotate_within_category_and_rss_always_used` |
 | M8 | TLS cez úložisko OS s overovaním | `test_m8_discovery.py::test_tls_uses_os_trust_store_with_verification_on` |
+| M8 | GUI Zdroje: katalóg zdrojov objavovania s výťažnosťou podľa kategórie a domény | `test_m2_gui.py::test_every_page_loads[sources]` |

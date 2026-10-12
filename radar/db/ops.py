@@ -169,6 +169,17 @@ class OpsMixin:
         return {r["role"]: r for r in rows}
 
     # ---------------------------------------------------------------- query_stats
+    def discovery_yield(self) -> list[sqlite3.Row]:
+        """Dokumenty z objavovania podľa kategórie zdroja a domény: počet, relevantné (screen) a overené tvrdenia."""
+        return self._all(
+            """SELECT d.source_category AS category, d.domain AS domain, COUNT(DISTINCT d.id) AS documents,
+                      COUNT(DISTINCT CASE WHEN d.screened = 'yes' THEN d.id END) AS relevant,
+                      COUNT(DISTINCT CASE WHEN c.status = 'verified' THEN c.id END) AS verified_claims
+               FROM documents d LEFT JOIN claims c ON c.document_id = d.id
+               WHERE d.source_kind = 'discovery' AND d.source_category IS NOT NULL
+               GROUP BY d.source_category, d.domain"""
+        )
+
     def arm_stats(self) -> dict[str, sqlite3.Row]:
         return {r["arm"]: r for r in self._all("SELECT * FROM query_stats")}
 
