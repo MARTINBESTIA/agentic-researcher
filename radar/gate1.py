@@ -760,6 +760,9 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
             "organizácie_v_dátach": len(orgs), "reprodukcia": best_repro, "vypočítané": utcnow()}
 
 
+AUTO_PASS_KEY = "gate1_auto_pass"  # {"hypotheses": {"11": "pokyn človeka, dátum"}} – iba ak je hypotéza „ready“
+
+
 def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -> dict:
     stats: Counter = Counter()
     for hyp in _hypotheses(cfg, db, ids):
@@ -771,6 +774,12 @@ def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -
         if hyp["gate1_status"] in ("not_started", "running") and summary["zložky"]["pokrytie_kľúčových"] == 1.0 \
                 and summary["reprodukcia"] in ("match", "close"):
             db.set_gate_status(hyp["id"], 1, "ready")  # pripravené na tvoje rozhodnutie (nie automaticky „prešla“)
+            auto = db.get_setting(AUTO_PASS_KEY, {}) or {}
+            if str(hyp["id"]) in (auto.get("hypotheses") or {}):
+                # Človek vopred povolil „prešla“ pre túto hypotézu, ak bude pripravená (záznam s jeho pokynom a časom).
+                decide(db, hyp["id"], 1, "passed", "Automaticky podľa vopred zadaného pokynu: " +
+                       auto["hypotheses"][str(hyp["id"])])
+                stats["auto_passed"] += 1
         stats["hypotheses"] += 1
     return dict(stats)
 

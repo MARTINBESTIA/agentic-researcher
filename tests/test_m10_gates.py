@@ -230,6 +230,15 @@ def test_reproduction_of_known_number_scale_and_readiness(tmp_path):
     assert summary["zložky"]["pokrytie_kľúčových"] == 1.0 and summary["reprodukcia"] == "match"
     assert h["gate1_status"] == "ready" and summary["organizácie_v_dátach"] == 1  # návrh, nie automaticky „prešla“
 
+    # Vopred zadaný pokyn človeka pre konkrétnu hypotézu: „prešla“ iba ak je pripravená (záznam s pokynom).
+    db.set_gate_status(hid, 1, "running")
+    db.set_setting(gate1.AUTO_PASS_KEY, {"hypotheses": {str(hid): "používateľ 12. 10. 2026: áno, iba ak bude pripravená"}})
+    assert gate1.run_finish(cfg, db, Deadline(1), [hid])["auto_passed"] == 1
+    assert db.get_hypothesis(hid)["gate1_status"] == "passed"
+    other = db.create_hypothesis("Iná", "", "x")
+    db.set_gate_status(other, 1, "running")
+    assert "auto_passed" not in gate1.run_finish(cfg, db, Deadline(1), [other])  # bez polí a pokynu nič
+
 
 def test_missing_key_field_gets_info_request_draft_and_six_week_flag(tmp_path):
     cfg, db, rec, router = setup(tmp_path)

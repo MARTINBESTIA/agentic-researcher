@@ -127,3 +127,4 @@ Stav 12. 10. 2026: 194 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M9 | autopilot: kolo iba z akcií s prácou, úseky do zvyšného času, zber ľudí iba pre zapnuté hypotézy, ďalšie kolo | `test_m9_agentic.py::test_autopilot_plans_round_by_work_and_time_and_continues` |
 | M9 | autopilot číta svoj koniec a naplánuje kolo | `test_m9_agentic.py::test_autopilot_job_reads_its_end_time_and_plans` |
 | M9 | ostré spustenie úlohy s konfiguráciou inej databázy sa odmietne | `test_m9_agentic.py::test_real_spawn_refuses_config_of_another_database` |
+| M10 | vopred povolené „prešla“ iba pri stave pripravená a iba pre zadanú hypotézu | `test_m10_gates.py::test_reproduction_of_known_number_scale_and_readiness` |
