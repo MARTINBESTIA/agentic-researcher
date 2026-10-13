@@ -13,7 +13,9 @@ d, c = db(), cfg()
 def metrics() -> None:
     counts, g, v = d.counts(), d.gate0_counts(), d.validation_counts()
     with st.container(horizontal=True):
-        st.metric("Dokumenty", counts["documents"], border=True)
+        st.metric("Dokumenty", counts["documents"], border=True,
+                  help="Stiahnuté texty (stránky, PDF, RSS, stránky prečítané agentmi), z ktorých sa vyťahujú citáty. "
+                       "Zoznam a detail: stránka Dokumenty.")
         st.metric("Overené tvrdenia", counts["verified"], border=True)
         st.metric("Aktívne hypotézy", counts["active_hypotheses"], border=True)
         st.metric("Kandidáti z objavovania", counts["candidate_hypotheses"], border=True)

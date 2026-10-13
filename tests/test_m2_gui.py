@@ -12,7 +12,7 @@ from radar.db import DB
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = str(ROOT / "radar" / "gui" / "app.py")
-PAGES = ["overview", "actions", "problems", "evidence", "sources", "orgs", "people", "outreach", "interviews", "gate0", "gate1", "gate2", "review", "eval", "privacy"]
+PAGES = ["overview", "actions", "problems", "evidence", "documents", "sources", "orgs", "people", "outreach", "interviews", "gate0", "gate1", "gate2", "review", "eval", "privacy"]
 EVIL = "Úvod. " * 30 + "<script>alert('x')</script> Malé obce nemajú kapacitu na obstarávanie. " + "Záver. " * 30
 
 
@@ -254,3 +254,12 @@ def test_people_overview_shows_collected_but_unranked_people(gui):
     assert any("čaká na poradie 1" in c.value for c in at.caption)
     rows = at.dataframe[0].value
     assert "ešte nezoradený" in set(rows["väzba"]) and "Peter Vzorový" in set(rows["osoba"])
+
+
+def test_documents_page_lists_documents_with_claims(gui):
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/documents.py").run()
+    assert not at.exception, at.exception
+    rows = at.dataframe[0].value
+    assert list(rows["doména"]) == ["obce.sk"] and list(rows["overené"]) == [1]
+    assert any("Malé obce nemajú kapacitu" in str(v) for v in at.dataframe[1].value["citát"])

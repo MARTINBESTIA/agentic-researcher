@@ -61,6 +61,31 @@ class EvidenceMixin:
         self._exec("UPDATE documents SET last_checked_at = ? WHERE id = ?", (now, row["id"]))
         return int(row["id"]), False
 
+    def documents_overview(self, kinds: list[str], query: str | None = None, domain: str | None = None,
+                           only_verified: bool = False, limit: int = 500) -> list[sqlite3.Row]:
+        """Dokumenty s počtom citátov (GUI Dokumenty), najnovšie najskôr."""
+        if not kinds:
+            return []
+        where = [f"d.source_kind IN ({','.join('?' * len(kinds))})"]
+        params: list = list(kinds)
+        if query:
+            where.append("(d.title LIKE ? OR d.url LIKE ?)")
+            params += [f"%{query}%", f"%{query}%"]
+        if domain:
+            where.append("d.domain LIKE ?")
+            params.append(f"%{domain}%")
+        having = "HAVING verified > 0" if only_verified else ""
+        return self._all(
+            f"""SELECT d.id, d.title, d.domain, d.url, d.source_kind, d.source_category, d.source_type, d.fetched_at,
+                       d.screened, COUNT(c.id) AS claims, COALESCE(SUM(c.status = 'verified'), 0) AS verified
+                FROM documents d LEFT JOIN claims c ON c.document_id = d.id
+                WHERE {' AND '.join(where)} GROUP BY d.id {having} ORDER BY d.fetched_at DESC, d.id DESC LIMIT ?""",
+            (*params, limit),
+        )
+
+    def claims_of_document(self, doc_id: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM claims WHERE document_id = ? ORDER BY id", (doc_id,))
+
     def get_document(self, doc_id: int) -> sqlite3.Row | None:
         return self._one("SELECT * FROM documents WHERE id = ?", (doc_id,))
 
