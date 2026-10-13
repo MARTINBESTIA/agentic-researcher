@@ -332,7 +332,7 @@ def test_lookup_joins_other_table_by_ico_within_time_window(tmp_path):
     assert "fin_after" in ws.future and "before" not in ws.future  # budúcnosť iba ako štítok
     ws.close()
     bad = RANKING_PLAN | {"steps": [{"op": "lookup", "name": "x", "table": "ds77", "keys": ["buyer"], "target_column": "ico"}]}
-    assert any("nie je medzi datasetmi" in e for e in exp_plan.validate_plan(cfg, db, hid, bad)["chyby"])
+    assert any("iná tabuľka z DATA" in e for e in exp_plan.validate_plan(cfg, db, hid, bad)["chyby"])
 
 
 NKU_FINDINGS = ("Kontrolované obdobie,Začiatok kontroly,Koniec kontroly,Výsledky kontroly,Linka (URL) na výsledok kontroly,"
@@ -417,4 +417,22 @@ def test_planner_may_say_data_cannot_test_decision_and_waits_for_new_dataset(tmp
     assert exp_plan.plan_targets(cfg, db, None) == []  # bez nového datasetu sa neopakuje (autopilot)
     dataset(cfg, db, hid, "projekt;datum;hodnotenie", [(1, "2025-02-01", "negatívne")], "2025-01-01", "2025-12-31", name="ds2")
     assert [h["id"] for h, _ in exp_plan.plan_targets(cfg, db, None)] == [hid]
+
+
+def test_precheck_lists_all_missing_step_parameters_and_fills_unambiguous_ico(tmp_path):
+    """27B v reálnom behu vynechal pri lookup keys, target_column aj days a opravu zopakoval bez zmeny."""
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kontrola", "", "obce")
+    dataset(cfg, db, hid, "cid;ico_objednavatel;ico_dodavatel;datum;suma", [(1, "1", "2", "2024-01-10", 5)],
+            "2024-01-01", "2025-12-31")
+    dataset(cfg, db, hid, "ico;koniec_kontroly;typ", [("1", "2024-06-30", "x")], "2024-01-01", "2025-12-31", name="ds2")
+    plan = RANKING_PLAN | {"value": "", "primary_baseline": "value_desc", "steps": [
+        {"op": "lookup", "name": "nku_past", "table": "ds2", "agg": "count", "other_time": "koniec_kontroly"},
+        {"op": "future_agg", "name": "later", "keys": ["ico_objednavatel"], "agg": "sum"}]}
+    errors = exp_plan.precheck_steps(cfg, hid, plan)
+    joined = " | ".join(errors)
+    assert '"keys"' in joined and '["ico_objednavatel"] alebo ["ico_dodavatel"]' in joined
+    assert '"days"' in joined and "kladné" in joined and 'agg sum potrebuje "column"' in joined
+    assert "value_desc potrebuje" in joined and plan["steps"][0]["target_column"] == "ico"  # jediné IČO doplnil kód
+    assert plan["steps"][0]["match"] == "ico"
 

@@ -122,6 +122,74 @@ def _numbers(text: str) -> set[float]:
     return out
 
 
+ICO_COL_RE = re.compile(r"(^|_)i[cč]o($|_)", re.I)
+DATE_COL_RE = re.compile(r"datum|dátum|date|zaciatok|koniec|_at$|obdobie", re.I)
+
+
+def _table_columns(cfg: Config, hid: int, table: str) -> list[str]:
+    from .datasets import table_columns
+
+    return table_columns(cfg, hid, table) if table else []
+
+
+def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
+    """Chýbajúce parametre krokov naraz (s názvami polí JSON a ponukou stĺpcov) – model ich doplní v jednej oprave.
+    Bezpečné doplnenie kódom: lookup s jediným stĺpcom IČO v druhej tabuľke dostane target_column a match „ico“."""
+    errors = []
+    base = _table_columns(cfg, hid, plan.get("table", ""))
+    created = set()
+    for i, s in enumerate(plan.get("steps") or []):
+        op, name = s.get("op"), s.get("name", "")
+        where = f'krok {i + 1} ({op} "{name}")'
+        if op != "filter" and not name:
+            errors.append(f'{where}: chýba "name" (nový stĺpec, malé písmená a _)')
+        if op in ("filter", "derive") and not (s.get("expr") or "").strip():
+            errors.append(f'{where}: chýba "expr"')
+        if op == "lookup":
+            other = _table_columns(cfg, hid, s.get("table", ""))
+            if not other:
+                errors.append(f'{where}: "table" musí byť iná tabuľka z DATA')
+                continue
+            icos = [c for c in other if ICO_COL_RE.search(c)]
+            if not s.get("target_column") and len(icos) == 1:
+                s["target_column"], s["match"] = icos[0], "ico"  # jednoznačné – doplní kód
+            if s.get("target_column") and ICO_COL_RE.search(s["target_column"]):
+                s["match"] = "ico"
+            row_icos = [c for c in base + sorted(created) if ICO_COL_RE.search(c)]
+            if len(s.get("keys") or []) != 1:
+                errors.append(f'{where}: "keys" musí byť zoznam s jedným stĺpcom riadku, napr. '
+                              + " alebo ".join(f'["{c}"]' for c in row_icos[:3]))
+            if not s.get("target_column"):
+                errors.append(f'{where}: chýba "target_column" (stĺpec v {s.get("table")}, napr. {", ".join(icos[:3]) or other[0]})')
+            if int(s.get("days") or 0) != 0 and not s.get("other_time"):
+                dates = [c for c in other if DATE_COL_RE.search(c)]
+                errors.append(f'{where}: "days" ≠ 0 potrebuje "other_time" (dátum v {s.get("table")}: {", ".join(dates[:4])})')
+            if int(s.get("days") or 0) == 0:
+                errors.append(f'{where}: nastav "days" – záporné = história pred dátumom riadku (príznak), kladné = '
+                              "udalosť po ňom (štítok); 0 = kedykoľvek iba ak čas nie je známy")
+        if op in ("linked_agg", "future_agg") and int(s.get("days") or 0) <= 0:
+            errors.append(f'{where}: "days" musí byť kladné (okno po dátume riadku)')
+        if op == "linked_agg" and not s.get("link"):
+            errors.append(f'{where}: chýba "link" (stĺpec z kroku link_records)')
+        if op == "link_records":
+            for f in ("column", "pattern", "target_column"):
+                if not s.get(f):
+                    errors.append(f'{where}: chýba "{f}"')
+        if op == "text_category" and (not s.get("column") or len(s.get("categories") or []) < 2):
+            errors.append(f'{where}: potrebuje "column" a aspoň 2 "categories"')
+        if s.get("agg") in ("sum", "avg", "max") and op in ("prior_agg", "future_agg", "linked_agg") and not s.get("column"):
+            errors.append(f'{where}: agg {s.get("agg")} potrebuje "column" (číselný stĺpec)')
+        if s.get("agg") in ("sum", "avg", "max") and op == "lookup" and not s.get("other_value"):
+            errors.append(f'{where}: agg {s.get("agg")} potrebuje "other_value"')
+        if name:
+            created.add(name)
+    if plan.get("task") == "ranking" and plan.get("primary_baseline") == "value_desc" and not (plan.get("value") or "").strip():
+        errors.append('naivný odhad value_desc potrebuje "value" (napr. suma zmluvy) – doplň "value" alebo zvoľ iný naivný odhad')
+    if plan.get("task") == "ranking" and plan.get("primary_baseline") == "entity_rate" and not plan.get("entity_column"):
+        errors.append('naivný odhad entity_rate potrebuje "entity_column"')
+    return errors
+
+
 def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: dict[int, str] | None = None,
                   workspace: Workspace | None = None) -> dict[str, Any]:
     """Skúšobný beh návrhu: {"chyby": [...], "upozornenia": [...], "štatistiky": {...}}. Chyby blokujú uzamknutie."""
@@ -135,6 +203,9 @@ def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: d
     if base_table(plan.get("table", "")) not in tables:
         return {"chyby": [f"tabuľka {plan.get('table')!r} nie je medzi datasetmi hypotézy ({', '.join(sorted(tables))})"],
                 "upozornenia": [], "štatistiky": {}}
+    pre = precheck_steps(cfg, hid, plan)
+    if pre:
+        return {"chyby": pre, "upozornenia": [], "štatistiky": {}}
     if plan.get("primary_metric") not in METRICS[task]:
         errors.append(f"hlavná metrika {plan.get('primary_metric')!r} nie je pre {task} (možnosti: {', '.join(METRICS[task])})")
     if plan.get("primary_baseline") not in BASELINES[task]:
