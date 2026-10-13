@@ -373,6 +373,8 @@ class CardsConfig(BaseModel):
     auto_split: bool = True  # podproblémy karty → podhypotézy (citáty sa presunú, dáta Brány 1 sa zdedia)
     refresh_new_claims: int = 5  # nepotvrdená karta sa prepočíta, keď pribudne toľko citátov
     check_fields: list[str] = Field(default_factory=lambda: ["problem", "who", "decision"])
+    group_min_claims: int = 6  # od toľkých citátov sa pred kartou zoskupia podľa podobnosti (pomôcka pre rozdelenie)
+    group_threshold: float = 0.6  # priemerná kosínusová podobnosť skupiny (embeddingy s inštrukciou)
 
 
 class ExperimentsConfig(BaseModel):

@@ -92,7 +92,16 @@ def test_card_cites_own_claims_checks_key_fields_and_splits_hypothesis(tmp_path)
         "subproblems": [{"title": "Kontrola zmlúv", "problem": "Výber zmlúv", "claims": [ids[0], ids[1], ids[2]]},
                         {"title": "Náklady IT projektov", "problem": "Neoveriteľné náklady", "claims": [ids[3], ids[4], ids[2]]}]}
     rec.responses["CardCheck"] = {"verdict": "supported", "reason": "citát to uvádza"}
-    stats = cards.run_cards(cfg, db, router, Deadline(1), [hid])
+
+    class Emb:  # dve skupiny podobných citátov (embeddingy bez siete)
+        def vectors(self, kind, items):
+            return np.array([[1.0, 0.0] if i < 3 else [0.0, 1.0] for i in range(len(items))], dtype=np.float32)
+
+    seen = []
+    orig = rec.responses["ProblemCardOut"]
+    rec.responses["ProblemCardOut"] = lambda m: seen.append(m[-1]["content"]) or orig
+    stats = cards.run_cards(cfg, db, router, Deadline(1), [hid], embedder=Emb())
+    assert "GROUP 1:" in seen[0] and "GROUP 2:" in seen[0]  # citáty zoskupené pred zadaním modelu
     assert stats == {"cards": 1, "splits": 1, "children": 2}
     card = json.loads(db.latest_card(hid)["card_json"])
     assert card["problem"]["claims"] == [ids[0]]  # cudzí citát 99999 kód vyradil

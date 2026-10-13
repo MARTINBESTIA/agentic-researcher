@@ -121,7 +121,7 @@ def stage_gate2(step: str) -> Callable[[Any, Deadline], dict]:
         if step == "cards":
             from .cards import run_cards
 
-            return run_cards(app.cfg, app.db, app.router, deadline, ids)
+            return run_cards(app.cfg, app.db, app.router, deadline, ids, embedder=getattr(app, "embedder", None))
         if step == "plan":
             from .exp_plan import run_plans
 

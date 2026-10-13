@@ -62,9 +62,37 @@ class CardCheck(BaseModel):
     reason: str = ""
 
 
-def evidence_listing(claims, limit: int) -> str:
-    return "\n".join(f"C{c['id']} [{c['claim_type'] or '?'}] {c['problem']} | quote: {(c['quote'] or '')[:300]}"
-                     for c in claims[:limit])
+def evidence_listing(claims, limit: int, groups: list[list[int]] | None = None) -> str:
+    line = lambda c: f"C{c['id']} [{c['claim_type'] or '?'}] {c['problem']} | quote: {(c['quote'] or '')[:300]}"  # noqa: E731
+    claims = claims[:limit]
+    if not groups:
+        return "\n".join(line(c) for c in claims)
+    by_id = {c["id"]: c for c in claims}
+    out = []
+    for n, g in enumerate(groups, 1):
+        out.append(f"GROUP {n}:" if len(g) > 1 else "UNGROUPED:")
+        out += [line(by_id[i]) for i in g if i in by_id]
+    return "\n".join(out)
+
+
+def claim_groups(cfg: Config, embedder, claims) -> list[list[int]] | None:
+    """Skupiny podobných citátov (embeddingy, priemerná väzba ako pri témach) – pomôcka pre rozdelenie; samostatné
+    citáty spolu na konci. Bez embeddingov None."""
+    from .embed import claim_text
+    from .themes import average_linkage
+
+    if embedder is None or len(claims) < cfg.cards.group_min_claims:
+        return None
+    try:
+        vec = embedder.vectors("claim", [(c["id"], claim_text(c)) for c in claims])
+    except Exception as exc:  # noqa: BLE001 – bez embeddingov karta vznikne aj tak
+        log.warning("Skupiny citátov sa nepodarili: %s", exc)
+        return None
+    groups = average_linkage(vec @ vec.T, cfg.cards.group_threshold, len(claims))
+    ids = [c["id"] for c in claims]
+    multi = sorted((g for g in groups if len(g) > 1), key=len, reverse=True)
+    single = [i for g in groups if len(g) == 1 for i in g]
+    return [[ids[i] for i in g] for g in multi] + ([[ids[i] for i in single]] if single else [])
 
 
 def card_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
@@ -95,10 +123,11 @@ def _valid_claims(ids: list[int], allowed: set[int]) -> list[int]:
     return [i for i in dict.fromkeys(ids) if i in allowed]
 
 
-def make_card(cfg: Config, db: DB, llm: Any, hyp) -> dict[str, Any] | None:
+def make_card(cfg: Config, db: DB, llm: Any, hyp, embedder=None) -> dict[str, Any] | None:
     """Karta z modelu (presná rola) + kontrola citátov kódom + posúdenie kľúčových polí sudcom."""
     router = as_router(llm, cfg, db)
-    claims = db.evidence_for(hyp["id"])
+    claims = db.evidence_for(hyp["id"])[: cfg.cards.max_claims]
+    groups = claim_groups(cfg, embedder, claims)
     allowed = {c["id"] for c in claims}
     quotes = {c["id"]: c["quote"] for c in claims}
     res = router.run_task(
@@ -106,7 +135,7 @@ def make_card(cfg: Config, db: DB, llm: Any, hyp) -> dict[str, Any] | None:
         [{"role": "system", "content": PROBLEM_CARD_SYSTEM.format(lang=cfg.pipeline.output_language)},
          {"role": "user", "content": f"HYPOTHESIS: {hyp['title']}\nSEGMENT: {hyp['segment'] or '?'}\n"
                                      f"DESCRIPTION: {hyp['description'] or ''}\n\n<untrusted_document>\nEVIDENCE:\n"
-                                     f"{evidence_listing(claims, cfg.cards.max_claims)}\n</untrusted_document>"}],
+                                     f"{evidence_listing(claims, cfg.cards.max_claims, groups)}\n</untrusted_document>"}],
         ProblemCardOut, object_type="hypothesis", object_id=hyp["id"], max_tokens=2500,
     )
     if not res.ok:
@@ -143,6 +172,8 @@ def make_card(cfg: Config, db: DB, llm: Any, hyp) -> dict[str, Any] | None:
         checks[key] = chk.value.model_dump() if chk.ok else {"verdict": "undecided", "reason": chk.reason or ""}
     card["kontrola"] = checks
     card["model"] = res.model
+    if groups:
+        card["skupiny_citátov"] = [g for g in groups if len(g) > 1]
     return card
 
 
@@ -171,12 +202,12 @@ def split_hypothesis(cfg: Config, db: DB, hyp, card: dict[str, Any]) -> list[int
     return children
 
 
-def run_cards(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None) -> dict:
+def run_cards(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None, embedder=None) -> dict:
     stats: Counter = Counter()
     for hyp in card_targets(cfg, db, ids)[: cfg.cards.max_per_run]:
         if deadline.expired():
             break
-        card = make_card(cfg, db, llm, hyp)
+        card = make_card(cfg, db, llm, hyp, embedder)
         if card is None:
             stats["llm_failures"] += 1
             continue
