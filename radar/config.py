@@ -75,7 +75,12 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "gate1_sources": _route("agent"),  # Brána 1: agent hľadá zdroje dát k poliam
     "gate1_source_extract": _route("accurate"),  # Brána 1: zdroje z prečítaných stránok (keď agent nič neuloží)
     "gate1_fields": _route("accurate"),
-    "gate1_user_eval": _route("judge"),  # Brána 1: ktoré polia pokrývajú dáta alebo schéma od človeka (skóre počíta kód)  # Brána 1: aké polia treba na riešenie problému
+    "gate1_user_eval": _route("judge"),
+    "problem_card": _route("accurate"),  # problémová karta: problém, kto, rozhodnutie, výstup (s citátmi)
+    "card_check": _route("judge"),  # podporujú citáty kľúčové polia karty?
+    "experiment_plan": _route("accurate"),  # návrh experimentov Brány 2 z karty a profilu dát (kontroluje kód)
+    "experiment_conclusion": _route("accurate"),  # záver pre problém iba z vypočítaných faktov
+    "category_check": _route("fast"),  # kontrola vzorky zatriedenia textov (zatrieďujú embeddingy)  # Brána 1: ktoré polia pokrývajú dáta alebo schéma od človeka (skóre počíta kód)  # Brána 1: aké polia treba na riešenie problému
     "gate1_repro": _route("accurate"),  # Brána 1: SQL na zreprodukovanie známeho čísla (vykoná DuckDB)
     "gate2_prereg": _route("accurate"),  # Brána 2: návrh predregistrácie (hypotéza, metrika, postup)
     "gate2_demo": _route("accurate"),  # Brána 2: text dema iba z vypočítaných faktov
@@ -358,6 +363,34 @@ class Gate1Config(BaseModel):
     catalog: list[CatalogEntry] = Field(default_factory=lambda: list(DEFAULT_CATALOG))
 
 
+class CardsConfig(BaseModel):
+    """Problémové karty a rozdelenie širokých hypotéz (pokyn používateľa 13. 10. 2026)."""
+
+    max_per_run: int = 6  # kariet na jeden krok (27B: ~3–5 min na kartu so sudcom)
+    max_claims: int = 30  # citátov v zadaní pre model
+    min_claims: int = 2  # hypotéza s menej citátmi kartu nedostane
+    min_claims_per_subproblem: int = 2
+    auto_split: bool = True  # podproblémy karty → podhypotézy (citáty sa presunú, dáta Brány 1 sa zdedia)
+    refresh_new_claims: int = 5  # nepotvrdená karta sa prepočíta, keď pribudne toľko citátov
+    check_fields: list[str] = Field(default_factory=lambda: ["problem", "who", "decision"])
+
+
+class ExperimentsConfig(BaseModel):
+    """Experimenty Brány 2 podľa typu úlohy (návrh modelom z karty a profilu dát, test kódom)."""
+
+    plans_per_hypothesis: int = 3  # koľko experimentov navrhnúť na hypotézu (rôzne úlohy alebo štítky)
+    max_plan_retries: int = 1  # oprava návrhu modelom po chybách skúšobného behu
+    max_category_texts: int = 30000  # zatriedenie textu: najčastejších rôznych textov (embeddingy ~70/s na CPU)
+    category_check_sample: int = 30  # vzorka zatriedenia na kontrolu modelom (odhad presnosti)
+    test_share: float = 0.3  # posledná časť obdobia na test (učenie a validácia sú staršie)
+    min_positives: int = 30  # poradie: najmenej pozitívnych prípadov v teste
+    bootstrap: int = 300
+    top_items: int = 20  # položky na kontrolu vo výsledku
+    max_entities: int = 300  # predpoveď: najväčších entít (spoločný model)
+    forecast_folds: int = 6  # predpoveď: posledných období (polovica výber modelu, polovica test)
+    threshold_window: float = 0.1  # prah: okno pod prahom ako podiel prahu
+
+
 class Gate2Config(BaseModel):
     """Brána 2 – experimenty a demo (pre hypotézy, pri ktorých si Bránu 1 označil ako prejdenú)."""
 
@@ -513,6 +546,8 @@ class Config(BaseModel):
     themes: ThemesConfig = Field(default_factory=ThemesConfig)
     gate1: Gate1Config = Field(default_factory=Gate1Config)
     gate2: Gate2Config = Field(default_factory=Gate2Config)
+    cards: CardsConfig = Field(default_factory=CardsConfig)
+    experiments: ExperimentsConfig = Field(default_factory=ExperimentsConfig)
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)

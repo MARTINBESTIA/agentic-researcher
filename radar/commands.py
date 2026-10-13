@@ -118,10 +118,23 @@ def stage_gate2(step: str) -> Callable[[Any, Deadline], dict]:
         from . import gate2
 
         ids = _gate_ids(app)
+        if step == "cards":
+            from .cards import run_cards
+
+            return run_cards(app.cfg, app.db, app.router, deadline, ids)
+        if step == "plan":
+            from .exp_plan import run_plans
+
+            return run_plans(app.cfg, app.db, app.router, deadline, ids)
+        if step == "conclusion":
+            from .exp_conclude import run_conclusions
+
+            return run_conclusions(app.cfg, app.db, app.router, deadline, ids)
         if step == "prereg":
             return gate2.run_prereg(app.cfg, app.db, app.router, deadline, ids)
         if step == "backtest":
-            return gate2.run_backtest(app.cfg, app.db, deadline, ids)
+            return gate2.run_backtest(app.cfg, app.db, deadline, ids, embedder=getattr(app, "embedder", None),
+                                      llm=getattr(app, "router", None))
         return gate2.run_demo(app.cfg, app.db, app.router, deadline, ids)
 
     return run
@@ -249,6 +262,9 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "gate1-repro": stage_gate1("repro"),
     "gate1-user": stage_gate1("user"),
     "gate1-finish": stage_gate1("finish"),
+    "gate2-cards": stage_gate2("cards"),
+    "gate2-plan": stage_gate2("plan"),
+    "gate2-conclusion": stage_gate2("conclusion"),
     "gate2-prereg": stage_gate2("prereg"),
     "gate2-backtest": stage_gate2("backtest"),
     "gate2-demo": stage_gate2("demo"),
@@ -276,7 +292,10 @@ STAGE_HELP = {
     "gate1-repro": "Brána 1: zreprodukovať známe číslo (model navrhne SQL, počíta DuckDB).",
     "gate1-user": "Brána 1: posúdi tvoje dáta alebo schému (sudca po poliach, vhodnosť počíta kód; ≥ 0,5 → Brána 2).",
     "gate1-finish": "Brána 1: žiadosti 211/2000, pripravenosť dát; ≥ 0,5 → Brána 2, inak čaká na tvoje dáta (kód).",
-    "gate2-prereg": "Brána 2: návrh predregistrácie experimentu pre hypotézu × organizáciu (presný model).",
+    "gate2-cards": "Problémové karty (problém, kto, rozhodnutie, výstup s citátmi) a rozdelenie širokých hypotéz.",
+    "gate2-plan": "Brána 2: návrh experimentov z karty a profilu dát (model), skúšobný beh a oprava (kód).",
+    "gate2-conclusion": "Brána 2: záver pre problém z vypočítaných faktov a správa experimentu (HTML).",
+    "gate2-prereg": "Brána 2 (pôvodné): predpoveď sumy pre hypotézu × organizáciu (presný model).",
     "gate2-backtest": "Brána 2: spätný test uzamknutých experimentov (iba Python a DuckDB).",
     "gate2-demo": "Brána 2: demo pre organizáciu (HTML; text iba z vypočítaných faktov).",
     "bench": "Rýchlosť a schopnosti modelov každej roly (do Eval a výberu modelov).",
@@ -555,6 +574,10 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("crz-extend", help="Doplní staršie dávky CRZ k datasetu hypotézy (po blokoch, dá sa prerušiť).")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--months", type=int, default=36, help="Koľko mesiacov pred koncom okna má dataset pokrývať.")
+
     sub.add_parser("gui", help="GUI v prehliadači na 127.0.0.1:8501.")
 
     p = sub.add_parser("eval", help="Porovnanie profilov modelov na položkách s gold labelom.")
@@ -580,8 +603,18 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--person", type=int, help="Všetky údaje o osobe (žiadosť o prístup).")
 
 
+def cmd_crz_extend(app, args) -> int:
+    from .crz import extend_window
+
+    stats = extend_window(app.cfg, app.db, app.fetcher, args.hypothesis, round(args.months * 365.25 / 12),
+                          progress=lambda m: print(m, flush=True))
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
+    return 0
+
+
 HANDLERS = {
     "workflow": cmd_workflow,
+    "crz-extend": cmd_crz_extend,
     "job": cmd_job,
     "discover": cmd_discover,
     "sources": cmd_sources,

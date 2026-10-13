@@ -560,3 +560,29 @@ CREATE TABLE IF NOT EXISTS gate1_inputs (   -- dáta alebo schéma od človeka p
 CREATE INDEX IF NOT EXISTS idx_gate1_inputs_h ON gate1_inputs(hypothesis_id, status);
 """
 
+# ---------------------------------------------------------------- v8: problémové karty, podhypotézy, experimenty podľa úlohy
+V8_COLUMNS = {
+    "hypotheses": {
+        "parent_id": "INTEGER",                  # podhypotéza vznikla rozdelením širokej hypotézy
+        "split_at": "TEXT",                      # kedy sa hypotéza rozdelila (ostáva s všeobecnými citátmi)
+    },
+    "experiments": {
+        "task": "TEXT",                          # ranking | forecast | anomaly | threshold | comparison (NULL = pôvodná predpoveď)
+        "card_id": "INTEGER",                    # problémová karta, z ktorej experiment vychádza
+        "problem_link": "TEXT",                  # ktoré rozhodnutie z karty výsledok podporí a ako
+        "conclusion_json": "TEXT",               # záver pre problém (text z faktov, kontrola čísel kódom)
+    },
+}
+
+SCHEMA_V8 = """
+CREATE TABLE IF NOT EXISTS problem_cards (  -- problém, kto ho má, aké rozhodnutie robí, aký výstup pomôže (s citátmi)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id),
+  card_json TEXT NOT NULL,
+  status TEXT NOT NULL,                     -- draft | confirmed | rejected
+  model TEXT, prompt_version TEXT,
+  created_at TEXT NOT NULL, confirmed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_problem_cards_h ON problem_cards(hypothesis_id, id);
+"""
+

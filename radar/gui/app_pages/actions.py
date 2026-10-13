@@ -144,8 +144,8 @@ for col, kind in zip(cols, ("scout", "validate", "people")):
         action_card(kind, "am", extras.get(kind))
 
 st.subheader("Brány 1 a 2")
-cols = st.columns(3)
-for col, kind in zip(cols, ("gate1", "gate1-input", "gate2")):
+cols = st.columns(4)
+for col, kind in zip(cols, ("gate1", "gate1-input", "cards", "gate2")):
     with col:
         action_card(kind, "am", extras.get(kind))
 

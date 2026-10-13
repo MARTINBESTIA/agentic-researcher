@@ -363,6 +363,25 @@ class EvidenceMixin:
         row = self._one("SELECT hypothesis_id FROM hypothesis_claims WHERE claim_id = ?", (claim_id,))
         return None if row is None else int(row["hypothesis_id"])
 
+    def move_claims(self, claim_ids: list[int], from_hid: int, to_hid: int) -> int:
+        """Rozdelenie hypotézy: citáty podproblému prejdú do podhypotézy (citát patrí vždy jednej hypotéze)."""
+        n = 0
+        for cid in claim_ids:
+            cur = self.conn.execute("UPDATE hypothesis_claims SET hypothesis_id = ? WHERE claim_id = ? AND hypothesis_id = ?",
+                                    (to_hid, cid, from_hid))
+            n += cur.rowcount
+        self.conn.commit()
+        return n
+
+    def set_parent(self, hid: int, parent_id: int) -> None:
+        self._exec("UPDATE hypotheses SET parent_id = ?, updated_at = ? WHERE id = ?", (parent_id, utcnow(), hid))
+
+    def mark_split(self, hid: int) -> None:
+        self._exec("UPDATE hypotheses SET split_at = ?, updated_at = ? WHERE id = ?", (utcnow(), utcnow(), hid))
+
+    def children_of(self, hid: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM hypotheses WHERE parent_id = ? ORDER BY id", (hid,))
+
     def assign_claim(self, hid: int, claim_id: int) -> None:
         self.conn.execute(
             "INSERT OR IGNORE INTO hypothesis_claims (hypothesis_id, claim_id) VALUES (?, ?)", (hid, claim_id)

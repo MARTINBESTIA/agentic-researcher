@@ -104,10 +104,18 @@ ACTIONS: dict[str, Action] = {
         "údajmi sa neuloží) → sudca posúdi každé pole (áno / čiastočne / nie) → kód spočíta vhodnosť (kľúčové polia 0,7). "
         "Vhodnosť ≥ 0,5 → Brána 1 prešla automaticky a hypotéza ide do Brány 2.",
         "posúdenie vstupu, dataset, rozhodnutie Brány 1", "sudca (27B)", 15),
+    "cards": Action(
+        "Problémové karty a rozdelenie hypotéz",
+        "Pre hypotézy, ktoré prešli Bránou 1, a vybrané na Bránu 0: karta – problém jednou vetou, kto ho má, aké "
+        "rozhodnutie robí, ako dnes, aký výstup pomôže, obchodná metrika (každé tvrdenie s citátom; sudca overí kľúčové "
+        "polia). Široká hypotéza s citátmi o rôznych problémoch sa rozdelí na podhypotézy (citáty sa presunú, dáta "
+        "Brány 1 sa zdedia).",
+        "problémové karty, podhypotézy", "presný + sudca", 45),
     "gate2": Action(
         "Brána 2: experimenty a demo",
-        "Pre hypotézy, ktoré prešli Bránou 1 (pripravenosť ≥ 0,5, tvoje dáta ≥ 0,5 alebo tvoje rozhodnutie): dvojice "
-        "hypotéza × organizácia z dát → návrh "
+        "Pre hypotézy, ktoré prešli Bránou 1: problémová karta → model navrhne experimenty podľa karty a profilu dát "
+        "(poradie, predpoveď, anomália, prah, porovnanie; kód ich skúšobne spustí) → uzamkneš → spätný test (všetky "
+        "naivné odhady × metriky) → záver pre problém a správa. Pôvodné: návrh "
         "predregistrácie (potvrdíš a uzamkneš v GUI) → spätný test proti naivnému odhadu (iba Python) → demo pre organizáciu.",
         "experimenty, výsledky spätného testu, demá", "presný (výpočty bez modelu)", 60, "gate1_passed"),
     "bench": Action(
@@ -362,11 +370,30 @@ def _gate1_input(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("gate1-finish", Deadline(2))
 
 
+def _with_children(app, ids):
+    """Zadané hypotézy aj ich podhypotézy (rozdelenie počas karty)."""
+    if not ids:
+        return ids
+    out = list(ids)
+    for hid in ids:
+        out += [c["id"] for c in app.db.children_of(hid) if c["id"] not in out]
+    return out
+
+
 def _gate2(app, deadline: Deadline, run, ids, report_progress) -> None:
+    """Karta → návrh experimentov (model, skúšobný beh) → test uzamknutých → záver; pôvodné demo na konci."""
     app.gate_ids = ids
-    run("gate2-prereg", deadline.sub(deadline.remaining_minutes() * 0.5))
-    run("gate2-backtest", deadline.sub(deadline.remaining_minutes() * 0.3))
-    run("gate2-demo", deadline)
+    run("gate2-cards", deadline.sub(deadline.remaining_minutes() * 0.25))
+    app.gate_ids = _with_children(app, ids)
+    run("gate2-plan", deadline.sub(deadline.remaining_minutes() * 0.45))
+    run("gate2-backtest", deadline.sub(deadline.remaining_minutes() * 0.6))
+    run("gate2-conclusion", deadline.sub(max(1.0, deadline.remaining_minutes() - 2)))
+    run("gate2-demo", Deadline(3))
+
+
+def _cards(app, deadline: Deadline, run, ids, report_progress) -> None:
+    app.gate_ids = ids
+    run("gate2-cards", deadline)
 
 
 def _bench(app, deadline: Deadline, run, ids, report_progress) -> None:
@@ -393,6 +420,6 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
-    "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "bench": _bench,
+    "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot,
 }

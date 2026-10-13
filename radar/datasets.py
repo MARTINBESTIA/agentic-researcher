@@ -85,8 +85,27 @@ class Download:
     window: tuple[str, str] | None = None  # obdobie, ktoré stiahnuté dáta pokrývajú (napr. dni dávok CRZ)
 
 
+SHARED_MARKER = "zdielane_z.txt"  # podhypotéza používa DuckDB rodiča (rozdelenie hypotézy)
+
+
 def hyp_dir(cfg: Config, hid: int) -> Path:
-    return cfg.path(cfg.gate1.datasets_dir) / f"H{hid}"
+    base = cfg.path(cfg.gate1.datasets_dir)
+    own = base / f"H{hid}"
+    marker = own / SHARED_MARKER
+    if marker.exists():
+        try:
+            return base / f"H{int(marker.read_text(encoding='utf-8').strip())}"
+        except ValueError:
+            pass
+    return own
+
+
+def share_datasets(cfg: Config, child: int, parent: int) -> None:
+    """Podhypotéza číta a zapisuje do DuckDB rodiča (tabuľky majú globálne jedinečné čísla dsN)."""
+    root = hyp_dir(cfg, parent)
+    own = cfg.path(cfg.gate1.datasets_dir) / f"H{child}"
+    own.mkdir(parents=True, exist_ok=True)
+    (own / SHARED_MARKER).write_text(root.name[1:], encoding="utf-8")
 
 
 def duck_path(cfg: Config, hid: int) -> Path:
@@ -650,6 +669,55 @@ def schema_text(cfg: Config, hid: int, tables: list[str], samples: int = 3) -> s
             sample = "\n".join("  " + " | ".join(str(v)[:40] for v in r) for r in rows)
             values = _category_values(con, t, [c[0] for c in cols if c[1] == "VARCHAR"])
             parts.append(f"TABLE {t} ({n} rows): {head}\n{sample}" + (f"\n  values: {values}" if values else ""))
+    finally:
+        con.close()
+    return "\n\n".join(parts)
+
+
+def planner_profile(cfg: Config, hid: int, tables: list[str], max_columns: int = 40) -> str:
+    """Profil tabuliek pre návrh experimentu: pre každý stĺpec typ, podiel prázdnych, približný počet rôznych hodnôt,
+    rozsah čísel alebo dátumov, kódy s početnosťami alebo ukážky textu. Model z neho vyberá stĺpce a píše výrazy;
+    bez neho hádal (napr. roky pri 9-mesačnom okne)."""
+    if not duck_path(cfg, hid).exists():
+        return ""
+    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    parts = []
+    try:
+        existing = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+        for t in [n for t in tables for n in (f"{t}_long", t) if n in existing]:
+            if f"{t}_long" in existing and not t.endswith("_long"):
+                continue  # široká tabuľka: časové rady sú v dlhom tvare
+            n = con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            lines = [f"TABLE {t} ({n} rows)"]
+            for name, ctype, *_ in con.execute(f"DESCRIBE {t}").fetchall()[:max_columns]:
+                c = _quote(name)
+                nulls, distinct = con.execute(f"SELECT AVG(CASE WHEN {c} IS NULL THEN 1.0 ELSE 0 END), "
+                                              f"approx_count_distinct({c}) FROM {t}").fetchone()
+                info = f"- {name} {ctype} | null {round((nulls or 0) * 100)}% | distinct ~{distinct}"
+                if any(k in ctype for k in ("INT", "DOUBLE", "DECIMAL", "FLOAT", "BIGINT", "HUGEINT")):
+                    lo, med, hi, zero = con.execute(
+                        f"SELECT MIN({c}), approx_quantile({c}, 0.5), MAX({c}), AVG(CASE WHEN {c} = 0 THEN 1.0 ELSE 0 END) "
+                        f"FROM {t}").fetchone()
+                    info += f" | min {lo} median {med} max {hi} | zero {round((zero or 0) * 100)}%"
+                elif "DATE" in ctype or "TIMESTAMP" in ctype:
+                    lo, hi = con.execute(f"SELECT MIN({c}), MAX({c}) FROM {t}").fetchone()
+                    info += f" | {lo} .. {hi}"
+                elif distinct <= 12:
+                    vals = con.execute(f"SELECT {c}, COUNT(*) FROM {t} GROUP BY 1 ORDER BY 2 DESC LIMIT 12").fetchall()
+                    info += " | values: " + ", ".join(f"{str(v)[:30]} ({k})" for v, k in vals)
+                else:
+                    dateish = con.execute(f"SELECT AVG(CASE WHEN TRY_CAST({c} AS TIMESTAMP) IS NOT NULL THEN 1.0 ELSE 0 END) "
+                                          f"FROM (SELECT {c} FROM {t} WHERE {c} IS NOT NULL LIMIT 20000)").fetchone()[0]
+                    if (dateish or 0) > 0.9:
+                        lo, hi = con.execute(f"SELECT MIN(TRY_CAST({c} AS TIMESTAMP)), MAX(TRY_CAST({c} AS TIMESTAMP)) "
+                                             f"FROM {t}").fetchone()
+                        info += f" | date-like text {lo} .. {hi}"
+                    else:
+                        ex = con.execute(f"SELECT {c}, AVG(length(CAST({c} AS VARCHAR))) OVER () FROM {t} "
+                                         f"WHERE {c} IS NOT NULL LIMIT 3").fetchall()
+                        info += " | text, e.g. " + " / ".join(repr(str(r[0])[:60]) for r in ex[:2])
+                lines.append(info)
+            parts.append("\n".join(lines))
     finally:
         con.close()
     return "\n\n".join(parts)

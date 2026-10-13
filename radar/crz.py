@@ -184,3 +184,55 @@ def append_days(cfg: Config, fetcher, hid: int, table: str, days: list[str], blo
             con.close()
     tmp.unlink(missing_ok=True)
     return {"days_ok": got, "days_failed": failed, "added": added}
+
+
+def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30,
+                  sleep: Callable[[float], None] = time.sleep, progress: Callable[[str], None] | None = None) -> dict:
+    """Doplní staršie dávky CRZ k existujúcemu datasetu hypotézy, kým okno nepokryje `days` dní pred jeho koncom.
+    Ide odzadu po blokoch (`chunk` dní); po každom bloku sa uloží do DuckDB a posunie sa začiatok okna, takže
+    prerušenie (uspatie, pád) nič nestratí a ďalší beh pokračuje. Dni, ktoré CRZ nemá alebo zlyhali, sa zapíšu."""
+    import duckdb
+
+    from .datasets import duck_path
+
+    ds = next((d for d in db.datasets_for(hid, only_ok=True) if is_crz_export(d["url"])), None)
+    if ds is None:
+        raise DatasetError(f"H{hid} nemá stiahnutý dataset CRZ")
+    prof = json.loads(ds["profile_json"] or "{}")
+    window = prof.get("časové_okno") or {}
+    if not window.get("od") or not window.get("do"):
+        raise DatasetError("dataset CRZ nemá časové okno (od – do)")
+    end = date.fromisoformat(window["do"])
+    target = end - timedelta(days=days - 1)
+    start = date.fromisoformat(window["od"])
+    stats = {"pridané_zmluvy": 0, "dni_ok": 0, "dni_chýba": 0, "od_pred": window["od"]}
+    missing = list(window.get("chýbajúce_dni") or [])
+    while start > target:
+        first = max(target, start - timedelta(days=chunk))
+        batch = [(first + timedelta(days=i)).isoformat() for i in range((start - first).days)]
+        for attempt in range(3):  # DuckDB môže byť chvíľu otvorená inou úlohou alebo GUI (zámok)
+            try:
+                res = append_days(cfg, fetcher, hid, ds["table_name"], batch, fetcher.blocked, sleep)
+                break
+            except duckdb.IOException:
+                if attempt == 2:
+                    raise
+                sleep(15)
+        stats["pridané_zmluvy"] += res["added"]
+        stats["dni_ok"] += len(res["days_ok"])
+        stats["dni_chýba"] += len(res["days_failed"])
+        missing += res["days_failed"]
+        start = first
+        con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+        try:
+            rows = con.execute(f"SELECT COUNT(*) FROM {ds['table_name']}").fetchone()[0]
+        finally:
+            con.close()
+        window = {**window, "od": start.isoformat(), "chýbajúce_dni": sorted(set(missing))[-200:]}
+        prof["časové_okno"] = window
+        prof["rows"] = rows
+        db.update_dataset(ds["id"], profile_json=prof, rows=rows)
+        if progress:
+            progress(f"CRZ H{hid}: okno od {start.isoformat()} (+{res['added']} zmlúv, spolu {rows})")
+    stats["od_po"] = start.isoformat()
+    return stats

@@ -26,7 +26,7 @@ log = logging.getLogger(__name__)
 
 # (akcia, minúty) v poradí závislostí: nové hypotézy → test → posúdenie → témy → ľudia → kontakty → návrhy → brány → kritika
 ROUND: list[tuple[str, int]] = [
-    ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("people", 60),
+    ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("cards", 30), ("people", 60),
     ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("gate1", 60), ("gate2", 30), ("critique", 30),
 ]
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
@@ -101,10 +101,18 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     inputs = sorted({r["hypothesis_id"] for r in db.pending_gate1_inputs()})
     if inputs:
         work["gate1-input"] = "tvoje dáta na posúdenie: " + ", ".join(f"H{i}" for i in inputs)
+    from .cards import card_targets
+    from .exp_plan import plan_targets
+
+    cards = card_targets(cfg, db, None)
+    if cards:
+        work["cards"] = "bez karty: " + ", ".join(f"H{h['id']}" for h in cards[:8]) + (" …" if len(cards) > 8 else "")
     passed = [h["id"] for h in db.gate2_hypotheses()]
+    todo = {h["id"] for h, _ in plan_targets(cfg, db, None)}
     for hid in passed:
         exps = db.experiments_for(hid)
-        if not exps or any(e["status"] == "locked" or (e["status"] == "done" and not e["demo_path"]) for e in exps):
+        if any(e["status"] == "locked" or (e["status"] == "done" and not (e["demo_path"] or e["conclusion_json"]))
+               for e in exps) or hid in todo:
             work["gate2"] = "Brána 1 prešla: " + ", ".join(f"H{i}" for i in passed)
             break
     for h in db.active_hypotheses():

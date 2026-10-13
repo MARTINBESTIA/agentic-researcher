@@ -44,6 +44,69 @@ class GatesMixin:
             (utcnow(), hid),
         )
 
+    # ---------------------------------------------------------------- problémové karty
+    def add_card(self, hid: int, card: dict[str, Any], status: str = "draft", model: str | None = None,
+                 prompt_version: str | None = None) -> int:
+        cur = self._exec("INSERT INTO problem_cards (hypothesis_id, card_json, status, model, prompt_version, created_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?)",
+                         (hid, json.dumps(card, ensure_ascii=False), status, model, prompt_version, utcnow()))
+        return int(cur.lastrowid)
+
+    def latest_card(self, hid: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM problem_cards WHERE hypothesis_id = ? AND status != 'rejected' "
+                         "ORDER BY id DESC LIMIT 1", (hid,))
+
+    def get_card(self, card_id: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM problem_cards WHERE id = ?", (card_id,))
+
+    def update_card(self, card_id: int, card: dict[str, Any] | None = None, status: str | None = None) -> None:
+        if card is not None:
+            self._exec("UPDATE problem_cards SET card_json = ? WHERE id = ?", (json.dumps(card, ensure_ascii=False), card_id))
+        if status is not None:
+            if status not in ("draft", "confirmed", "rejected"):
+                raise ValueError(f"Neznámy stav karty {status!r}")
+            self._exec("UPDATE problem_cards SET status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN ? "
+                       "ELSE confirmed_at END WHERE id = ?", (status, status, utcnow(), card_id))
+
+    def clone_gate1(self, from_hid: int, to_hid: int) -> dict[str, int]:
+        """Podhypotéza zdedí dáta Brány 1 rodiča: polia, zdroje, záznamy datasetov (tabuľky v zdieľanej DuckDB),
+        pokrytie organizácií a súhrn pripravenosti. Stav brány nastaví volajúci (rozhodnutie s dôvodom)."""
+        now = utcnow()
+        fields = {}
+        for f in self.fields_for(from_hid):
+            cur = self._exec(
+                "INSERT INTO data_fields (hypothesis_id, name, description, is_key, rationale, status, status_note, "
+                "edited_by_human, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (to_hid, f["name"], f["description"], f["is_key"], f["rationale"], f["status"], f["status_note"],
+                 f["edited_by_human"], now, now))
+            fields[f["id"]] = int(cur.lastrowid)
+        sources = {}
+        for s in self._all("SELECT * FROM data_sources WHERE hypothesis_id = ?", (from_hid,)):
+            if s["field_id"] not in fields:
+                continue
+            cols = [c for c in s.keys() if c not in ("id", "field_id", "hypothesis_id")]
+            cur = self._exec(f"INSERT INTO data_sources (field_id, hypothesis_id, {', '.join(cols)}) "
+                             f"VALUES (?, ?, {', '.join('?' * len(cols))})",
+                             (fields[s["field_id"]], to_hid, *[s[c] for c in cols]))
+            sources[s["id"]] = int(cur.lastrowid)
+        datasets = {}
+        for d in self._all("SELECT * FROM datasets WHERE hypothesis_id = ?", (from_hid,)):
+            cols = [c for c in d.keys() if c not in ("id", "hypothesis_id", "source_id")]
+            cur = self._exec(f"INSERT INTO datasets (hypothesis_id, source_id, {', '.join(cols)}) "
+                             f"VALUES (?, ?, {', '.join('?' * len(cols))})",
+                             (to_hid, sources.get(d["source_id"]), *[d[c] for c in cols]))
+            datasets[d["id"]] = int(cur.lastrowid)
+        cov = 0
+        for old, new in datasets.items():
+            for c in self._all("SELECT * FROM dataset_coverage WHERE dataset_id = ?", (old,)):
+                self._exec("INSERT OR REPLACE INTO dataset_coverage (dataset_id, org_id, column_name, rows) "
+                           "VALUES (?, ?, ?, ?)", (new, c["org_id"], c["column_name"], c["rows"]))
+                cov += 1
+        src = self.get_hypothesis(from_hid)
+        self._exec("UPDATE hypotheses SET gate1_json = ?, gate1_started_at = ?, updated_at = ? WHERE id = ?",
+                   (src["gate1_json"], src["gate1_started_at"], now, to_hid))
+        return {"fields": len(fields), "sources": len(sources), "datasets": len(datasets), "coverage": cov}
+
     # ---------------------------------------------------------------- vstup človeka (Brána 1)
     def add_gate1_input(self, hid: int, text: str, file_name: str | None = None, dataset_id: int | None = None) -> int:
         cur = self._exec("INSERT INTO gate1_inputs (hypothesis_id, text, file_name, dataset_id, status, created_at) "
@@ -161,6 +224,14 @@ class GatesMixin:
         extra = " AND status = 'ok'" if only_ok else ""
         return self._all(f"SELECT * FROM datasets WHERE hypothesis_id = ?{extra} ORDER BY id", (hid,))
 
+    def update_dataset(self, dataset_id: int, **fields: Any) -> None:
+        allowed = {"profile_json", "rows", "note", "size_bytes", "status"}
+        if not fields or set(fields) - allowed:
+            raise ValueError(f"Nepovolené polia datasetu: {set(fields) - allowed}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        vals = [json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in fields.values()]
+        self._exec(f"UPDATE datasets SET {sets} WHERE id = ?", (*vals, dataset_id))
+
     def get_dataset(self, dataset_id: int) -> sqlite3.Row | None:
         return self._one("SELECT * FROM datasets WHERE id = ?", (dataset_id,))
 
@@ -250,12 +321,15 @@ class GatesMixin:
 
     # ------------------------------------------------------------------ Brána 2
     def add_experiment(self, hid: int, org_id: int | None, region: str | None, statement: str, metric: str,
-                       baseline: str, success_rule: str, spec: dict[str, Any]) -> int:
+                       baseline: str, success_rule: str, spec: dict[str, Any], task: str | None = None,
+                       card_id: int | None = None, problem_link: str | None = None) -> int:
         now = utcnow()
         cur = self._exec(
             """INSERT INTO experiments (hypothesis_id, org_id, region, statement, metric, baseline, success_rule,
-                   spec_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (hid, org_id, region, statement, metric, baseline, success_rule, json.dumps(spec, ensure_ascii=False), now, now),
+                   spec_json, task, card_id, problem_link, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (hid, org_id, region, statement, metric, baseline, success_rule, json.dumps(spec, ensure_ascii=False), task,
+             card_id, problem_link, now, now),
         )
         return int(cur.lastrowid)
 
@@ -273,14 +347,14 @@ class GatesMixin:
 
     def update_experiment(self, exp_id: int, **fields: Any) -> None:
         allowed = {"statement", "metric", "baseline", "success_rule", "spec_json", "prereg_hash", "locked_at", "status",
-                   "result_json", "flags_json", "demo_path", "expert_json", "region"}
+                   "result_json", "flags_json", "demo_path", "expert_json", "region", "problem_link", "conclusion_json"}
         if set(fields) - allowed:
             raise ValueError(f"Neznáme polia: {sorted(set(fields) - allowed)}")
         exp = self.get_experiment(exp_id)
-        locked = {"statement", "metric", "baseline", "success_rule", "spec_json"} & set(fields)
+        locked = {"statement", "metric", "baseline", "success_rule", "spec_json", "problem_link"} & set(fields)
         if exp is not None and exp["locked_at"] and locked:
             raise ValueError("Experiment je predregistrovaný (uzamknutý); hypotéza, metrika a postup sa už nemenia.")
-        for key in ("spec_json", "result_json", "flags_json", "expert_json"):
+        for key in ("spec_json", "result_json", "flags_json", "expert_json", "conclusion_json"):
             if key in fields and not isinstance(fields[key], (str, type(None))):
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
         fields["updated_at"] = utcnow()

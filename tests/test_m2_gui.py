@@ -1,5 +1,6 @@
 """M2 – GUI: bezpečné spustenie, každá stránka sa načíta, kontrola -> gold label, escapovanie zdroja."""
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -232,6 +233,42 @@ def test_gate2_page_previews_series_before_lock(gui):
     at.switch_page("app_pages/gate2.py").run()
     assert not at.exception, at.exception
     assert any(c.value.startswith("11 období") and "vyradené neúplné: 2025-12-01" in c.value for c in at.caption)
+
+def test_gate2_page_shows_card_scorecard_items_and_conclusion(gui):
+    """Experiment podľa úlohy: karta s kontrolou, čomu experiment slúži, výsledková tabuľka, položky, záver."""
+    from radar.gate1 import decide
+
+    cfg = load_config(gui / "config.yaml")
+    db = DB(cfg.db_path)
+    decide(db, 1, 1, "passed", "test")
+    card = db.add_card(1, {"problem": {"text": "Kontrolóri nevedia, čo preveriť", "claims": [1]},
+                           "decision": {"text": "Výber zmlúv na kontrolu", "claims": []}, "helpful_output": "ranking",
+                           "kontrola": {"problem": {"verdict": "supported"}}})
+    plan = {"title": "Zmluvy s dodatkom", "task": "ranking", "table": "ds1", "time_column": "datum", "label": "had",
+            "features": ["x"], "primary_metric": "precision@k", "primary_baseline": "random", "success_threshold": 10,
+            "steps": [{"op": "derive", "name": "had", "expr": "x > 0", "why": "štítok"}]}
+    exp = db.add_experiment(1, None, None, "Model nájde zmluvy s dodatkom.", "precision@k", "random", "o aspoň 10 %", plan,
+                            task="ranking", card_id=card, problem_link="Pomôže vybrať zmluvy na kontrolu.")
+    res = {"task": "ranking", "metriky": ["precision@k", "avg_precision"], "vybraný_model": "logistic",
+           "tabuľka": [{"postup": "logistic", "typ": "model", "precision@k": 0.4, "avg_precision": 0.3},
+                       {"postup": "random", "typ": "naivný", "precision@k": 0.1, "avg_precision": 0.1}],
+           "hlavné": {"metrika": "precision@k", "model": "logistic", "model_hodnota": 0.4, "naivný": "random",
+                      "naivný_hodnota": 0.1, "zlepšenie_pct": 300.0, "splnené": True, "ci95_rozdielu": [0.1, 0.5]},
+           "detaily": {"dôležitosť_príznakov": {"x": 0.2}}, "položky": [{"poradie": 1, "x": 3}],
+           "položky_popis": "prvé položky", "protokol": [{"krok": "základ", "riadky_po": 10}]}
+    db._exec("UPDATE experiments SET status = 'done', locked_at = '2026-10-13T10:00:00', result_json = ?, "
+             "conclusion_json = ? WHERE id = ?", (json.dumps(res), json.dumps(
+                 {"zdroj": "model", "text": {"result_for_decision": "Kontrolór nájde 4-krát viac zmlúv s dodatkom.",
+                                             "interview_questions": ["Ako dnes vyberáte zmluvy?"]}, "fakty": ["F1: x"]}), exp))
+    db.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/gate2.py").run()
+    assert not at.exception, at.exception
+    assert any("Kontrolóri nevedia" in str(df.value) for df in at.dataframe)
+    assert any(m.label == "Pravidlo úspechu" and m.value == "splnené" for m in at.metric)
+    assert any("Kontrolór nájde 4-krát" in md.value for md in at.markdown)
+    assert any("Pomôže vybrať zmluvy" in md.value for md in at.markdown)
+
 
 def test_problems_theme_view_and_rename(gui):
     """Témy: súhrn dôkazov za tému, filter hypotéz podľa témy a ručný názov."""

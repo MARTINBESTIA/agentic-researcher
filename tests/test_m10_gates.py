@@ -1009,6 +1009,33 @@ def test_finish_refreshes_coverage_for_organizations_added_later(tmp_path):
     assert gate1.run_finish(cfg, db, Deadline(1), [hid])["coverage"] == 2
     assert {c["org_name"] for c in db.coverage_for(hid)} == {"Mesto Fiktívne", "Obec Neskoršia"}
 
+
+def test_crz_window_extends_backwards_in_chunks_and_records_missing_days(tmp_path):
+    """36 mesiacov CRZ: staršie dávky po blokoch; okno sa posúva po každom bloku (prerušenie nič nestratí)."""
+    from radar.crz import extend_window
+    from radar.datasets import hyp_dir, import_table
+
+    cfg, db, rec, router = setup(tmp_path, crz_delay_s=0)
+    hid = gate1_hyp(db)
+    hyp_dir(cfg, hid).mkdir(parents=True)
+    path = tmp_path / "crz.csv"
+    path.write_text("ID;suma_spolu\n1;100\n", encoding="utf-8")
+    import_table(cfg, hid, "ds1", path, "csv")
+    ds = db.add_dataset(hid, None, "http://www.crz.gov.sk/export/", "ds1", status="ok",
+                        profile_json={"časové_okno": {"od": "2026-03-10", "do": "2026-03-20"}})
+
+    def batch(zid):
+        xml = f"<?xml version='1.0' encoding='UTF-8'?><zmluvy><zmluva><ID>{zid}</ID><suma_spolu>{zid}</suma_spolu></zmluva></zmluvy>"
+        return httpx.Response(200, content=_zip_bytes("d.xml", xml.encode()), headers={"content-type": "application/zip"})
+
+    routes = {f"https://www.crz.gov.sk/export/2026-03-0{d}.zip": batch(10 + d) for d in range(2, 10) if d != 5}
+    stats = extend_window(cfg, db, mock_fetcher(routes), hid, days=19, chunk=4, sleep=lambda s: None)
+    assert stats["od_po"] == "2026-03-02" and stats["pridané_zmluvy"] == 7 and stats["dni_chýba"] == 1
+    prof = json.loads(db.get_dataset(ds)["profile_json"])
+    assert prof["časové_okno"]["od"] == "2026-03-02" and prof["časové_okno"]["chýbajúce_dni"] == ["2026-03-05"]
+    assert run_query(cfg, hid, "SELECT COUNT(*) FROM ds1")[0][0] == 8
+    assert extend_window(cfg, db, mock_fetcher({}), hid, days=19)["pridané_zmluvy"] == 0  # už pokryté
+
 def test_gate_stage_cli_accepts_hypotheses():
     """Bez zadania spracuje krok najviac gate1.max_hypotheses_per_run hypotéz (CRZ pre H11 sa preto nespustilo)."""
     from radar.cli import build_parser

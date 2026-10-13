@@ -151,6 +151,7 @@ def run_prereg(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
 
 def prereg_hash(exp) -> str:
     payload = {k: exp[k] for k in ("statement", "metric", "baseline", "success_rule", "spec_json")}
+    payload |= {k: exp[k] for k in ("task", "problem_link") if k in exp.keys() and exp[k]}  # nové experimenty
     return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -162,6 +163,16 @@ def lock(cfg: Config, db: DB, exp_id: int) -> str:
     if exp["locked_at"]:
         return exp["prereg_hash"]
     spec = json.loads(exp["spec_json"])
+    if exp["task"]:  # experiment podľa úlohy: skúšobný beh plánu (stĺpce, únik budúcich dát, počty) musí prejsť
+        from .exp_plan import validate_plan
+
+        check = validate_plan(cfg, db, exp["hypothesis_id"], spec,
+                              {c["id"]: c["quote"] for c in db.evidence_for(exp["hypothesis_id"])})
+        if check["chyby"]:
+            raise ValueError("Predregistráciu nemožno uzamknúť: " + "; ".join(check["chyby"]))
+        digest = prereg_hash(exp)
+        db.update_experiment(exp_id, prereg_hash=digest, locked_at=utcnow(), status="locked")
+        return digest
     errors = validate_spec(cfg, exp["hypothesis_id"], spec)
     if errors:
         raise ValueError("Predregistráciu nemožno uzamknúť: " + "; ".join(errors))
@@ -229,6 +240,10 @@ def data_limits(db: DB, hid: int, table: str) -> dict[str, str]:
     ds = next((d for d in db.datasets_for(hid, only_ok=True) if d["table_name"] == base_table(table)), None)
     if ds is None:
         return {}
+    m = re.fullmatch(r"ds(\d+)", base_table(table))
+    original = db.get_dataset(int(m.group(1))) if m else None  # podhypotéza má kópiu záznamu; okno sa mení v pôvodnom
+    if original is not None and original["table_name"] == ds["table_name"]:
+        ds = original
     window = (json.loads(ds["profile_json"] or "{}") or {}).get("časové_okno") or {}
     end = window.get("do") or (date.fromisoformat(ds["fetched_at"][:10]) - timedelta(days=1)).isoformat()
     return {"od": window.get("od") or "", "do": end}
@@ -458,7 +473,7 @@ def backtest_series(values: list[float], baseline: str, model: str, folds: int, 
             "n_periods": int(len(y)), "n_folds": len(rows), "model": model, "season": season}
 
 
-def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -> dict:
+def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None, embedder=None, llm=None) -> dict:
     stats: Counter = Counter()
     hyps = [db.get_hypothesis(i) for i in ids] if ids else db.gate2_hypotheses()
     for hyp in [h for h in hyps if h is not None]:
@@ -467,6 +482,9 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
                 return dict(stats)
             if exp["status"] != "locked":  # bez predregistrácie sa spätný test nespúšťa
                 stats["not_locked"] += 1 if exp["status"] == "draft" else 0  # v súhrne úlohy: prečo nie sú výsledky
+                continue
+            if exp["task"]:
+                stats.update(_run_task_experiment(cfg, db, exp, embedder, llm))
                 continue
             spec = json.loads(exp["spec_json"])
             flags = json.loads(exp["flags_json"] or "{}")
@@ -495,6 +513,30 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
             db.update_experiment(exp["id"], status="done", result_json=res, flags_json=flags)
             stats["done"] += 1
     return dict(stats)
+
+
+def _run_task_experiment(cfg: Config, db: DB, exp, embedder, llm) -> Counter:
+    """Experiment podľa úlohy (poradie, predpoveď, anomália, prah, porovnanie) – `exp_tasks`."""
+    from .exp_conclude import make_categorizer, make_category_checker
+    from .exp_tasks import run_experiment
+
+    flags = json.loads(exp["flags_json"] or "{}")
+    try:
+        res = run_experiment(cfg, db, exp, categorize=make_categorizer(embedder),
+                             check_categories=make_category_checker(cfg, db, llm, exp["id"]) if llm is not None else None)
+    except Exception as exc:  # noqa: BLE001 – jeden experiment nezastaví ostatné (invariant 5)
+        log.exception("Experiment E%s zlyhal", exp["id"])
+        flags["chyba_testu"] = f"{type(exc).__name__}: {str(exc)[:250]}"
+        db.update_experiment(exp["id"], status="failed", flags_json=flags)
+        return Counter(failed=1)
+    prim = res.get("hlavné") or {}
+    flags.pop("chyba_testu", None)
+    if prim.get("zlepšenie_pct") is not None:
+        flags["model_neprekonal_naivny_odhad"] = prim["zlepšenie_pct"] <= 0
+    if prim.get("splnené") is not None:
+        flags["pravidlo_nesplnené"] = not prim["splnené"]
+    db.update_experiment(exp["id"], status="done", result_json=res, flags_json=flags)
+    return Counter(done=1)
 
 
 # ======================================================================= demo
@@ -590,7 +632,7 @@ def run_demo(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] |
         for exp in db.experiments_for(hyp["id"]):
             if deadline.expired():
                 return dict(stats)
-            if exp["status"] != "done" or exp["demo_path"]:
+            if exp["status"] != "done" or exp["demo_path"] or exp["task"]:  # nové experimenty majú správu zo záveru
                 continue
             path = build_demo(cfg, db, llm, exp)
             db.update_experiment(exp["id"], demo_path=str(path))
