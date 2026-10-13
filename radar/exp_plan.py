@@ -72,6 +72,7 @@ class ExperimentPlan(BaseModel):
 
 class PlanSet(BaseModel):
     experiments: list[ExperimentPlan] = Field(default_factory=list)
+    missing_data: str = ""  # keď dáta rozhodnutie otestovať nedokážu: aké dáta by boli treba
 
 
 AUTO_LOCK_KEY = "gate2_auto_lock"  # {"enabled": bool, "since": čas, "by": "GUI"} – uzamknúť bezchybné návrhy hneď
@@ -271,15 +272,20 @@ def _check_threshold(ws: Workspace, plan, value, quotes, errors, warnings, stats
 
 
 # ----------------------------------------------------------------------- návrh modelom
-def _prompt_user(cfg: Config, db: DB, hid: int, card: dict[str, Any], existing: list[str]) -> str:
+def _data_text(cfg: Config, db: DB, hid: int) -> str:
+    """Profil dát a okno (počíta sa raz na hypotézu – nad miliónmi riadkov trvá desiatky sekúnd)."""
     from .gate2 import window_text
 
     tables = [d["table_name"] for d in db.datasets_for(hid, only_ok=True)]
+    return f"DATA:\n{planner_profile(cfg, hid, tables)}\n\n{window_text(db, hid, tables)}"
+
+
+def _prompt_user(cfg: Config, db: DB, hid: int, card: dict[str, Any], existing: list[str], data_text: str) -> str:
     claims = [c for c in db.evidence_for(hid) if json.loads(c["numbers_json"] or "[]")]
     numbers = "\n".join(f"C{c['id']}: {(c['quote'] or '')[:250]}" for c in claims[:15])
-    return (f"PROBLEM CARD:\n{card_text(card)}\n\nEXISTING EXPERIMENTS (do not repeat): "
+    return (f"PROBLEM CARD:\n{card_text(card)}\n\nEXISTING EXPERIMENTS (design a different one): "
             f"{'; '.join(existing) or 'none'}\n\n<untrusted_document>\nEVIDENCE WITH NUMBERS:\n{numbers or '(none)'}\n\n"
-            f"DATA:\n{planner_profile(cfg, hid, tables)}\n\n{window_text(db, hid, tables)}\n</untrusted_document>")
+            f"{data_text}\n</untrusted_document>")
 
 
 def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
@@ -291,6 +297,9 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
         card = db.latest_card(h["id"])
         if card is None or not db.datasets_for(h["id"], only_ok=True):
             continue
+        missing = (json.loads(card["card_json"]) or {}).get("chýbajúce_dáta_pre_experiment") or {}
+        if missing and missing.get("datasety") == len(db.datasets_for(h["id"], only_ok=True)):
+            continue  # model povedal, že s týmito dátami sa rozhodnutie otestovať nedá; čaká sa na nový dataset
         new = [e for e in db.experiments_for(h["id"]) if e["task"] and e["status"] != "failed"]
         if len(new) < cfg.experiments.plans_per_hypothesis:
             out.append((h, card))
@@ -300,22 +309,35 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
 def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None) -> dict:
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
-    system = EXPERIMENT_PLAN_SYSTEM.format(lang=cfg.pipeline.output_language, n=cfg.experiments.plans_per_hypothesis,
+    system = EXPERIMENT_PLAN_SYSTEM.format(lang=cfg.pipeline.output_language,
                                            min_periods=cfg.gate2.min_history + cfg.gate2.backtest_folds)
     for hyp, card_row in plan_targets(cfg, db, ids):
         if deadline.expired():
             break
         hid = hyp["id"]
         card = json.loads(card_row["card_json"])
-        existing = [e for e in db.experiments_for(hid) if e["task"]]
-        user = _prompt_user(cfg, db, hid, card, [json.loads(e["spec_json"]).get("title", "") for e in existing])
-        res = router.run_task("experiment_plan", [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                              PlanSet, object_type="hypothesis", object_id=hid, max_tokens=5000)
-        if not res.ok:
-            stats["llm_failures"] += 1
-            continue
         quotes = {c["id"]: c["quote"] for c in db.evidence_for(hid)}
-        for plan in res.value.experiments[: cfg.experiments.plans_per_hypothesis - len(existing)]:
+        data_text = _data_text(cfg, db, hid)
+        todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if e["task"]
+                                                           and e["status"] != "failed"])
+        for _ in range(max(0, todo)):  # jeden plán na volanie (27B dáva úplnejší plán, ďalší sa líši od predošlých)
+            if deadline.expired():
+                break
+            titles = [json.loads(e["spec_json"]).get("title", "") for e in db.experiments_for(hid) if e["task"]]
+            user = _prompt_user(cfg, db, hid, card, titles, data_text)
+            res = router.run_task("experiment_plan", [{"role": "system", "content": system},
+                                                      {"role": "user", "content": user}],
+                                  PlanSet, object_type="hypothesis", object_id=hid, max_tokens=3000)
+            if not res.ok:
+                stats["llm_failures"] += 1
+                break
+            if not res.value.experiments:
+                card["chýbajúce_dáta_pre_experiment"] = {"text": res.value.missing_data.strip(), "model": res.model,
+                                                        "datasety": len(db.datasets_for(hid, only_ok=True))}
+                db.update_card(card_row["id"], card=card)
+                stats["no_suitable_data"] += 1
+                break
+            plan = res.value.experiments[0]
             data = plan.model_dump()
             check = validate_plan(cfg, db, hid, data, quotes)
             first_ok, attempts = not check["chyby"], 1

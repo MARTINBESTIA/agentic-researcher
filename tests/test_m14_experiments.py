@@ -165,10 +165,11 @@ def test_plan_dry_run_repair_and_lock(tmp_path):
     db.add_card(hid, {"decision": {"text": "Výber zmlúv na kontrolu", "claims": []}})
     broken = RANKING_PLAN | {"features": ["x", "neexistuje"]}
     hopeless = RANKING_PLAN | {"title": "Zlý", "table": "ds1", "label": "nic"}
-    rec.responses["PlanSet"] = {"experiments": [broken, hopeless]}
+    cfg.experiments.plans_per_hypothesis = 2
+    rec.responses["PlanSet"] = [{"experiments": [broken]}, {"experiments": [hopeless]}]  # jeden plán na volanie
     rec.responses["ExperimentPlan"] = [RANKING_PLAN, hopeless, hopeless]
     stats = exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
-    assert stats == {"repairs": 2, "plans_ok": 1, "plans_with_errors": 1}
+    assert stats == {"repairs": 3, "plans_ok": 1, "plans_with_errors": 1}  # druhý návrh ani po 2 opravách
     good, bad = db.experiments_for(hid)
     assert good["task"] == "ranking" and good["problem_link"] and not json.loads(good["flags_json"] or "{}").get("chyby_návrhu")
     run = json.loads(good["spec_json"])["skúšobný_beh"]
@@ -178,7 +179,7 @@ def test_plan_dry_run_repair_and_lock(tmp_path):
     with pytest.raises(ValueError):
         gate2.lock(cfg, db, bad["id"])
     assert len(gate2.lock(cfg, db, good["id"])) == 64
-    assert rec.models_for("PlanSet") == ["radar-qwen3.6-27b"]
+    assert rec.models_for("PlanSet") == ["radar-qwen3.6-27b"] * 2
 
 
 # ======================================================================= typy úloh
@@ -384,6 +385,7 @@ def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
     dataset(cfg, db, hid, header, rows, "2024-01-01", "2025-12-31")
     gate1.decide(db, hid, 1, "passed", "test")
     db.add_card(hid, {"decision": {"text": "Výber zmlúv na kontrolu", "claims": []}})
+    cfg.experiments.plans_per_hypothesis = 1
     rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"features": ["x", "zle"]}]}
     rec.responses["ExperimentPlan"] = RANKING_PLAN
     exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
@@ -398,3 +400,21 @@ def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
     assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])["auto_locked"] == 1
     second = db.experiments_for(hid)[1]
     assert second["status"] == "locked" and json.loads(second["flags_json"])["uzamknuté_automaticky"]
+
+
+def test_planner_may_say_data_cannot_test_decision_and_waits_for_new_dataset(tmp_path):
+    """H581 (náklady investičných projektov): v CRZ a NKÚ nie je hodnotenie ÚHP – návrh nemá vynútiť náhradný štítok."""
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Neoveriteľné náklady projektov", "", "ministerstvá")
+    dataset(cfg, db, hid, "cid;datum;suma", [(1, "2025-01-01", 5)], "2025-01-01", "2025-12-31")
+    gate1.decide(db, hid, 1, "passed", "test")
+    card = db.add_card(hid, {"decision": {"text": "Úroveň detailu rozpočtu projektu", "claims": []}})
+    seen = []
+    rec.responses["PlanSet"] = lambda m: seen.append(m) or {"experiments": [], "missing_data": "hodnotenia projektov ÚHP"}
+    assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid]) == {"no_suitable_data": 1}
+    assert "EXAMPLE of one complete experiment" in seen[0][0]["content"] and "missing_data" in seen[0][0]["content"]
+    assert json.loads(db.get_card(card)["card_json"])["chýbajúce_dáta_pre_experiment"]["text"] == "hodnotenia projektov ÚHP"
+    assert exp_plan.plan_targets(cfg, db, None) == []  # bez nového datasetu sa neopakuje (autopilot)
+    dataset(cfg, db, hid, "projekt;datum;hodnotenie", [(1, "2025-02-01", "negatívne")], "2025-01-01", "2025-12-31", name="ds2")
+    assert [h["id"] for h, _ in exp_plan.plan_targets(cfg, db, None)] == [hid]
+

@@ -382,7 +382,7 @@ class ExperimentsConfig(BaseModel):
     """Experimenty Brány 2 podľa typu úlohy (návrh modelom z karty a profilu dát, test kódom)."""
 
     plans_per_hypothesis: int = 3  # koľko experimentov navrhnúť na hypotézu (rôzne úlohy alebo štítky)
-    max_plan_retries: int = 1  # oprava návrhu modelom po chybách skúšobného behu
+    max_plan_retries: int = 2  # oprava návrhu modelom po chybách skúšobného behu (27B: chýbajúci parameter kroku)
     max_category_texts: int = 30000  # zatriedenie textu: najčastejších rôznych textov (embeddingy ~70/s na CPU)
     category_check_sample: int = 30  # vzorka zatriedenia na kontrolu modelom (odhad presnosti)
     test_share: float = 0.3  # posledná časť obdobia na test (učenie a validácia sú staršie)

@@ -76,6 +76,11 @@ with st.container(border=True):
                        "citáty": ", ".join(f"C{i}" for i in (card.get(k) or {}).get("claims", [])),
                        "kontrola sudcom": VERDICT.get((checks.get(k) or {}).get("verdict"), "")}
                       for k, label in FIELD_LABELS.items()], hide_index=True, alt="Problémová karta")
+        missing = card.get("chýbajúce_dáta_pre_experiment") or {}
+        if missing:
+            st.warning("Model: s dostupnými dátami sa toto rozhodnutie otestovať nedá. Treba: " + missing.get("text", "")
+                       + " – pridaj dataset (Brána 1 → Datasety → Pridať dataset z odkazu, alebo Tvoje dáta); návrh sa "
+                       "zopakuje, keď pribudne.", icon=":material/database_off:")
         st.markdown(f"**Výstup, ktorý pomôže:** {esc(OUTPUT_LABELS.get(card.get('helpful_output'), card.get('helpful_output', '')))}"
                     f" – {esc(card.get('helpful_output_text', ''))}  \n**Obchodná metrika:** {esc(card.get('business_metric', ''))}"
                     f"  \n**Čo by hypotézu vyvrátilo:** {esc(card.get('falsification', ''))}")
