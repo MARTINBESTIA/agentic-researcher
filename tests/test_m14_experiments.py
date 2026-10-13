@@ -466,3 +466,20 @@ def test_expression_feature_becomes_column_and_duplicate_plan_is_rejected(tmp_pa
     dup = db.experiments_for(hid)[1]
     assert any("meria to isté ako E" in e for e in json.loads(dup["flags_json"])["chyby_návrhu"])
 
+
+def test_hypothesis_without_any_valid_plan_is_marked_and_skipped(tmp_path):
+    """Autopilot by inak H581 skúšal každé kolo (neplatné návrhy sa nerátajú) – ~15 min 27B zakaždým."""
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Neoveriteľné náklady", "", "ministerstvá")
+    dataset(cfg, db, hid, "cid;datum;suma", [(1, "2025-01-01", 5)], "2025-01-01", "2025-12-31")
+    gate1.decide(db, hid, 1, "passed", "test")
+    card = db.add_card(hid, {"decision": {"text": "Detail rozpočtu", "claims": []}})
+    cfg.experiments.plans_per_hypothesis = 2
+    hopeless = RANKING_PLAN | {"label": "neexistuje"}
+    rec.responses["PlanSet"] = {"experiments": [hopeless]}
+    rec.responses["ExperimentPlan"] = hopeless
+    stats = exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
+    assert stats["plans_with_errors"] == 2 and stats["no_valid_plan"] == 1
+    assert json.loads(db.get_card(card)["card_json"])["chýbajúce_dáta_pre_experiment"]["automaticky"] is True
+    assert exp_plan.plan_targets(cfg, db, None) == []
+

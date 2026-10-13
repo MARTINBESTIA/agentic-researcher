@@ -115,9 +115,25 @@ if not d.datasets_for(hid, only_ok=True):
     st.warning("Hypotéza prešla Bránou 1 bez stiahnutého datasetu (iba popis alebo schéma). Experimenty počkajú, kým "
                "pribudnú dáta: Brána 1 → Tvoje dáta (nahraj súbor) alebo Datasety → Pridať dataset z odkazu.",
                icon=":material/database_off:")
-exps = d.experiments_for(hid)
+all_exps = d.experiments_for(hid)
+invalid = [e for e in all_exps if e["status"] == "invalid"]
+exps = [e for e in all_exps if e["status"] != "invalid"]
+if invalid:
+    with st.expander(f"Neplatné návrhy modelu ({len(invalid)}) – nedajú sa uzamknúť, ďalší beh navrhne náhradu",
+                     icon=":material/block:"):
+        st.caption("Model (27B) pri nich vynechal povinné parametre krokov, použil neexistujúci stĺpec alebo zopakoval "
+                   "štítok; skúšobný beh to zachytil a ani po dvoch opravách sa to nevyriešilo. Ostávajú kvôli meraniu "
+                   "kvality návrhov. Plán môžeš opraviť aj ručne (JSON) – potom ho zmeň na platný uložením.")
+        st.dataframe([{"E": e["id"], "názov": json_or(e["spec_json"], {}).get("title", ""),
+                       "chyby": "; ".join(json_or(e["flags_json"], {}).get("chyby_návrhu") or [])} for e in invalid],
+                     hide_index=True, alt="Neplatné návrhy")
+        fix_id = st.selectbox("Opraviť ručne", [None] + [e["id"] for e in invalid], key=f"g2_fixinv_{hid}",
+                              format_func=lambda i: "–" if i is None else f"E{i}")
+        if fix_id:
+            exps.append(d.get_experiment(fix_id))
 if not exps:
-    st.caption("Experimenty navrhne model z karty v akcii „Karta, návrh a test experimentov“.")
+    st.caption("Platný experiment zatiaľ nie je. Experimenty navrhne model z karty v akcii „Karta, návrh a test "
+               "experimentov“; ak karta hlási chýbajúce dáta, najprv ich pridaj v Bráne 1.")
     st.stop()
 STATUS = {"draft": "návrh (neuzamknutý)", "locked": "uzamknutý, čaká na test", "done": "otestovaný", "failed": "test zlyhal",
           "invalid": "neplatný návrh (chyby aj po oprave)"}
@@ -206,6 +222,8 @@ def show_task_experiment() -> None:
                 st.dataframe([{k: v for k, v in p.items()} for p in dry["protokol"]], hide_index=True,
                              alt="Protokol skúšobného behu")
         if not e["locked_at"]:
+            for err in (flags.get("chyby_návrhu") or []) if e["status"] == "invalid" else []:
+                st.caption(f"Chyba: {err}")
             with st.form(f"g2_plan_{eid}"):
                 raw = st.text_area("Plán (JSON) – úprava pred uzamknutím",
                                    json.dumps({k: v for k, v in plan.items() if k != "skúšobný_beh"}, ensure_ascii=False,
@@ -219,8 +237,10 @@ def show_task_experiment() -> None:
                                             metric=new.get("primary_metric", e["metric"]),
                                             baseline=new.get("primary_baseline", e["baseline"]),
                                             success_rule=success_rule(new), problem_link=new.get("problem_link"),
+                                            status="invalid" if check["chyby"] else "draft",
                                             flags_json={k: v for k, v in (("chyby_návrhu", check["chyby"]),
-                                                                          ("upozornenia", check["upozornenia"])) if v})
+                                                                          ("upozornenia", check["upozornenia"])) if v}
+                                            | {"upravené_človekom": True})
                     except (ValueError, KeyError) as exc:
                         st.error(f"Plán sa nedá uložiť: {exc}")
                     else:

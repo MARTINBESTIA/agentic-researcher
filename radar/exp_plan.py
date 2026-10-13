@@ -420,6 +420,21 @@ def counts(e) -> bool:
         json.loads(e["flags_json"] or "{}") or {}).get("chyby_návrhu")
 
 
+def mark_no_valid_plan(db: DB, card_row, attempts: int, model: str | None = None) -> None:
+    """Žiadny platný návrh ani po opravách → karta dostane „chýbajúce dáta“ a autopilot hypotézu preskakuje, kým
+    nepribudne dataset (reálny beh: H581 – 4 neplatné návrhy, v dátach nie sú hodnotenia projektov ÚHP)."""
+    card = json.loads(card_row["card_json"])
+    if card.get("chýbajúce_dáta_pre_experiment"):
+        return
+    hid = card_row["hypothesis_id"]
+    card["chýbajúce_dáta_pre_experiment"] = {
+        "text": f"model v {attempts} pokusoch nenavrhol platný experiment – s dostupnými dátami sa rozhodnutie "
+                "z karty pravdepodobne otestovať nedá (chýbajú udalosti alebo výsledky, ktoré karta potrebuje), "
+                "prípadne treba jasnejšiu kartu",
+        "automaticky": True, "model": model, "datasety": len(db.datasets_for(hid, only_ok=True))}
+    db.update_card(card_row["id"], card=card)
+
+
 def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
     hyps = [h for h in (db.get_hypothesis(i) for i in ids) if h] if ids else list(db.gate2_hypotheses())
     out = []
@@ -477,6 +492,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         stats.update(recheck_drafts(cfg, db, hid, quotes))  # staršie návrhy s chybami podľa aktuálnych kontrol
         data_text = _data_text(cfg, db, hid)
         todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if counts(e)])
+        attempts, last_model = 0, None
         for _ in range(max(0, todo)):  # jeden plán na volanie (27B dáva úplnejší plán, ďalší sa líši od predošlých)
             if deadline.expired():
                 break
@@ -495,6 +511,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 stats["no_suitable_data"] += 1
                 break
             plan = res.value.experiments[0]
+            attempts, last_model = attempts + 1, res.model
             data = plan.model_dump()
             taken = {plan_signature(json.loads(e["spec_json"])): e["id"] for e in db.experiments_for(hid) if e["task"]}
 
@@ -544,4 +561,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                     stats["auto_locked"] += 1
                 except ValueError as exc:
                     log.warning("Automatické uzamknutie E%s zlyhalo: %s", exp_id, exc)
+        if attempts and not any(counts(e) for e in db.experiments_for(hid)):
+            mark_no_valid_plan(db, db.get_card(card_row["id"]), attempts, last_model)
+            stats["no_valid_plan"] += 1
     return dict(stats)
