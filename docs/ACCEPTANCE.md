@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 228 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
+Stav 13. 10. 2026: 229 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
 
 | Míľnik | AK | Test |
 |---|---|---|
