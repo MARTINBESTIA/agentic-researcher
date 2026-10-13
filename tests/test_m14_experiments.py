@@ -177,6 +177,8 @@ def test_plan_dry_run_repair_and_lock(tmp_path):
     assert gate2.rule_threshold(good["success_rule"]) == 10
     assert json.loads(bad["flags_json"])["chyby_návrhu"] and bad["status"] == "invalid"  # nepočíta sa do 3 návrhov
     assert [h["id"] for h, _ in exp_plan.plan_targets(cfg, db, [hid])] == [hid]
+    db.update_experiment(bad["id"], status="draft")  # starší rozbitý návrh v stave „návrh“ tiež nesmie blokovať
+    assert [h["id"] for h, _ in exp_plan.plan_targets(cfg, db, [hid])] == [hid]
     with pytest.raises(ValueError):
         gate2.lock(cfg, db, bad["id"])
     assert len(gate2.lock(cfg, db, good["id"])) == 64

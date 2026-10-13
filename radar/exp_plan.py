@@ -413,6 +413,13 @@ def _prompt_user(cfg: Config, db: DB, hid: int, card: dict[str, Any], existing: 
             f"{data_text}\n</untrusted_document>")
 
 
+def counts(e) -> bool:
+    """Ráta sa do návrhov hypotézy: experiment podľa úlohy, nie neplatný ani s chybami návrhu (tie sa nahradia).
+    Reálny beh #52: rozbité E7, E8 blokovali H582, lebo sa rátali a opätovná kontrola sa k nim nedostala."""
+    return bool(e["task"]) and e["status"] not in ("failed", "invalid") and not (
+        json.loads(e["flags_json"] or "{}") or {}).get("chyby_návrhu")
+
+
 def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
     hyps = [h for h in (db.get_hypothesis(i) for i in ids) if h] if ids else list(db.gate2_hypotheses())
     out = []
@@ -425,7 +432,7 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
         missing = (json.loads(card["card_json"]) or {}).get("chýbajúce_dáta_pre_experiment") or {}
         if missing and missing.get("datasety") == len(db.datasets_for(h["id"], only_ok=True)):
             continue  # model povedal, že s týmito dátami sa rozhodnutie otestovať nedá; čaká sa na nový dataset
-        new = [e for e in db.experiments_for(h["id"]) if e["task"] and e["status"] not in ("failed", "invalid")]
+        new = [e for e in db.experiments_for(h["id"]) if counts(e)]
         if len(new) < cfg.experiments.plans_per_hypothesis:
             out.append((h, card))
     return out
@@ -469,8 +476,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         quotes = {c["id"]: c["quote"] for c in db.evidence_for(hid)}
         stats.update(recheck_drafts(cfg, db, hid, quotes))  # staršie návrhy s chybami podľa aktuálnych kontrol
         data_text = _data_text(cfg, db, hid)
-        todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if e["task"]
-                                                           and e["status"] not in ("failed", "invalid")])
+        todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if counts(e)])
         for _ in range(max(0, todo)):  # jeden plán na volanie (27B dáva úplnejší plán, ďalší sa líši od predošlých)
             if deadline.expired():
                 break
