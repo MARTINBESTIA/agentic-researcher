@@ -141,6 +141,9 @@ def test_workspace_links_records_and_keeps_history_and_future_apart(tmp_path):
     assert ws.protocol[1]["naviazaných"] == 1 and set(ws.future) == {"amends", "later"}
     ws.apply(Step(op="derive", name="had", expr="amends > 0"))
     assert ws.future["had"] == 90  # odvodené zo štítka z budúcnosti
+    ws.apply(Step(op="derive", name="big", expr="amount > 60"))
+    ws.apply(Step(op="prior_agg", name="big_share", keys=["buyer"], agg="avg", column="big", days=0))  # avg áno/nie
+    assert {r[0]: r[1] for r in ws.query(f"SELECT cid, big_share FROM {ws.table}")}[5] == 0.5
     with pytest.raises(DatasetError):
         ws.apply(Step(op="filter", expr="1=1; DROP TABLE ds1"))
     with pytest.raises(DatasetError):

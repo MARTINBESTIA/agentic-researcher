@@ -39,8 +39,11 @@ from .datasets import DatasetError, connect_ro, duck_path
 log = logging.getLogger(__name__)
 
 OPS = ("filter", "derive", "text_category", "link_records", "linked_agg", "prior_agg", "future_agg", "lookup")
-AGGS = {"count": "SUM(CASE WHEN {cond} THEN 1 ELSE 0 END)", "sum": "SUM(CASE WHEN {cond} THEN {col} END)",
-        "avg": "AVG(CASE WHEN {cond} THEN {col} END)", "max": "MAX(CASE WHEN {cond} THEN {col} END)"}
+# hodnota vždy ako číslo: áno/nie (BOOLEAN) → 1/0 – reálny beh E10: avg(BOOLEAN) DuckDB odmietol
+AGGS = {"count": "SUM(CASE WHEN {cond} THEN 1 ELSE 0 END)",
+        "sum": "SUM(CASE WHEN {cond} THEN TRY_CAST({col} AS DOUBLE) END)",
+        "avg": "AVG(CASE WHEN {cond} THEN TRY_CAST({col} AS DOUBLE) END)",
+        "max": "MAX(CASE WHEN {cond} THEN TRY_CAST({col} AS DOUBLE) END)"}
 FORBIDDEN_RE = re.compile(r";|--|/\*|\*/|\b(attach|detach|copy|export|import|install|load|pragma|create|drop|alter|"
                           r"insert|update|delete|call|set|read_\w+|glob|httpfs|getenv)\b", re.I)
 NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,40}$")
@@ -268,7 +271,7 @@ class Workspace:
         name, link = self._new_name(step.name), self._col(step.link)
         if step.days <= 0:
             raise DatasetError("linked_agg potrebuje days > 0 (okno po rodičovskom riadku)")
-        val = self._col(step.column) if step.agg != "count" else "NULL"
+        val = f"TRY_CAST({self._col(step.column)} AS DOUBLE)" if step.agg != "count" else "NULL"
         cond = self._frame_cond(step)
         agg = {"count": "SUM(CASE WHEN c.ok THEN 1 ELSE 0 END)", "sum": "SUM(CASE WHEN c.ok THEN c.v END)",
                "avg": "AVG(CASE WHEN c.ok THEN c.v END)", "max": "MAX(CASE WHEN c.ok THEN c.v END)"}[step.agg]
