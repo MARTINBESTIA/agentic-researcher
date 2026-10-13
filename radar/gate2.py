@@ -106,6 +106,14 @@ def run_prereg(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
             stats["no_datasets"] += 1
             continue
         schema = schema_text(cfg, hid, tables)
+        window = window_text(db, hid, tables)
+        for exp in db.experiments_for(hid):  # staršie neuzamknuté návrhy: zoskupenie, ktoré dá rad na test
+            if exp["status"] == "draft" and not exp["locked_at"]:
+                spec, note = fit_period(cfg, db, hid, json.loads(exp["spec_json"]))
+                if note:
+                    flags = json.loads(exp["flags_json"] or "{}") | {"obdobie_upravené": note}
+                    db.update_experiment(exp["id"], spec_json=spec, flags_json=flags)
+                    stats["period_fixed"] += 1
         for t in targets(cfg, db, hid):
             if deadline.expired():
                 return dict(stats)
@@ -115,9 +123,10 @@ def run_prereg(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
                    if t["org_id"] else "ORGANIZATION: none – use the whole dataset (region or country level)")
             res = router.run_task(
                 "gate2_prereg",
-                [{"role": "system", "content": GATE2_PREREG_SYSTEM.format(lang=cfg.pipeline.output_language)},
-                 {"role": "user", "content": f"PROBLEM: {hyp['title']}\n{who}\n\n<untrusted_document>\n{schema}\n"
-                                             "</untrusted_document>"}],
+                [{"role": "system", "content": GATE2_PREREG_SYSTEM.format(
+                    lang=cfg.pipeline.output_language, min_periods=cfg.gate2.min_history + cfg.gate2.backtest_folds)},
+                 {"role": "user", "content": f"PROBLEM: {hyp['title']}\n{who}\n{window}\n\n<untrusted_document>\n"
+                                             f"{schema}\n</untrusted_document>"}],
                 Prereg, object_type="hypothesis", object_id=hid, max_tokens=800,
             )
             if not res.ok:
@@ -130,9 +139,12 @@ def run_prereg(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
             if t["org_id"] and t["entity_column"] and not spec["entity_column"]:
                 spec["entity_column"] = t["entity_column"]
             errors = validate_spec(cfg, hid, spec)
+            spec, note = fit_period(cfg, db, hid, spec)
             exp_id = db.add_experiment(hid, t["org_id"], None, p.statement, p.metric, p.baseline, p.success_rule, spec)
-            if errors:
-                db.update_experiment(exp_id, flags_json={"chyby_návrhu": errors})
+            flags = {k: v for k, v in (("chyby_návrhu", errors), ("obdobie_upravené", note)) if v}
+            if flags:
+                db.update_experiment(exp_id, flags_json=flags)
+                stats["period_fixed"] += 1 if note else 0
             stats["drafts"] += 1
     return dict(stats)
 
@@ -149,9 +161,14 @@ def lock(cfg: Config, db: DB, exp_id: int) -> str:
         raise ValueError("Experiment neexistuje.")
     if exp["locked_at"]:
         return exp["prereg_hash"]
-    errors = validate_spec(cfg, exp["hypothesis_id"], json.loads(exp["spec_json"]))
+    spec = json.loads(exp["spec_json"])
+    errors = validate_spec(cfg, exp["hypothesis_id"], spec)
     if errors:
         raise ValueError("Predregistráciu nemožno uzamknúť: " + "; ".join(errors))
+    n, need = usable_periods(cfg, db, exp["hypothesis_id"], spec), cfg.gate2.min_history + 1
+    if n < need:
+        raise ValueError(f"Predregistráciu nemožno uzamknúť: rad má {n} úplných období, spätný test potrebuje aspoň "
+                         f"{need} (zmeň zoskupenie, napr. \"period\": \"month\").")
     digest = prereg_hash(exp)
     db.update_experiment(exp_id, prereg_hash=digest, locked_at=utcnow(), status="locked")
     return digest
@@ -209,6 +226,59 @@ def data_limits(db: DB, hid: int, table: str) -> dict[str, str]:
     window = (json.loads(ds["profile_json"] or "{}") or {}).get("časové_okno") or {}
     end = window.get("do") or (date.fromisoformat(ds["fetched_at"][:10]) - timedelta(days=1)).isoformat()
     return {"od": window.get("od") or "", "do": end}
+
+
+def periods_between(start: str, end: str, period: str) -> int:
+    """Počet úplných období (rok, štvrťrok, mesiac) medzi dňami start a end vrátane."""
+    lo, hi = date.fromisoformat(start), date.fromisoformat(end)
+    cur = lo if _period_start(lo, period) == lo else _period_end(lo, period) + timedelta(days=1)
+    n = 0
+    while _period_end(cur, period) <= hi:
+        n, cur = n + 1, _period_end(cur, period) + timedelta(days=1)
+    return n
+
+
+def window_text(db: DB, hid: int, tables: list[str]) -> str:
+    """Pre model: obdobie, ktoré tabuľky pokrývajú, a počet úplných období v ňom (rozhoduje o zoskupení)."""
+    lines = []
+    for table in tables:
+        lim = data_limits(db, hid, table)
+        if lim.get("od"):
+            counts = ", ".join(f"{periods_between(lim['od'], lim['do'], p)} {p}s" for p in ("month", "quarter", "year"))
+            lines.append(f"- {table}: records from {lim['od']} to {lim['do']} (complete periods inside: {counts})")
+        elif lim.get("do"):
+            lines.append(f"- {table}: data up to {lim['do']} (the period containing this day is incomplete)")
+    return "DATA WINDOW:\n" + "\n".join(lines) if lines else ""
+
+
+def usable_periods(cfg: Config, db: DB, hid: int, spec: dict[str, Any]) -> int:
+    """Koľko období by mal spätný test (úplné obdobia v rozsahu dát)."""
+    data, _ = complete_periods(series(cfg, hid, spec), spec.get("period"), data_limits(db, hid, spec.get("table", "")),
+                               spec.get("aggregation", "sum"))
+    return len(data)
+
+
+def fit_period(cfg: Config, db: DB, hid: int, spec: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """Zoskupenie s dostatkom úplných období (rozhoduje kód, nie model): zvolené ostane, ak dá aspoň
+    min_history + backtest_folds období; inak najhrubšie, ktoré ich dá, inak to s najviac obdobiami.
+    Úloha #45: 27B zvolil roky pri 9-mesačnom okne CRZ – rad by mal 0 období."""
+    if spec.get("period") not in ("year", "quarter", "month") or validate_spec(cfg, hid, spec):
+        return spec, None
+    enough = cfg.gate2.min_history + cfg.gate2.backtest_folds
+    counts: dict[str, int] = {}
+    for p in dict.fromkeys((spec["period"], "year", "quarter", "month")):
+        try:
+            counts[p] = usable_periods(cfg, db, hid, spec | {"period": p})
+        except DatasetError:
+            return spec, None
+    if counts[spec["period"]] >= enough:
+        return spec, None
+    ok = [p for p in ("year", "quarter", "month") if counts[p] >= enough]
+    best = ok[0] if ok else max(("year", "quarter", "month"), key=lambda p: counts[p])
+    if counts[best] <= counts[spec["period"]]:
+        return spec, None
+    return spec | {"period": best}, (f"zoskupenie {spec['period']} → {best} (kód): úplných období "
+                                     + ", ".join(f"{p} {n}" for p, n in counts.items()))
 
 
 def complete_periods(data: list[tuple[Any, float]], period: str | None, limits: dict[str, str], aggregation: str = "sum",

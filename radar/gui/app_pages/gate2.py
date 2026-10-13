@@ -41,6 +41,8 @@ e = d.get_experiment(eid)
 flags = json_or(e["flags_json"], {})
 if flags.get("chyby_návrhu"):
     st.warning("Návrh odkazuje na neexistujúce stĺpce: " + "; ".join(flags["chyby_návrhu"]), icon=":material/error:")
+if flags.get("obdobie_upravené"):
+    st.info("Zoskupenie upravil kód, aby rad mal dosť úplných období: " + flags["obdobie_upravené"], icon=":material/tune:")
 
 with st.container(border=True):
     st.markdown("**Predregistrácia**")

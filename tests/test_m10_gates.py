@@ -938,6 +938,41 @@ def test_backtest_uses_only_complete_periods_inside_data_window():
     assert gate2.complete_periods(q, "none", limits) == (q, {})
 
 
+
+def test_prereg_period_fits_data_window_and_lock_needs_enough_periods(tmp_path):
+    """Úloha #45: 27B zvolil roky pri 9-mesačnom okne CRZ (0 úplných rokov). Kód zoskupenie opraví a zapíše prečo;
+    návrh s príliš krátkym radom sa nedá uzamknúť; model dostane okno dát v zadaní."""
+    from radar.datasets import hyp_dir, import_table
+
+    cfg, db, rec, router = setup(tmp_path)
+    hid = gate1_hyp(db)
+    org, _ = db.upsert_organization("Mesto Fiktívne", "mesto fiktivne", "search", ico="00313271")
+    hyp_dir(cfg, hid).mkdir(parents=True)
+    path = tmp_path / "crz.csv"
+    days = [f"2026-{m:02d}-{d:02d}" for m in range(1, 11) for d in (3, 17) if (m, d) != (1, 3)]
+    path.write_text("ico_objednavatel;datum;suma\n" + "".join(f"00313271;{x};{100 + i}\n" for i, x in enumerate(days)),
+                    encoding="utf-8")
+    import_table(cfg, hid, "ds1", path, "csv")
+    ds = db.add_dataset(hid, None, "http://www.crz.gov.sk/export/", "ds1", status="ok",
+                        profile_json={"časové_okno": {"od": "2026-01-15", "do": "2026-10-11"}, "ico_columns": ["ico_objednavatel"]})
+    db.set_coverage(ds, org, "ico_objednavatel", len(days))
+    gate1.decide(db, hid, 1, "passed", "test")
+    seen = []
+    rec.responses["Prereg"] = lambda m: seen.append(m) or {
+        "statement": "Trend predpovie ročné výdavky.", "table": "ds1", "time_column": "datum", "value_column": "suma",
+        "entity_column": "ico_objednavatel", "aggregation": "sum", "period": "year", "model": "auto"}
+    assert gate2.run_prereg(cfg, db, router, Deadline(1), [hid]) == {"drafts": 1, "period_fixed": 1}
+    assert "8 months, 2 quarters, 0 years" in seen[0][1]["content"] and "at least 9" in seen[0][0]["content"]
+    exp = db.experiments_for(hid)[0]
+    assert json.loads(exp["spec_json"])["period"] == "month"  # 8 úplných mesiacov (február–september)
+    assert "year → month" in json.loads(exp["flags_json"])["obdobie_upravené"]
+    gate2.lock(cfg, db, exp["id"])  # 8 ≥ 6 → dá sa uzamknúť
+    short = db.add_experiment(hid, None, None, "x", "MAE", "last_value", "x",
+                              {"table": "ds1", "time_column": "datum", "value_column": "suma", "aggregation": "sum",
+                               "period": "quarter"})
+    with pytest.raises(ValueError, match="2 úplných období"):
+        gate2.lock(cfg, db, short)
+
 def test_finish_refreshes_coverage_for_organizations_added_later(tmp_path):
     cfg, db, rec, router, hid, fid, org, fetcher = _dataset_env(tmp_path)
     gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])
