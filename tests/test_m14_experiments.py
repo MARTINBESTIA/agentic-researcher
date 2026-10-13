@@ -397,7 +397,8 @@ def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
     db.set_setting(exp_plan.AUTO_LOCK_KEY, {"enabled": True})
     cfg.experiments.plans_per_hypothesis = 2
     other = [dict(st, days=200) if st["op"] == "linked_agg" else st for st in RANKING_PLAN["steps"]]  # iný štítok
-    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40, "steps": other}]}
+    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40, "steps": other,
+                                                                "primary_baseline": "entity_rate"}]}  # bez upozornenia
     assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])["auto_locked"] == 1
     second = db.experiments_for(hid)[1]
     assert second["status"] == "locked" and json.loads(second["flags_json"])["uzamknuté_automaticky"]

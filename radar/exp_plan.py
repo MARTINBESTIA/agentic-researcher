@@ -316,6 +316,10 @@ def _check_ranking(cfg, ws: Workspace, plan, cols, errors, warnings, stats) -> N
     if label not in cols:
         errors.append(f"štítok {label!r} neexistuje (vytvor ho krokom future_agg, linked_agg alebo derive)")
         return
+    if plan.get("entity_column") and plan.get("primary_baseline") != "entity_rate":
+        # reálny beh E6: štítok sa opakoval u toho istého dodávateľa – „najväčšie najprv“ bolo slabé porovnanie (+900 %)
+        warnings.append("hlavný naivný odhad nie je doterajšia miera entity (entity_rate); keď sa štítok opakuje u tej "
+                        "istej entity, je to najsilnejší naivný odhad – zváž ho ako hlavný")
     feats = [f for f in plan.get("features") or [] if f]
     missing = [f for f in feats if f not in cols]
     if missing:

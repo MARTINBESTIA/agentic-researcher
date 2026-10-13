@@ -275,6 +275,7 @@ RULES:
 - Use only columns listed in DATA and columns created by earlier steps. SQL dialect is DuckDB; text columns may need TRY_CAST(x AS DOUBLE) or TRY_CAST(x AS DATE).
 - Features must be known at the row's date: never use future_agg or linked_agg columns (or columns derived from them) as features.
 - Choose "period" so that the DATA WINDOW contains at least {min_periods} complete periods; label windows ("days") must be much shorter than the data window.
+- For ranking with "entity_column", use "entity_rate" as "primary_baseline" (an entity's past rate is usually the strongest naive guess).
 - "primary_metric" and "primary_baseline" must come from the task's lists; "success_threshold" = minimal improvement in % over the primary baseline that would make the output worth using.
 - "title" (short), "statement" (falsifiable sentence) and "problem_link" in {lang}.
 - Never invent legal thresholds: use only numbers stated in the evidence and cite their ids.
