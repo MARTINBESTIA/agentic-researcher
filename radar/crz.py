@@ -254,6 +254,7 @@ def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30
         prof["časové_okno"] = window
         prof["rows"] = rows
         db.update_dataset(ds["id"], profile_json=prof, rows=rows)
+        db.sync_dataset_copies(ds["id"])  # podhypotézy rozdelenej hypotézy majú kópiu záznamu
         if progress:
             progress(f"CRZ H{hid}: okno od {start.isoformat()} (+{res['added']} zmlúv, spolu {rows})")
     stats["od_po"] = start.isoformat()

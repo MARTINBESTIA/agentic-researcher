@@ -1055,6 +1055,9 @@ def test_crz_window_extends_backwards_in_chunks_and_records_missing_days(tmp_pat
     assert prof["časové_okno"]["od"] == "2026-03-02" and prof["časové_okno"]["chýbajúce_dni"] == ["2026-03-05"]
     assert run_query(cfg, hid, "SELECT COUNT(*) FROM ds1")[0][0] == 8
     assert extend_window(cfg, db, mock_fetcher({}), hid, days=19)["pridané_zmluvy"] == 0  # už pokryté
+    child = db.create_hypothesis("Podhypotéza", "", "x")
+    db.add_dataset(child, None, "http://www.crz.gov.sk/export/", "ds1", status="ok", rows=1)
+    assert db.sync_dataset_copies(ds) == 1 and db.datasets_for(child)[0]["rows"] == 8  # kópia v podhypotéze
 
 
 def test_crz_window_does_not_move_over_network_outage_and_retries_missing_days(tmp_path):

@@ -232,6 +232,15 @@ class GatesMixin:
         vals = [json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v for v in fields.values()]
         self._exec(f"UPDATE datasets SET {sets} WHERE id = ?", (*vals, dataset_id))
 
+    def sync_dataset_copies(self, dataset_id: int) -> int:
+        """Kópie záznamu datasetu v podhypotézach (spoločná DuckDB) dostanú aktuálny profil, počet riadkov a okno."""
+        cur = self._exec(
+            """UPDATE datasets SET rows = o.rows, profile_json = o.profile_json, columns_json = o.columns_json,
+                      size_bytes = o.size_bytes, sha256 = o.sha256, note = o.note, status = o.status
+               FROM (SELECT * FROM datasets WHERE id = ?) o
+               WHERE datasets.table_name = o.table_name AND datasets.id != o.id""", (dataset_id,))
+        return cur.rowcount
+
     def get_dataset(self, dataset_id: int) -> sqlite3.Row | None:
         return self._one("SELECT * FROM datasets WHERE id = ?", (dataset_id,))
 
