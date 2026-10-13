@@ -385,6 +385,18 @@ def _check_threshold(ws: Workspace, plan, value, quotes, errors, warnings, stats
 
 
 # ----------------------------------------------------------------------- návrh modelom
+def describe_plan(e) -> str:
+    """Pre model: čo existujúci experiment meria (úloha + ako vzniká štítok alebo hodnota), nie iba názov."""
+    plan = json.loads(e["spec_json"])
+    label_steps = [s for s in plan.get("steps") or [] if s.get("op") in FUTURE_OPS or
+                   (s.get("op") == "lookup" and int(s.get("days") or 0) >= 0)]
+    how = "; ".join(f"{s.get('op')} {s.get('table', '')} {','.join(s.get('keys') or [])} {s.get('days', '')} "
+                    f"{s.get('expr', '')}".strip() for s in label_steps)
+    what = (f"label {plan.get('label')} ({how})" if plan.get("label") else
+            f"value {plan.get('value')} per {plan.get('period', '')} {plan.get('entity_column', '')}")
+    return f"E{e['id']} {plan.get('task')}: {what}"
+
+
 def _data_text(cfg: Config, db: DB, hid: int) -> str:
     """Profil dát a okno (počíta sa raz na hypotézu – nad miliónmi riadkov trvá desiatky sekúnd)."""
     from .gate2 import window_text
@@ -413,7 +425,7 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
         missing = (json.loads(card["card_json"]) or {}).get("chýbajúce_dáta_pre_experiment") or {}
         if missing and missing.get("datasety") == len(db.datasets_for(h["id"], only_ok=True)):
             continue  # model povedal, že s týmito dátami sa rozhodnutie otestovať nedá; čaká sa na nový dataset
-        new = [e for e in db.experiments_for(h["id"]) if e["task"] and e["status"] != "failed"]
+        new = [e for e in db.experiments_for(h["id"]) if e["task"] and e["status"] not in ("failed", "invalid")]
         if len(new) < cfg.experiments.plans_per_hypothesis:
             out.append((h, card))
     return out
@@ -430,14 +442,15 @@ def recheck_drafts(cfg: Config, db: DB, hid: int, quotes: dict[int, str]) -> Cou
         plan = json.loads(e["spec_json"])
         sig = plan_signature(plan)
         flags = json.loads(e["flags_json"] or "{}")
-        if e["status"] == "draft" and not e["locked_at"] and (flags.get("chyby_návrhu") or sig in seen):
+        if e["status"] in ("draft", "invalid") and not e["locked_at"] and (flags.get("chyby_návrhu") or sig in seen):
             check = validate_plan(cfg, db, hid, plan, quotes)
             if sig in seen:
                 check["chyby"].append(f"experiment meria to isté ako E{seen[sig]} – navrhni iný typ úlohy alebo štítok")
             plan["skúšobný_beh"] = check["štatistiky"]
             new_flags = {k: v for k, v in flags.items() if k not in ("chyby_návrhu", "upozornenia")}
             new_flags |= {k: v for k, v in (("chyby_návrhu", check["chyby"]), ("upozornenia", check["upozornenia"])) if v}
-            db.update_experiment(e["id"], spec_json=plan, flags_json=new_flags)
+            db.update_experiment(e["id"], spec_json=plan, flags_json=new_flags,
+                                 status="invalid" if check["chyby"] else "draft")
             stats["rechecked_ok" if not check["chyby"] else "rechecked_errors"] += 1
         seen.setdefault(sig, e["id"])
     return stats
@@ -457,11 +470,11 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         stats.update(recheck_drafts(cfg, db, hid, quotes))  # staršie návrhy s chybami podľa aktuálnych kontrol
         data_text = _data_text(cfg, db, hid)
         todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if e["task"]
-                                                           and e["status"] != "failed"])
+                                                           and e["status"] not in ("failed", "invalid")])
         for _ in range(max(0, todo)):  # jeden plán na volanie (27B dáva úplnejší plán, ďalší sa líši od predošlých)
             if deadline.expired():
                 break
-            titles = [json.loads(e["spec_json"]).get("title", "") for e in db.experiments_for(hid) if e["task"]]
+            titles = [describe_plan(e) for e in db.experiments_for(hid) if e["task"]]
             user = _prompt_user(cfg, db, hid, card, titles, data_text)
             res = router.run_task("experiment_plan", [{"role": "system", "content": system},
                                                       {"role": "user", "content": user}],
@@ -512,6 +525,8 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                                        card_id=card_row["id"], problem_link=data["problem_link"].strip())
             if flags:
                 db.update_experiment(exp_id, flags_json=flags)
+            if check["chyby"]:  # neplatný návrh ostáva kvôli meraniu kvality, ale neráta sa (ďalší beh navrhne náhradu)
+                db.update_experiment(exp_id, status="invalid")
             stats["plans_ok" if not check["chyby"] else "plans_with_errors"] += 1
             auto = db.get_setting(AUTO_LOCK_KEY, {}) or {}
             if auto.get("enabled") and not check["chyby"] and not check["upozornenia"]:

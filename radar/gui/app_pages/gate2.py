@@ -119,7 +119,8 @@ exps = d.experiments_for(hid)
 if not exps:
     st.caption("Experimenty navrhne model z karty v akcii „Karta, návrh a test experimentov“.")
     st.stop()
-STATUS = {"draft": "návrh (neuzamknutý)", "locked": "uzamknutý, čaká na test", "done": "otestovaný", "failed": "test zlyhal"}
+STATUS = {"draft": "návrh (neuzamknutý)", "locked": "uzamknutý, čaká na test", "done": "otestovaný", "failed": "test zlyhal",
+          "invalid": "neplatný návrh (chyby aj po oprave)"}
 drafts = [e for e in exps if e["status"] == "draft"]
 waiting = [e for e in exps if e["status"] == "locked"]
 if drafts and not waiting and not any(e["result_json"] for e in exps):
