@@ -496,3 +496,31 @@ def test_hypothesis_without_any_valid_plan_is_marked_and_skipped(tmp_path):
     assert json.loads(db.get_card(card)["card_json"])["chýbajúce_dáta_pre_experiment"]["automaticky"] is True
     assert exp_plan.plan_targets(cfg, db, None) == []
 
+
+def test_label_on_few_entities_is_flagged_and_nku_supplier_join_warned(tmp_path):
+    """E6: štítok NKÚ podľa IČO dodávateľa mali iba verejné inštitúcie (206 z 88 759) – vlastnosť entity, nie zmluvy."""
+    from radar.exp_conclude import code_conclusion, facts
+    from radar.exp_ops import label_concentration
+
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Riziká obstarávania", "", "kontrolóri")
+    rows = [(i, f"E{i % 200}", (date(2025, 1, 1) + timedelta(days=i % 300)).isoformat(),
+             1 if i % 200 < 2 else 0, 1 if i % 97 == 0 else 0) for i in range(2000)]
+    dataset(cfg, db, hid, "cid;ent;datum;fixed;spread", rows, "2025-01-01", "2025-12-31")
+    ws = Workspace(cfg, hid, "ds1", "datum", {"od": "2025-01-01", "do": "2025-12-31"})
+    conc = label_concentration(ws, "fixed", "ent")
+    assert conc["entity_so_štítkom"] == 2 and conc["entity"] == 200 and conc["sústredený"]
+    assert conc["očakávané_entity"] > 15 and conc["najčastejšie"][0]["štítkov"] == 10
+    assert not label_concentration(ws, "spread", "ent")["sústredený"]  # rozptýlený štítok
+    ws.close()
+    exp = db.add_experiment(hid, None, None, "Poradie", "precision@k", "random", "",
+                            {"task": "ranking", "table": "ds1", "entity_column": "ent"}, task="ranking")
+    res = {"hlavné": {}, "detaily": {"koncentrácia_štítku": conc}}
+    fl = facts(None, db.get_experiment(exp), res)
+    assert any(f.startswith("F10: Štítok má iba 2 z 200 entít") for f in fl)
+    assert "KTORÉ entity" in code_conclusion(None, db.get_experiment(exp), res, fl)["limits"]
+    db.add_dataset(hid, None, "https://www.nku.gov.sk/datasety", "ds9", status="ok", profile_json={})
+    plan = {"steps": [{"op": "lookup", "name": "nku", "table": "ds9", "keys": ["ico_dodavatel"], "days": 365}]}
+    assert exp_plan.source_warnings(db, hid, plan) and not exp_plan.source_warnings(
+        db, hid, {"steps": [{"op": "lookup", "name": "nku", "table": "ds9", "keys": ["ico_objednavatel"], "days": 365}]})
+

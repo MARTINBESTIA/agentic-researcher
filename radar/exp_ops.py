@@ -366,3 +366,38 @@ class Workspace:
         self.protocol.append({"krok": "dozretie štítka", "op": "mature", "popis": f"iba riadky do {cutoff} (štítok {label} "
                               f"potrebuje {days} dní budúcnosti)", "riadky_pred": before, "riadky_po": self.rows()})
         return days
+
+
+def label_concentration(ws: Workspace, label: str, ent: str, top: int = 5) -> dict[str, Any] | None:
+    """Na koľkých entitách je štítok v porovnaní s náhodným rozložením rovnakého počtu štítkov (každá entita
+    s n riadkami má štítok aspoň raz s pravdepodobnosťou 1 − (1 − p)^n). Oveľa menej entít = experiment meria hlavne,
+    KTORÉ entity štítok majú (vlastnosť entity), nie ktoré položky. Reálny beh E6: zistenie NKÚ „u dodávateľa“ malo
+    206 z 88 759 dodávateľov – ministerstvá, kraje, mestá a univerzity (NKÚ kontroluje iba verejné subjekty)."""
+    cols = ws.columns()
+    if not ent or not label or ent not in cols or label not in cols:
+        return None
+    base = (f"WITH e AS (SELECT CAST({q(ent)} AS VARCHAR) AS e, COUNT(*) AS n, "
+            f"SUM(CASE WHEN TRY_CAST({q(label)} AS DOUBLE) > 0 THEN 1 ELSE 0 END) AS p "
+            f"FROM {ws.table} WHERE {q(ent)} IS NOT NULL GROUP BY 1)")
+    n_ent, pos_ent, pos, expected = ws.query(
+        f"{base}, r AS (SELECT SUM(p)::DOUBLE / SUM(n) AS r FROM e) "
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE p > 0), SUM(p), SUM(1 - POW(1 - (SELECT r FROM r), n)) FROM e")[0]
+    if not n_ent or not pos:
+        return None
+    tops = ws.query(f"{base} SELECT e, p FROM e WHERE p > 0 ORDER BY p DESC, e LIMIT {int(top)}")
+    top10 = ws.query(f"{base} SELECT SUM(p) FROM (SELECT p FROM e ORDER BY p DESC LIMIT 10)")[0][0]
+    expected = float(expected or 0)
+    return {"entity": int(n_ent), "entity_so_štítkom": int(pos_ent), "očakávané_entity": round(expected),
+            "pomer_k_náhodnému": round(pos_ent / expected, 3) if expected else None,
+            "top10_podiel_štítkov": round(float(top10 or 0) / float(pos), 3),
+            "najčastejšie": [{"entita": str(v), "štítkov": int(c)} for v, c in tops],
+            "sústredený": bool(expected >= 10 and pos_ent <= 0.2 * expected)}
+
+
+def concentration_text(conc: dict[str, Any], ent: str) -> str:
+    top = ", ".join(f"{t['entita']} ({t['štítkov']})" for t in (conc.get("najčastejšie") or [])[:3])
+    return (f"Štítok má iba {conc['entity_so_štítkom']} z {conc['entity']} entít ({ent}); pri náhodnom rozložení "
+            f"rovnakého počtu štítkov by ich bolo približne {conc['očakávané_entity']}. Experiment tak meria hlavne, "
+            "KTORÉ entity štítok majú (vlastnosť entity), nie ktoré položky – over, či tieto entity patria do cieľovej "
+            f"skupiny rozhodnutia (najčastejšie: {top}).")
+

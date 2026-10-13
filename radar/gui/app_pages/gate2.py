@@ -276,6 +276,12 @@ def show_task_experiment() -> None:
             st.warning(f"Najsilnejší naivný odhad nie je ten predregistrovaný: {strong['naivný']} ({strong['hodnota']}). "
                        f"Proti nemu má model zlepšenie {strong['zlepšenie_pct']} %. Pravidlo úspechu sa vyhodnocuje "
                        "proti predregistrovanému – posudzuj obe.", icon=":material/balance:")
+        conc = (res.get("detaily") or {}).get("koncentrácia_štítku") or {}
+        if conc.get("sústredený"):
+            from radar.exp_ops import concentration_text
+
+            st.warning(concentration_text(conc, json_or(e["spec_json"], {}).get("entity_column", "")),
+                       icon=":material/group_work:")
         metrics = [m for m in res.get("metriky") or [] if any(m in r for r in res.get("tabuľka") or [])]
         st.markdown("Výsledková tabuľka – všetky postupy × metriky (hlavná dvojica je v predregistrácii):")
         st.dataframe([{"postup": r["postup"] + (" ← vybraný" if r["postup"] == prim.get("model") else "")

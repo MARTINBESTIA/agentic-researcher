@@ -26,7 +26,7 @@ import numpy as np
 from .config import Config
 from .datasets import DatasetError
 from .db import DB
-from .exp_ops import Step, Workspace, check_expr, q
+from .exp_ops import Step, Workspace, check_expr, label_concentration, q
 from .exp_plan import METRICS
 
 log = logging.getLogger(__name__)
@@ -303,7 +303,7 @@ def _ranking(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, Any]
             "detaily": {"riadky": n, "učenie": f"{t0} – {t[val_from - 1]}", "validácia": f"{t[val_from]} – {t[test_from - 1]}",
                         "test": f"{t1} – {t2}", "test_riadky": int(len(yt)), "test_pozitívne": int(yt.sum()),
                         "podiel_pozitívnych_test": _r(yt.mean()), "k": k, "dôležitosť_príznakov": importance,
-                        "poznámky": notes},
+                        "koncentrácia_štítku": label_concentration(ws, label, ent), "poznámky": notes},
             "položky": items, "položky_popis": f"prvých {len(items)} položiek testovacieho obdobia podľa modelu {chosen}"}
 
 

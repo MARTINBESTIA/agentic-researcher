@@ -20,9 +20,9 @@ from .cards import card_text
 from .config import Config
 from .datasets import DatasetError, base_table, planner_profile
 from .db import DB
-from .exp_ops import Step, Workspace, check_expr, q
+from .exp_ops import Step, Workspace, check_expr, concentration_text, label_concentration, q
 from .models import as_router
-from .prompts import EXPERIMENT_PLAN_SYSTEM
+from .prompts import DATA_SOURCE_NOTES, EXPERIMENT_PLAN_SYSTEM
 from .util import Deadline
 
 log = logging.getLogger(__name__)
@@ -207,6 +207,21 @@ def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
 
 
 FUTURE_OPS = ("future_agg", "linked_agg", "link_records")
+SOURCE_DOMAINS = {"nku": "nku.gov.sk", "crz": "crz.gov.sk"}
+SUPPLIER_COL_RE = re.compile(r"dodav|supplier|zhotovit|predavajuc", re.I)
+
+
+def source_warnings(db: DB, hid: int, plan: dict[str, Any]) -> list[str]:
+    """Upozornenia podľa zdroja tabuľky (čo znamenajú jej riadky). NKÚ kontroluje iba subjekty hospodáriace
+    s verejnými prostriedkami – štítok „zistenie NKÚ u dodávateľa“ v E6 označil iba ministerstvá, kraje, mestá
+    a univerzity v roli dodávateľa (206 z 88 759 dodávateľov), nie súkromné firmy."""
+    nku = {d["table_name"] for d in db.datasets_for(hid, only_ok=True) if SOURCE_DOMAINS["nku"] in (d["url"] or "")}
+    return [f"krok lookup {s.get('name', '')!r}: NKÚ kontroluje iba verejné subjekty – pripojenie podľa IČO "
+            "dodávateľa zachytí iba verejné inštitúcie v roli dodávateľa (ministerstvá, kraje, mestá), nie súkromné "
+            "firmy; pre riziko na strane verejného obstarávateľa pripájaj podľa IČO objednávateľa"
+            for s in plan.get("steps") or []
+            if s.get("op") == "lookup" and base_table(s.get("table", "")) in nku
+            and any(SUPPLIER_COL_RE.search(k or "") for k in s.get("keys") or [])]
 
 
 def plan_signature(plan: dict[str, Any]) -> str:
@@ -265,6 +280,7 @@ def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: d
             except (DatasetError, ValueError) as exc:
                 errors.append(f"krok {i + 1} ({raw.get('op')} {raw.get('name', '')}): {exc}")
                 return {"chyby": errors, "upozornenia": warnings, "štatistiky": stats}
+        warnings.extend(source_warnings(db, hid, plan))
         cols = ws.columns()
         stats["riadky"] = ws.rows()
         ent = plan.get("entity_column") or ""
@@ -336,6 +352,11 @@ def _check_ranking(cfg, ws: Workspace, plan, cols, errors, warnings, stats) -> N
                       f"FROM {ws.table}")[0]
     pos, n = int(pos or 0), int(n or 0)
     stats |= {"riadky_so_štítkom": n, "pozitívne": pos, "podiel_pozitívnych": round(pos / n, 4) if n else None}
+    conc = label_concentration(ws, label, plan.get("entity_column") or "")
+    if conc:
+        stats["koncentrácia_štítku"] = conc
+        if conc["sústredený"]:
+            warnings.append(concentration_text(conc, plan.get("entity_column") or ""))
     test_pos = pos * cfg.experiments.test_share
     if test_pos < cfg.experiments.min_positives:
         errors.append(f"málo pozitívnych prípadov ({pos}, v teste ~{test_pos:.0f}; treba aspoň "
@@ -401,8 +422,13 @@ def _data_text(cfg: Config, db: DB, hid: int) -> str:
     """Profil dát a okno (počíta sa raz na hypotézu – nad miliónmi riadkov trvá desiatky sekúnd)."""
     from .gate2 import window_text
 
-    tables = [d["table_name"] for d in db.datasets_for(hid, only_ok=True)]
-    return f"DATA:\n{planner_profile(cfg, hid, tables)}\n\n{window_text(db, hid, tables)}"
+    rows = db.datasets_for(hid, only_ok=True)
+    tables = [d["table_name"] for d in rows]
+    notes = {d["table_name"]: DATA_SOURCE_NOTES[k] for d in rows for k, dom in SOURCE_DOMAINS.items()
+             if dom in (d["url"] or "")}
+    note_text = ("\n\nSOURCE NOTES (what the rows mean):\n" + "\n".join(f"- {t}: {n}" for t, n in notes.items())
+                 if notes else "")
+    return f"DATA:\n{planner_profile(cfg, hid, tables)}{note_text}\n\n{window_text(db, hid, tables)}"
 
 
 def _prompt_user(cfg: Config, db: DB, hid: int, card: dict[str, Any], existing: list[str], data_text: str) -> str:

@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from .cards import FIELD_LABELS
 from .config import Config
 from .db import DB
+from .exp_ops import concentration_text
 from .exp_plan import TASK_LABELS
 from .models import as_router
 from .prompts import CATEGORY_CHECK_SYSTEM, EXPERIMENT_CONCLUSION_SYSTEM
@@ -104,6 +105,9 @@ def facts(card: dict[str, Any] | None, exp, res: dict[str, Any]) -> list[str]:
         out.append(f"F9: Najsilnejší naivný odhad nie je predregistrovaný: {strong['naivný']} {_n(strong['hodnota'], 4)}; "
                    f"proti nemu je zlepšenie modelu {_n(strong['zlepšenie_pct'], 1)} % (predregistrované pravidlo sa "
                    "vyhodnocuje proti hlavnému naivnému odhadu).")
+    conc = det.get("koncentrácia_štítku") or {}
+    if conc.get("sústredený"):
+        out.append("F10: " + concentration_text(conc, plan.get("entity_column") or ""))
     others = [r for r in res.get("tabuľka") or [] if r["postup"] != prim.get("model") and prim.get("metrika") in r]
     if others:
         out.append("F8: Ďalšie postupy (" + str(prim.get("metrika")) + "): "
@@ -122,7 +126,8 @@ def code_conclusion(card: dict[str, Any] | None, exp, res: dict[str, Any], fact_
     return {"what_tested": fact_list[1][4:] if len(fact_list) > 1 else "",
             "result_for_decision": next((f[4:] for f in fact_list if f.startswith(("F4", "F6"))), ""),
             "robustness": " ".join(f[4:] for f in fact_list if f.startswith(("F7", "F9"))) or "interval nie je k dispozícii",
-            "limits": "Štítok je iba náhradný ukazovateľ problému; výsledok platí pre testované obdobie a tieto dáta.",
+            "limits": " ".join(["Štítok je iba náhradný ukazovateľ problému; výsledok platí pre testované obdobie a tieto "
+                                "dáta."] + [f[5:] for f in fact_list if f.startswith("F10: ")]),
             "interview_questions": [], "splnené": prim.get("splnené")}
 
 
