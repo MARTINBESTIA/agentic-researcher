@@ -6,6 +6,7 @@ import streamlit as st
 from radar.gate1 import decide
 from radar.datasets import DatasetError
 from radar.gate2 import complete_periods, data_limits, lock, series
+from radar.gate2_trace import as_markdown, explain
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, start_job_button
 
 d, c = db(), cfg()
@@ -42,7 +43,8 @@ for e in exps:
     rows.append({"E": e["id"], "organizácia": e["org_name"] or "celý dataset",
                  "stav": {"draft": "návrh (neuzamknutý)", "locked": "uzamknutý, čaká na test", "done": "otestovaný",
                           "failed": "test zlyhal"}.get(e["status"], e["status"]), "metrika": e["metric"],
-                 "zlepšenie": res.get("improvement"), "príznaky": ", ".join(k for k, v in flags.items() if v),
+                 "zlepšenie": res.get("improvement"),
+                 "príznaky": ", ".join(k.replace("_", " ") for k, v in flags.items() if v and k != "obdobie_upravené"),
                  "demo": bool(e["demo_path"])})
 st.dataframe(rows, hide_index=True, alt="Experimenty hypotéza × organizácia",
              column_config={"zlepšenie": st.column_config.NumberColumn("zlepšenie vs. naivný", format="percent")})
@@ -127,6 +129,23 @@ if res:
         st.dataframe([{"obdobie": res["periods"][f["index"]], "skutočnosť": f["actual"], "model": round(f["model"], 2),
                        "naivný": round(f["baseline"], 2)} | ({"vybraný model": f["vybraný_model"]} if "vybraný_model" in f else {})
                       for f in res["folds"]], hide_index=True, alt="Predpovede po obdobiach")
+with st.expander("Postup krok po kroku – ako experiment vznikol a ako sa počítal", icon=":material/account_tree:",
+                 expanded=bool(res)):
+    try:
+        trace = explain(c, d, e)
+    except Exception as exc:  # noqa: BLE001 – postup je iba popis; chyba nesmie zhodiť stránku
+        st.caption(f"Postup sa nedá zostaviť: {exc}")
+        trace = []
+    for step in trace:
+        st.markdown(f"**{step['krok']}**")
+        st.markdown(step["text"].replace("$", "\\$"))
+        if step.get("kód"):
+            st.code(step["kód"], language="sql")
+        if step.get("tabuľka"):
+            st.dataframe(step["tabuľka"], hide_index=True, alt=step["krok"])
+    if trace:
+        st.download_button("Stiahnuť postup (Markdown)", as_markdown(e, trace), file_name=f"H{hid}_E{eid}_postup.md",
+                           mime="text/markdown", icon=":material/download:", key=f"g2_trace_{eid}")
 if e["demo_path"] and Path(e["demo_path"]).exists():
     html_text = Path(e["demo_path"]).read_text(encoding="utf-8")
     st.download_button("Stiahnuť demo (HTML)", html_text, file_name=Path(e["demo_path"]).name, mime="text/html",

@@ -429,6 +429,34 @@ def test_gate2_prereg_lock_backtest_and_demo(tmp_path):
     assert "nepoužil sa" in html_text and digest[:16] in html_text
 
 
+
+def test_experiment_trace_explains_selection_prereg_data_folds_and_rule(tmp_path):
+    """Postup experimentu: prečo organizácia, kto navrhol, SQL a rad, každé kolo testu, výber auto, pravidlo s prahom."""
+    from radar.gate2_trace import as_markdown, explain
+
+    cfg, db, rec, router, hid, org, table = gate2_env(tmp_path)
+    rec.responses["Prereg"] = {"statement": "Model predpovie výdavky.", "table": table, "time_column": "rok",
+                               "value_column": "suma", "entity_column": "ico", "aggregation": "sum", "model": "auto",
+                               "metric": "MAE", "baseline": "last_value",
+                               "success_rule": "MAE modelu je aspoň o 10 % nižšia ako MAE naivného odhadu."}
+    gate2.run_prereg(cfg, db, router, Deadline(1), [hid])
+    exp = db.experiments_for(hid)[0]
+    assert [s["krok"][:2] for s in explain(cfg, db, exp)] == ["1.", "2.", "3."]  # bez testu iba návrh
+    gate2.lock(cfg, db, exp["id"])
+    gate2.run_backtest(cfg, db, Deadline(1), [hid])
+    exp = db.get_experiment(exp["id"])
+    assert json.loads(exp["flags_json"])["pravidlo_nesplnené"] is False  # lineárny rad: zlepšenie 100 % ≥ 10 %
+    steps = {s["krok"]: s for s in explain(cfg, db, exp)}
+    assert "Mesto Fiktívne" in steps["1. Prečo táto organizácia"]["text"]
+    assert "radar-qwen3.6-27b" in steps["2. Návrh predregistrácie"]["text"]
+    assert "00313271" in steps["4. Dáta pre test"]["kód"] and len(steps["4. Dáta pre test"]["tabuľka"]) == 10
+    folds = steps["5. Spätný test po kolách (rolling origin)"]["tabuľka"]
+    assert len(folds) == 4 and folds[0]["história"].endswith("(6 období)")
+    assert all(r["vybraný"] for r in steps["5a. Prečo „auto“ vybral daný model"]["tabuľka"])
+    assert "**splnené**" in steps["6. Výpočet výsledku"]["text"]
+    assert "## 5. Spätný test" in as_markdown(exp, list(steps.values()))
+    assert gate2.rule_threshold("MAPE je aspoň o 12,5 % nižšia") == 12.5 and gate2.rule_threshold("MAE < naivný") is None
+
 def test_invalid_prereg_columns_cannot_be_locked(tmp_path):
     cfg, db, rec, router, hid, org, table = gate2_env(tmp_path)
     rec.responses["Prereg"] = {"statement": "x", "table": table, "time_column": "neexistuje", "value_column": "suma"}

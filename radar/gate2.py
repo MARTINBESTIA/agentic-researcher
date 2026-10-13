@@ -183,6 +183,13 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
     """Časový rad (obdobie, hodnota) z DuckDB; SQL skladá kód z overených názvov stĺpcov (nie model)."""
     if validate_spec(cfg, hid, spec):
         raise DatasetError("špecifikácia odkazuje na neexistujúcu tabuľku alebo stĺpec")
+    sql, params = series_sql(spec)
+    rows = run_query(cfg, hid, sql, params)
+    return [(t, float(y)) for t, y in rows if t is not None and y is not None]
+
+
+def series_sql(spec: dict[str, Any]) -> tuple[str, list[Any]]:
+    """SQL časového radu a jeho parametre (zobrazuje sa aj v postupe experimentu)."""
     agg = {"sum": "SUM", "avg": "AVG", "count": "COUNT"}[spec.get("aggregation", "sum")]
     conds, params = [], []
     if spec.get("entity_column") and spec.get("entity_value"):
@@ -202,8 +209,7 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
                                                    "AND current_date + INTERVAL 366 DAY")
     sql = (f"SELECT {t} AS t, {agg}(TRY_CAST({_q(spec['value_column'])} AS DOUBLE)) AS y "
            f"FROM {spec['table']} {where} GROUP BY 1 ORDER BY 1")
-    rows = run_query(cfg, hid, sql, params)
-    return [(t, float(y)) for t, y in rows if t is not None and y is not None]
+    return sql, params
 
 
 def _period_end(start: date, period: str) -> date:
@@ -355,16 +361,33 @@ def _holt_damped(y: np.ndarray, alpha: float, beta: float, phi: float = 0.9) -> 
     return float(level + phi * trend), float(sse)
 
 
-def _auto(history: np.ndarray, season: int, inner: int = 3) -> str:
-    """Model s najmenšou chybou predpovedí o jedno obdobie na posledných `inner` bodoch histórie
-    (každá z predchádzajúcich hodnôt) – testované obdobie sa do výberu nedostane."""
+def auto_errors(history: np.ndarray, season: int, inner: int = 3) -> dict[str, float]:
+    """Priemerná absolútna chyba každého kandidáta pri predpovediach o jedno obdobie na posledných `inner` bodoch
+    histórie (prázdne, keď je história kratšia ako 4 body)."""
     n = len(history)
     start = max(3, n - inner)
     if start >= n:
+        return {}
+    return {k: float(np.mean([abs(forecast(history[:i], k, season) - history[i]) for i in range(start, n)]))
+            for k in AUTO_CANDIDATES}
+
+
+def _auto(history: np.ndarray, season: int, inner: int = 3) -> str:
+    """Model s najmenšou chybou predpovedí o jedno obdobie na posledných `inner` bodoch histórie
+    (každá z predchádzajúcich hodnôt) – testované obdobie sa do výberu nedostane."""
+    errors = auto_errors(history, season, inner)
+    if not errors:
         return "linear_trend"
-    errors = {k: float(np.mean([abs(forecast(history[:i], k, season) - history[i]) for i in range(start, n)]))
-              for k in AUTO_CANDIDATES}
     return min(AUTO_CANDIDATES, key=lambda k: errors[k])  # pri zhode vyhrá jednoduchší (poradie zoznamu)
+
+
+RULE_RE = re.compile(r"o\s*(\d+(?:[.,]\d+)?)\s*%")
+
+
+def rule_threshold(rule: str) -> float | None:
+    """Číselný prah z pravidla úspechu („aspoň o 10 % nižšia“) v percentách, inak None (posúdi človek)."""
+    m = RULE_RE.search(rule or "")
+    return float(m.group(1).replace(",", ".")) if m else None
 
 
 def forecast(history: np.ndarray, kind: str, season: int = 1) -> float:
@@ -466,6 +489,9 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
             flags.pop("chyba_testu", None)
             flags["model_neprekonal_naivny_odhad"] = res["improvement"] <= 0
             flags["malo_obdobi"] = res["n_folds"] < 4
+            threshold = rule_threshold(exp["success_rule"])
+            if threshold is not None:  # predregistrovaný prah vyhodnotí kód (zlepšenie v % proti naivnému odhadu)
+                flags["pravidlo_nesplnené"] = res["improvement"] * 100 < threshold
             db.update_experiment(exp["id"], status="done", result_json=res, flags_json=flags)
             stats["done"] += 1
     return dict(stats)
