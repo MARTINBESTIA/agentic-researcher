@@ -218,6 +218,7 @@ def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30
         window = {**window, "chýbajúce_dni": missing}
         prof["časové_okno"] = window
         db.update_dataset(ds["id"], profile_json=prof)
+        db.sync_dataset_copies(ds["id"])
     while start > target:
         first = max(target, start - timedelta(days=chunk))
         batch = [(first + timedelta(days=i)).isoformat() for i in range((start - first).days)]
