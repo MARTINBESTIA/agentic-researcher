@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 209 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v7).
+Stav 13. 10. 2026: 218 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -142,3 +142,12 @@ Stav 13. 10. 2026: 209 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M10 | XLSX bez prípony sa načíta, poškodený súbor je chyba datasetu | `test_m10_gates.py::test_xlsx_without_extension_imports_and_bad_file_is_dataset_error` |
 | M2 | GUI Dokumenty: zoznam stiahnutých dokumentov s počtom citátov, detail s textom a citátmi | `test_m2_gui.py::test_documents_page_lists_documents_with_claims` |
 | M9 | kontrola citátov kódom beží aj po vyčerpaní rýchlej fázy | `test_m9_agentic.py::test_code_only_checks_run_even_when_fast_phase_ran_out` |
+| M14 | 1 karta: iba citáty hypotézy, sudca na kľúčových poliach, rozdelenie (presun citátov, dedenie Brány 1, zdieľaná DuckDB) | `test_m14_experiments.py::test_card_cites_own_claims_checks_key_fields_and_splits_hypothesis` |
+| M14 | 2 operácie: prepojenie záznamov, história bez toho istého dňa, budúcnosť ako štítok, únik budúcich dát odmietnutý, zakázané výrazy | `test_workspace_links_records_and_keeps_history_and_future_apart` |
+| M14 | 3 návrh modelom: skúšobný beh, oprava po chybách, chybný návrh sa nedá uzamknúť | `test_plan_dry_run_repair_and_lock` |
+| M14 | 4 poradie: modely proti náhodnému výberu, najväčším, miere entity; všetky metriky; dôležitosť príznakov | `test_ranking_beats_random_and_value_with_full_scorecard` |
+| M14 | 5 predpoveď (spoločný model, ETS, 4 naivné odhady × 5 metrík) a anomália nájde vložený skok | `test_forecast_pooled_and_anomaly_flags_spike` |
+| M14 | 6 prah: hromadenie pod 50 000 (prah z citátu), poradie entít; porovnanie v kategórii s liftom | `test_threshold_bunching_and_comparison_lift` |
+| M14 | 7 záver iba z faktov (vymyslené číslo → záver z kódu), správa HTML | `test_conclusion_from_facts_rejects_invented_numbers_and_writes_report` |
+| M14 | 8 CRZ dozadu po blokoch, chýbajúce dni | `test_m10_gates.py::test_crz_window_extends_backwards_in_chunks_and_records_missing_days` |
+| M14 | 9 GUI: karta, čomu experiment slúži, výsledková tabuľka, záver | `test_m2_gui.py::test_gate2_page_shows_card_scorecard_items_and_conclusion` |

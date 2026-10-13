@@ -190,9 +190,25 @@ stiahnutie priamo z metadát. Pre každé pole sa ešte pred agentom načítajú
 súbory z distribúcií v katalógu. Licencie **NC/ND** (iba nekomerčné použitie, bez úprav) majú v kvalite zdroja
 nižšie skóre a príznak – over, či sa hodia pre tvoj produkt. Vypnutie: `gate1.nkod_enabled: false`.
 
-**Brána 2** (po tvojom rozhodnutí): dvojice hypotéza × organizácia z nájdených dát → predregistrácia
-(uzamkneš ju pred testom) → spätný test proti naivnému odhadu (iba Python) → demo HTML pre organizáciu →
-spätná väzba expertov a rozhodnutie.
+**Brána 2** (hypotézy, ktoré prešli Bránou 1):
+
+1. **Problémová karta** – problém jednou vetou, kto ho má, aké rozhodnutie robí, ako dnes, aký výstup pomôže,
+   obchodná metrika; každé tvrdenie s citátom, sudca overí kľúčové polia, ty kartu potvrdíš alebo upravíš.
+   Široká hypotéza (citáty o rôznych problémoch) sa **rozdelí na podhypotézy**: citáty sa presunú, dáta Brány 1 sa
+   zdedia (zdieľaná DuckDB). Akcia „Problémové karty a rozdelenie hypotéz“ (aj v autopilotovi).
+2. **Návrh experimentov** – model (presná rola) z karty a profilu dát navrhne niekoľko experimentov
+   **podľa hypotézy**: typ úlohy (poradie, predpoveď, anomália, prah, porovnanie) a prípravu dát z všeobecných
+   operácií (filter, odvodený stĺpec, kategória textu, prepojenie záznamov, história do dňa riadku, budúca udalosť
+   ako štítok). Kód návrh skúšobne spustí (stĺpce, únik budúcich dát, počet pozitívnych prípadov, dĺžka radu)
+   a chyby vráti modelu na opravu.
+3. **Predregistrácia** – uzamkneš ty (hlavná metrika, hlavný naivný odhad, prah úspechu).
+4. **Spätný test** (Python: scikit-learn, statsmodels) – výsledková tabuľka **všetky postupy × všetky metriky**,
+   model vybraný na validačnom období, interval bootstrap, položky na kontrolu s rozpadom, protokol prípravy dát.
+5. **Záver pre problém** – čo výsledok znamená pre rozhodnutie z karty, obmedzenia, otázky do rozhovorov
+   Brány 0; čísla iba z faktov (inak záver poskladá kód). Správa HTML.
+
+Pôvodné experimenty (predpoveď sumy pre organizáciu) ostávajú zobrazené s postupom krok po kroku.
+`python -m radar crz-extend --hypothesis 11 --months 36` doplní staršie dávky CRZ (po blokoch, dá sa prerušiť).
 
 **Modely:** Správca akcií → Modely – výber modelu pre každú rolu (rýchly, presný, agent, embeddingy) a
 profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je praktické maximum ~30–35B
