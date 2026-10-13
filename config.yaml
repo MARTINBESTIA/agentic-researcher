@@ -240,8 +240,8 @@ discovery:
 # každý citát overí kód a presný model; verdikt testu počíta kód z počtu overených tvrdení a domén.
 workflows:
   scout_sessions_per_run: 2        # sedenia agenta v nočnom run-all
-  scout_sessions_per_job: 6        # tlačidlo "Hľadať nové hypotézy"
-  scout_docs_per_job: 15           # dokumenty z objavovania pri tlačidle
+  scout_sessions_per_job: 3        # tlačidlo "Hľadať nové hypotézy" (13. 10. 2026: 6 → 3, agent má nízku výťažnosť)
+  scout_docs_per_job: 40           # dokumenty z objavovania pri tlačidle (13. 10. 2026: 15 → 40, 146 zdrojov v katalógu)
   scout_max_steps: 10
   validate_per_run: 6              # hypotéz otestovaných v run-all (~3 min agent + posúdenie)
   validate_batch: 5                # tlačidlo "Otestovať hypotézy": dávka pred posúdením presným modelom

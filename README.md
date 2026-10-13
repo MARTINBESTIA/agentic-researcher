@@ -131,7 +131,8 @@ alebo zadaná ručne v GUI. Stránka LinkedIn sa nikdy nesťahuje (zakazujú to 
 ### Nočný beh
 
 `run_nightly.bat` (alebo `scripts\run_weekly.ps1 -Minutes 480`) spustí Docker a SearXNG, skontroluje
-modely a spustí `run-all` ako úlohu Správcu akcií (`python -m radar job run-all --mode queue --wait`):
+modely a spustí autopilota „Nechať bežať všetko“ ako úlohu Správcu akcií (`python -m radar job autopilot
+--mode queue --wait`; `-Action run-all` pre jeden celý beh):
 v GUI vidíš priebeh a ak práve beží akcia z GUI, nočný beh sa zaradí do poradia za ňu. Profil a modely
 platia z GUI (Správca akcií → Modely). Naplánovanie (registruješ ty, mení nastavenia Windows):
 `scripts\register_weekly_task.ps1 -Daily -Time 23:00 -Wake` (každý deň s prebudením; vo Windows musia byť

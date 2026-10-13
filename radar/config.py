@@ -270,8 +270,10 @@ class WorkflowsConfig(BaseModel):
     Agent má iba nástroje na čítanie a uloženie dôkazu; dôkazy overí kód a presný model ako ostatné."""
 
     scout_sessions_per_run: int = 2  # sedenia agenta v run-all (bunky matice vzor bolesti × odvetvie)
-    scout_sessions_per_job: int = 6  # tlačidlo v GUI: najviac toľko sedení (obmedzuje aj čas)
-    scout_docs_per_job: int = 15  # dokumenty z objavovania (matica + bandit) pri tlačidle v GUI
+    # 13. 10. 2026: viac dokumentov z katalógu (146 zdrojov, 15 kategórií – pri 15 dokumentoch ~1 na kategóriu),
+    # menej sedení agenta (v noci 17–22 min na ~18 stránok a 3–4 citáty).
+    scout_sessions_per_job: int = 3  # tlačidlo v GUI: najviac toľko sedení (obmedzuje aj čas)
+    scout_docs_per_job: int = 40  # dokumenty z objavovania (matica + bandit) pri tlačidle v GUI
     scout_max_steps: int = 10
     validate_per_run: int = 6  # hypotéz otestovaných v run-all (agent na rýchlom modeli, ~3 min na hypotézu)
     validate_batch: int = 5  # tlačidlo v GUI: dávka hypotéz pred posúdením presným modelom

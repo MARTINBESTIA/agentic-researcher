@@ -1,7 +1,8 @@
 ﻿# Plánovaný beh Problem Radar: zapne Docker Desktop a SearXNG, skontroluje modely a prejde celý beh.
 # Ak config.yaml ukazuje na llama-swap (port 8080), spustí ho a po behu vypne aj procesy llama-server.
 # Ručné spustenie:  powershell -ExecutionPolicy Bypass -File scripts\run_weekly.ps1 -Minutes 480
-param([int]$Minutes = 480, [string]$Profile = "balanced")
+# -Action autopilot (predvolené od 13. 10. 2026): „Nechať bežať všetko“ v kolách; -Action run-all: jeden celý beh.
+param([int]$Minutes = 480, [string]$Profile = "balanced", [ValidateSet("autopilot", "run-all")] [string]$Action = "autopilot")
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
@@ -39,10 +40,11 @@ if ($usesSwap) {
 try {
     & $python -m radar doctor --wait 600
     if ($LASTEXITCODE -ne 0) { Say "CHYBA: kontrola (doctor) zlyhala, beh sa nespustí"; exit 1 }
-    Say "Beh štartuje (limit $Minutes min) ako úloha Správcu akcií; ak beží akcia z GUI, zaradí sa do poradia"
+    Say "Štartuje $Action (limit $Minutes min) ako úloha Správcu akcií; ak beží akcia z GUI, zaradí sa do poradia"
     # Profil modelov a výber modelov platia z config.yaml a z GUI (Správca akcií → Modely), rovnako ako pre akcie z GUI.
     if ($Profile -ne "balanced") { Say "Pozn.: -Profile $Profile sa už nepoužíva – profil nastav v GUI (Správca akcií → Modely)." }
-    & $python -m radar job run-all --minutes $Minutes --mode queue --wait
+    # Autopilot iba naplánuje kolo (úlohy v poradí) a skončí; ďalšie kolá plánuje sám až do konca limitu.
+    & $python -m radar job $Action --minutes $Minutes --mode queue --wait
     Say "Beh skončil s kódom $LASTEXITCODE; správa: reports\latest.md"
 } finally {
     if ($usesSwap) {
