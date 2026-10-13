@@ -121,7 +121,7 @@ def code_conclusion(card: dict[str, Any] | None, exp, res: dict[str, Any], fact_
     prim = res.get("hlavné") or {}
     return {"what_tested": fact_list[1][4:] if len(fact_list) > 1 else "",
             "result_for_decision": next((f[4:] for f in fact_list if f.startswith(("F4", "F6"))), ""),
-            "robustness": next((f[4:] for f in fact_list if f.startswith("F7")), "interval nie je k dispozícii"),
+            "robustness": " ".join(f[4:] for f in fact_list if f.startswith(("F7", "F9"))) or "interval nie je k dispozícii",
             "limits": "Štítok je iba náhradný ukazovateľ problému; výsledok platí pre testované obdobie a tieto dáta.",
             "interview_questions": [], "splnené": prim.get("splnené")}
 
@@ -143,13 +143,20 @@ def conclude(cfg: Config, db: DB, llm: Any, exp) -> dict[str, Any]:
     if r.ok:
         allowed = _numbers(re.sub(r"\bF\d+:", "", "\n".join(fact_list) + card_lines + (exp["statement"] or "")))
         text = r.value.model_dump()
-        joined = " ".join([text["what_tested"], text["result_for_decision"], text["robustness"], text["limits"]]
-                          + text["interview_questions"])
-        extra = {x for x in _numbers(re.sub(r"\bF\d+\b", "", joined)) - allowed if not (x.isdigit() and int(x) <= 12)}
+
+        def invented(t: str) -> set[str]:
+            return {x for x in _numbers(re.sub(r"\bF\d+\b", "", t)) - allowed if not (x.isdigit() and int(x) <= 12)}
+
+        extra = invented(" ".join([text["what_tested"], text["result_for_decision"], text["robustness"], text["limits"]]))
+        questions = [q for q in text["interview_questions"] if not invented(q)]
+        dropped = len(text["interview_questions"]) - len(questions)
         if extra:
             out["poznámka"] = "Text modelu obsahoval čísla mimo faktov (" + ", ".join(sorted(extra)[:5]) + ") – použitý záver z kódu."
-        else:
-            out |= {"text": text | {"splnené": (res.get("hlavné") or {}).get("splnené")}, "zdroj": "model", "model": r.model}
+        else:  # vymyslené číslo iba v otázke do rozhovoru: vypadne len tá otázka (E6: „o 200 položiek viac“)
+            out |= {"text": text | {"interview_questions": questions, "splnené": (res.get("hlavné") or {}).get("splnené")},
+                    "zdroj": "model", "model": r.model}
+            if dropped:
+                out["poznámka"] = f"Vynechané otázky s číslom mimo faktov: {dropped}."
     return out
 
 

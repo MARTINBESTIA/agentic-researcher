@@ -322,6 +322,12 @@ def test_conclusion_from_facts_rejects_invented_numbers_and_writes_report(tmp_pa
     exp_conclude.run_conclusions(cfg, db, router, Deadline(1), [hid])
     concl = json.loads(db.get_experiment(exp)["conclusion_json"])
     assert concl["zdroj"] == "model" and concl["text"]["interview_questions"] == ["Koľko zmlúv ročne preveríte?"]
+    db.update_experiment(exp, conclusion_json=None)
+    rec.responses["Conclusion"] = {"what_tested": "Poradie zmlúv.", "result_for_decision": "Model je lepší.",
+                                   "robustness": "", "limits": "", "interview_questions": ["Preveríte o 200 viac?", "Ako vyberáte?"]}
+    exp_conclude.run_conclusions(cfg, db, router, Deadline(1), [hid])
+    concl = json.loads(db.get_experiment(exp)["conclusion_json"])
+    assert concl["zdroj"] == "model" and concl["text"]["interview_questions"] == ["Ako vyberáte?"]  # vypadne iba otázka
 
 
 # ======================================================================= iná tabuľka (lookup) a NKÚ
