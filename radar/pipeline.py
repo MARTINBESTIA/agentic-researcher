@@ -32,7 +32,7 @@ FINAL_STAGES = ["report", "purge"]
 PEOPLE_STAGES = {"orgs", "people", "people-rank", "drafts"}
 # Lacné kroky iba s kódom: bežia vždy s vlastným krátkym limitom, aj keď presnej fáze vypršal čas
 # (inak by napr. hypotézy prehľadané agentom nedostali verdikt).
-ALWAYS_STAGES = {"validate-finish", "gate1-finish"}
+ALWAYS_STAGES = {"validate-finish", "gate1-finish", "verify-code", "source-types"}
 
 
 def workload(app) -> dict[str, int]:

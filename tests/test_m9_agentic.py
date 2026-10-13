@@ -674,3 +674,21 @@ def test_real_spawn_refuses_config_of_another_database(tmp_path):
     with pytest.raises(JobConfigMismatch):
         _spawn(cfg, db, job, subprocess.Popen)
     assert db.get_job(job)["status"] == "queued"
+
+
+def test_code_only_checks_run_even_when_fast_phase_ran_out(tmp_path):
+    """Noc 13. 10.: verify-code sa preskočil, lebo extrakcia minula celý čas rýchlej fázy."""
+    from radar.workflows import _scout
+
+    cfg, db, rec, router = setup(tmp_path)
+    ran = []
+
+    def run(stage, dl):
+        if dl.expired():
+            return False
+        ran.append(stage)
+        return True
+
+    app = SimpleNamespace(cfg=cfg, db=db)
+    _scout(app, Deadline(0), run, None, lambda **kw: None)
+    assert "verify-code" in ran and "source-types" in ran and "extract" not in ran

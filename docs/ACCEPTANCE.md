@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 198 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 13. 10. 2026: 199 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -131,3 +131,4 @@ Stav 13. 10. 2026: 198 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M1 | rola sudca: posúdenie dôkazov ostáva na sudcovi, keď sa presný model zmení | `test_m1_foundation.py::test_judge_role_keeps_evidence_tasks_on_its_model_when_accurate_changes` |
 | M10 | XLSX bez prípony sa načíta, poškodený súbor je chyba datasetu | `test_m10_gates.py::test_xlsx_without_extension_imports_and_bad_file_is_dataset_error` |
 | M2 | GUI Dokumenty: zoznam stiahnutých dokumentov s počtom citátov, detail s textom a citátmi | `test_m2_gui.py::test_documents_page_lists_documents_with_claims` |
+| M9 | kontrola citátov kódom beží aj po vyčerpaní rýchlej fázy | `test_m9_agentic.py::test_code_only_checks_run_even_when_fast_phase_ran_out` |

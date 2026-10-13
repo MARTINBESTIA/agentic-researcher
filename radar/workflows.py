@@ -214,8 +214,12 @@ def _scout(app, deadline: Deadline, run, ids, report_progress) -> None:
     app.discover_budget = w.scout_docs_per_job
     app.scout_sessions = w.scout_sessions_per_job
     fast = deadline.sub(deadline.remaining_minutes() * 0.55)
-    for stage in ("discover", "scout", "screen", "extract", "verify-code", "source-types"):
+    for stage in ("discover", "scout", "screen", "extract"):
         run(stage, fast)
+    # Kontrola citátov kódom a typ vydavateľa sú lacné: vlastný krátky limit, nie zvyšok rýchlej fázy (noc 13. 10.:
+    # verify-code sa 4× preskočil, lebo extrakcia minula celý čas, a nové citáty čakali na ďalší beh).
+    run("verify-code", Deadline(3))
+    run("source-types", Deadline(3))
     run("embed", deadline.sub(min(10.0, deadline.remaining_minutes())))
     # Presný model: posúdenie najviac 60 % zvyšného času, zvyšok zaradenie – nové hypotézy vznikajú až v cluster
     # (reálny beh: verify minul celý čas a z 65 overených tvrdení nevznikla ani jedna hypotéza).
@@ -313,8 +317,12 @@ def _evidence(app, deadline: Deadline, run, ids, report_progress) -> None:
 
 def _topics(app, deadline: Deadline, run, ids, report_progress) -> None:
     fast = deadline.sub(deadline.remaining_minutes() * 0.5)
-    for stage in ("collect", "screen", "extract", "verify-code", "source-types"):
+    for stage in ("collect", "screen", "extract"):
         run(stage, fast)
+    # Kontrola citátov kódom a typ vydavateľa sú lacné: vlastný krátky limit, nie zvyšok rýchlej fázy (noc 13. 10.:
+    # verify-code sa 4× preskočil, lebo extrakcia minula celý čas, a nové citáty čakali na ďalší beh).
+    run("verify-code", Deadline(3))
+    run("source-types", Deadline(3))
     run("embed", deadline.sub(min(10.0, deadline.remaining_minutes())))
     accurate_min = max(0.0, deadline.remaining_minutes() - 2)
     run("verify", deadline.sub(accurate_min * 0.6))

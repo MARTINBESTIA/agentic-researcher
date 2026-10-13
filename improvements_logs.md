@@ -83,4 +83,9 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   nedostala stav pripravená napriek pokrytiu všetkých polí. Vyraďovať dátumy a roky, uprednostniť čísla o objeme, počte a sume
   z tvrdení o rovnakej doméne ako dataset; ak vhodné číslo neexistuje, označiť „reprodukcia nemožná (bez cieľa)“ namiesto
   „nevyšla“ a pripravenosť počítať bez tejto zložky. · 0,5 dňa.
+- **2026-10-13 – objavovanie – rozpočet pre nové zdroje a kvalita hypotéz z inšpekcií.** Autopilot dáva objavovaniu
+  15 dokumentov na úlohu, pri 15 kategóriách ~1 dokument na kategóriu (noc 13. 10.: 3 dokumenty na kategóriu) – na posúdenie
+  zdrojov málo; agent prieskumu pritom za 17–22 min prečíta ~18 stránok a uloží 3–4 citáty. Zvážiť: viac dokumentov z katalógu
+  (napr. 40) a menej sedení agenta. Správy inšpekcií (SIŽP) dávajú hypotézy o jednotlivých incidentoch („Spoločnosť X vypúšťa
+  odpadové vody…“, „Analýza vzoriek zistila…“) – extrakcia by mala žiadať problém typu organizácie, nie jeden prípad. · 0,5 dňa.
 
