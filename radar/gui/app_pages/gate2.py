@@ -269,6 +269,13 @@ def show_task_experiment() -> None:
         if prim.get("ci95_rozdielu"):
             st.caption(f"95 % interval rozdielu model − naivný: {prim['ci95_rozdielu'][0]} až {prim['ci95_rozdielu'][1]}"
                        " (ak obsahuje 0, rozdiel nie je preukázaný). " + res.get("výber", ""))
+        from radar.exp_tasks import strongest_baseline
+
+        strong = strongest_baseline(res)
+        if strong and not strong["je_hlavný"]:
+            st.warning(f"Najsilnejší naivný odhad nie je ten predregistrovaný: {strong['naivný']} ({strong['hodnota']}). "
+                       f"Proti nemu má model zlepšenie {strong['zlepšenie_pct']} %. Pravidlo úspechu sa vyhodnocuje "
+                       "proti predregistrovanému – posudzuj obe.", icon=":material/balance:")
         metrics = [m for m in res.get("metriky") or [] if any(m in r for r in res.get("tabuľka") or [])]
         st.markdown("Výsledková tabuľka – všetky postupy × metriky (hlavná dvojica je v predregistrácii):")
         st.dataframe([{"postup": r["postup"] + (" ← vybraný" if r["postup"] == prim.get("model") else "")

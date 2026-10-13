@@ -97,6 +97,13 @@ def facts(card: dict[str, Any] | None, exp, res: dict[str, Any]) -> list[str]:
             out.append(f"F7: 95 % interval rozdielu model − naivný: {_n(lo, 4)} až {_n(hi, 4)}.")
     else:
         out.append("F6: Porovnanie je popisné (bez štítku sa úspech nevyhodnocuje).")
+    from .exp_tasks import strongest_baseline
+
+    strong = strongest_baseline(res)
+    if strong and not strong["je_hlavný"]:
+        out.append(f"F9: Najsilnejší naivný odhad nie je predregistrovaný: {strong['naivný']} {_n(strong['hodnota'], 4)}; "
+                   f"proti nemu je zlepšenie modelu {_n(strong['zlepšenie_pct'], 1)} % (predregistrované pravidlo sa "
+                   "vyhodnocuje proti hlavnému naivnému odhadu).")
     others = [r for r in res.get("tabuľka") or [] if r["postup"] != prim.get("model") and prim.get("metrika") in r]
     if others:
         out.append("F8: Ďalšie postupy (" + str(prim.get("metrika")) + "): "

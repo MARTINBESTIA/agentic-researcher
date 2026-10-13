@@ -311,6 +311,11 @@ def test_conclusion_from_facts_rejects_invented_numbers_and_writes_report(tmp_pa
     concl = json.loads(e["conclusion_json"])
     assert "777" in concl["poznámka"] and concl["text"]["splnené"] is True
     assert any(f.startswith("F4: Z prvých 50") for f in concl["fakty"])
+    from radar.exp_tasks import strongest_baseline
+    strong = strongest_baseline(json.loads(e["result_json"]))
+    assert strong["naivný"] != "random" or strong["je_hlavný"]  # najsilnejší naivný odhad je známy
+    if not strong["je_hlavný"]:
+        assert any(f.startswith("F9: Najsilnejší naivný odhad") for f in concl["fakty"])
     html_text = open(e["demo_path"], encoding="utf-8").read()
     assert "Výsledková tabuľka" in html_text and "logistic" in html_text and "Ušetrí" not in html_text
     db.update_experiment(exp, conclusion_json=None)

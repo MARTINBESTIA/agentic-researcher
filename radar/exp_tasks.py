@@ -44,6 +44,20 @@ def improvement(model: float | None, base: float | None, direction: str) -> floa
     return (model - base) / abs(base) * 100 if base else (100.0 if model > 0 else 0.0)
 
 
+def strongest_baseline(res: dict[str, Any]) -> dict[str, Any] | None:
+    """Najsilnejší naivný odhad na hlavnej metrike a zlepšenie modelu proti nemu – predregistrovaný naivný odhad
+    môže byť slabý (E6: „najväčšie zmluvy“ +900 %, doterajšia miera dodávateľa o rád silnejšia)."""
+    prim = res.get("hlavné") or {}
+    metric, direction = prim.get("metrika"), prim.get("smer", "higher")
+    rows = [r for r in res.get("tabuľka") or [] if r.get("typ") == "naivný" and r.get(metric) is not None]
+    if not metric or not rows or prim.get("model_hodnota") is None:
+        return None
+    best = (max if direction == "higher" else min)(rows, key=lambda r: r[metric])
+    imp = improvement(prim["model_hodnota"], best[metric], direction)
+    return {"naivný": best["postup"], "hodnota": best[metric], "zlepšenie_pct": None if imp is None else round(imp, 2),
+            "je_hlavný": best["postup"] == prim.get("naivný")}
+
+
 def _primary(plan: dict[str, Any], table: list[dict[str, Any]], chosen: str, ci: list[float] | None) -> dict[str, Any]:
     metric, base = plan["primary_metric"], plan["primary_baseline"]
     direction = next((m[metric] for m in METRICS.values() if metric in m), "higher")
