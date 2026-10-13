@@ -13,7 +13,8 @@ st.caption("Brána 2 – experimenty a demo pre dvojice hypotéza × organizáci
            "dátach konkrétnej organizácie. Stop podmienky sú príznaky; rozhoduješ ty.")
 hyps = d.gate2_hypotheses()
 if not hyps:
-    st.info("Zatiaľ žiadna hypotéza neprešla Bránou 1 – rozhodnutie zapíšeš na stránke Brána 1.", icon=":material/info:")
+    st.info("Zatiaľ žiadna hypotéza neprešla Bránou 1. Prejde automaticky pri pripravenosti dát ≥ 0,5 alebo keď tvoje "
+            "dáta (Brána 1 → Tvoje dáta) dostanú vhodnosť ≥ 0,5; inak rozhodneš na stránke Brána 1.", icon=":material/info:")
     st.stop()
 labels = {h["id"]: f"H{h['id']}: {h['title'][:80]} · {h['gate2_status']}" for h in hyps}
 hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g2_h")

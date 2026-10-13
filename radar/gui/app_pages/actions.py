@@ -134,6 +134,7 @@ extras = {
     "validate": f"Neotestované {v['none']}, čaká na overenie {v['searched']}, otestované {v['tested']} z {v['total']} "
                 f"(~2 min na hypotézu, celá fronta ~{v['none'] * 2 / 60:.0f} h).",
     "evidence": f"Čaká na posúdenie {d.pending_entailment_count()} tvrdení, na zaradenie {d.unassigned_count()}.",
+    "gate1-input": f"Tvoje vstupy na posúdenie: {len(d.pending_gate1_inputs())} (vkladáš ich na stránke Brána 1 → Tvoje dáta).",
 }
 
 st.subheader("Zbieranie dát")
@@ -144,7 +145,7 @@ for col, kind in zip(cols, ("scout", "validate", "people")):
 
 st.subheader("Brány 1 a 2")
 cols = st.columns(3)
-for col, kind in zip(cols, ("gate1", "gate2")):
+for col, kind in zip(cols, ("gate1", "gate1-input", "gate2")):
     with col:
         action_card(kind, "am", extras.get(kind))
 

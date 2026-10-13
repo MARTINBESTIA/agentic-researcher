@@ -8,8 +8,14 @@ Kroky (v poradí podľa modelov):
 4. gate1-datasets (kód): stiahnutie, import do DuckDB, profil, pokrytie organizácií podľa IČO.
 5. gate1-repro (presný model + DuckDB): zreprodukovať známe číslo z overeného tvrdenia (NKÚ, revízia
    výdavkov, výročná správa); model navrhne SQL, čísla počíta DuckDB, porovnáva kód.
-6. gate1-finish (kód): návrhy žiadostí podľa zákona 211/2000 pre kľúčové polia bez otvoreného zdroja,
+6. gate1-user (sudca + kód): vstup človeka (popis dát, schéma, súbor) – súbor do DuckDB (osobné údaje sa neuložia),
+   model posúdi pokrytie každého poľa (áno / čiastočne / nie), vhodnosť dát počíta kód z váh polí.
+7. gate1-finish (kód): návrhy žiadostí podľa zákona 211/2000 pre kľúčové polia bez otvoreného zdroja,
    pripravenosť dát (skóre so zložkami) a príznaky. Nič sa automaticky nevyraďuje ani neodosiela.
+
+Prechod do Brány 2 (pravidlo používateľa, 13. 10. 2026): pripravenosť dát ≥ `gate1.auto_gate2_readiness` → Brána 1
+automaticky „prešla“; inak stav „čaká na tvoje dáta“ (needs_input). Po vstupe človeka: vhodnosť ≥
+`gate1.user_data_threshold` → „prešla“. Ručné rozhodnutie (prešla, pozastavená, zastavená) sa nikdy neprepisuje.
 """
 
 from __future__ import annotations
@@ -20,10 +26,12 @@ import logging
 import re
 from collections import Counter
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 from rapidfuzz import fuzz, process
+from rapidfuzz.utils import default_process
 
 from .agent import ResearchAgent
 from .catalogs import NKOD_DATASET_RE, CatalogDataset, NKODClient
@@ -36,7 +44,9 @@ from .datasets import (
 )
 from .db import DB
 from .models import as_router
-from .prompts import GATE1_FIELDS_SYSTEM, GATE1_REPRO_SYSTEM, GATE1_SOURCE_EXTRACT_SYSTEM, GATE1_SOURCES_SYSTEM
+from .prompts import (
+    GATE1_FIELDS_SYSTEM, GATE1_REPRO_SYSTEM, GATE1_SOURCE_EXTRACT_SYSTEM, GATE1_SOURCES_SYSTEM, GATE1_USER_EVAL_SYSTEM,
+)
 from .util import Deadline, utcnow
 from .verify import normalize
 
@@ -594,11 +604,19 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         db.add_dataset(hid, src["id"], url, table, status="error", note=f"chyba: {type(exc).__name__}: {str(exc)[:200]}")
         stats["dataset_errors"] += 1
         return stats
+    return _store_profiled(cfg, db, hid, src["id"], url, table, dataset_id, prof, orgs, format=fmt, size_bytes=dl.size,
+                           sha256=dl.sha256, note=dl.note)
+
+
+def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: str, table: str, dataset_id: int,
+                    prof: dict[str, Any], orgs, **meta: Any) -> Counter:
+    """Profilovaná tabuľka → záznam datasetu: s osobnými údajmi sa zmaže, široká dostane dlhý tvar, pokrytie podľa IČO."""
+    stats: Counter = Counter()
+    columns = [c["name"] for c in prof["columns"]]
     if prof["personal_columns"]:
         drop_table(cfg, hid, table)
-        db.add_dataset(hid, src["id"], url, table, format=fmt, size_bytes=dl.size, sha256=dl.sha256,
-                       rows=prof["rows"], columns_json=[c["name"] for c in prof["columns"]], profile_json=prof,
-                       personal_data=1, status="personal_data_blocked",
+        db.add_dataset(hid, source_id, url, table, **{k: v for k, v in meta.items() if k != "note"}, rows=prof["rows"],
+                       columns_json=columns, profile_json=prof, personal_data=1, status="personal_data_blocked",
                        note="obsahuje osobné údaje (" + ", ".join(prof["personal_columns"][:5]) + ") – tabuľka sa "
                             "neuložila; pred použitím posúdenie podľa GDPR")
         stats["personal_blocked"] += 1
@@ -606,8 +624,8 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
     if prof.get("period_columns"):
         prof["dlhý_tvar"] = wide_to_long(cfg, hid, table)
         stats["long_tables"] += 1 if (prof["dlhý_tvar"] or {}).get("tabuľka") else 0
-    db.add_dataset(hid, src["id"], url, table, format=fmt, size_bytes=dl.size, sha256=dl.sha256, rows=prof["rows"],
-                   columns_json=[c["name"] for c in prof["columns"]], profile_json=prof, status="ok", note=dl.note)
+    db.add_dataset(hid, source_id, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
+                   status="ok")
     for org_id, col, n in coverage(cfg, hid, table, prof["ico_columns"], orgs):
         db.set_coverage(dataset_id, org_id, col, n)
         stats["coverage"] += 1
@@ -768,32 +786,182 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
             "organizácie_v_dátach": len(orgs), "reprodukcia": best_repro, "vypočítané": utcnow()}
 
 
-AUTO_PASS_KEY = "gate1_auto_pass"  # {"hypotheses": {"11": "pokyn človeka, dátum"}} – iba ak je hypotéza „ready“
+# Stavy, v ktorých smie rozhodnúť pravidlo; „prešla“, „pozastavená“ a „zastavená“ (aj ručné) sa neprepisujú.
+OPEN_STATUSES = ("not_started", "running", "ready", "needs_input")
+
+
+def _num(x: float) -> str:
+    return f"{x:.2f}".replace(".", ",")
 
 
 def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -> dict:
     stats: Counter = Counter()
+    threshold = cfg.gate1.auto_gate2_readiness
     for hyp in _hypotheses(cfg, db, ids):
         if not db.fields_for(hyp["id"]):
             continue
         stats["info_requests"] += draft_info_requests(cfg, db, hyp["id"])
         summary = readiness(cfg, db, hyp["id"])
         db.set_gate1_summary(hyp["id"], summary)
-        if hyp["gate1_status"] in ("not_started", "running") and summary["zložky"]["pokrytie_kľúčových"] == 1.0 \
-                and summary["reprodukcia"] in ("match", "close"):
-            db.set_gate_status(hyp["id"], 1, "ready")  # pripravené na tvoje rozhodnutie (nie automaticky „prešla“)
-            auto = db.get_setting(AUTO_PASS_KEY, {}) or {}
-            if str(hyp["id"]) in (auto.get("hypotheses") or {}):
-                # Človek vopred povolil „prešla“ pre túto hypotézu, ak bude pripravená (záznam s jeho pokynom a časom).
-                decide(db, hyp["id"], 1, "passed", "Automaticky podľa vopred zadaného pokynu: " +
-                       auto["hypotheses"][str(hyp["id"])])
-                stats["auto_passed"] += 1
         stats["hypotheses"] += 1
+        status = (db.get_hypothesis(hyp["id"]) or hyp)["gate1_status"]  # krok gate1-user ju mohol práve posunúť
+        if status not in OPEN_STATUSES:
+            continue
+        if summary["skóre"] >= threshold:
+            decide(db, hyp["id"], 1, "passed", f"Automaticky: pripravenosť dát {_num(summary['skóre'])} ≥ "
+                                               f"{_num(threshold)} (pravidlo prechodu do Brány 2).")
+            stats["auto_passed"] += 1
+        elif status != "needs_input":
+            db.set_gate_status(hyp["id"], 1, "needs_input")  # čaká na tvoje dáta alebo schému (GUI → Brána 1)
+            stats["needs_input"] += 1
+    return dict(stats)
+
+
+# ======================================================================= 7. vstup človeka (dáta alebo schéma)
+USER_FILE_EXT = ("csv", "tsv", "txt", "xlsx", "json", "parquet", "zip", "xml")
+COVERAGE_SCORE = {"yes": 1.0, "partial": 0.5, "no": 0.0}
+KEY_WEIGHT = 0.7  # kľúčové polia spolu; ostatné polia 0,3 (bez nekľúčových polí majú kľúčové 1,0)
+
+
+class FieldCoverage(BaseModel):
+    field: str = ""
+    coverage: str = "no"
+    reason: str = ""
+
+
+class UserDataEval(BaseModel):
+    fields: list[FieldCoverage] = Field(default_factory=list)
+    summary: str = ""
+
+
+def upload_path(cfg: Config, hid: int, input_id: int, file_name: str) -> Path:
+    """Kam GUI uloží nahraný súbor, kým ho krok gate1-user neimportuje do DuckDB (potom sa zmaže)."""
+    suffix = Path(file_name).suffix.lower().lstrip(".")
+    if suffix not in USER_FILE_EXT:
+        raise DatasetError(f"nepodporovaný formát .{suffix} (podporované: {', '.join(USER_FILE_EXT)})")
+    return hyp_dir(cfg, hid) / "uploads" / f"in{input_id}.{suffix}"
+
+
+def user_data_score(fields, ev: UserDataEval) -> tuple[float, list[dict[str, Any]]]:
+    """Vhodnosť dát 0–1 z posúdenia polí (áno 1, čiastočne 0,5, nie alebo chýba 0); váhy: kľúčové spolu 0,7."""
+    names = [f["name"] for f in fields]
+    got: dict[str, tuple[str, str]] = {}
+    for fc in ev.fields:
+        name = " ".join(fc.field.split())
+        if name not in names:
+            match = process.extractOne(name, names, scorer=fuzz.token_sort_ratio,  # veľkosť písmen a interpunkcia
+                                       processor=default_process) if name else None
+            if not match or match[1] < 85:
+                continue
+            name = match[0]
+        cov = fc.coverage.strip().lower()
+        got.setdefault(name, (cov if cov in COVERAGE_SCORE else "no", fc.reason.strip()))
+    keys = [f for f in fields if f["is_key"]]
+    rest = [f for f in fields if not f["is_key"]]
+    w_key = (KEY_WEIGHT if rest else 1.0) if keys else 0.0
+    score, rows = 0.0, []
+    for f in fields:
+        cov, reason = got.get(f["name"], ("chýba", ""))
+        weight = (w_key / len(keys)) if f["is_key"] else ((1.0 - w_key) / len(rest))
+        score += weight * COVERAGE_SCORE.get(cov, 0.0)
+        rows.append({"pole": f["name"], "kľúčové": bool(f["is_key"]), "pokrytie": cov, "váha": round(weight, 3),
+                     "dôvod": reason})
+    return round(score, 2), rows
+
+
+def _import_user_file(cfg: Config, db: DB, hid: int, inp, orgs) -> int | None:
+    """Nahraný súbor → tabuľka v DuckDB (rovnaký profil a blokovanie osobných údajov ako pri stiahnutí)."""
+    try:
+        path = upload_path(cfg, hid, inp["id"], inp["file_name"])
+    except DatasetError:
+        return None
+    if not path.exists():
+        return None
+    url = f"user://vstup-{inp['id']}/{inp['file_name']}"
+    dataset_id = db.add_dataset(hid, None, url, "pending", status="error", note="importuje sa")
+    table = f"ds{dataset_id}"
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    size, fmt = path.stat().st_size, file_format(path.name) or "bin"
+    try:
+        import_table(cfg, hid, table, path, fmt)
+        prof = profile_table(cfg, hid, table)
+    except Exception as exc:  # noqa: BLE001 – zlý súbor nezastaví posúdenie textu
+        log.warning("Brána 1: súbor zo vstupu %s sa nenaimportoval: %s", inp["id"], exc)
+        db.add_dataset(hid, None, url, table, format=fmt, size_bytes=size, sha256=digest.hexdigest(), status="error",
+                       note=f"import zlyhal: {str(exc)[:250]}")
+        return dataset_id
+    finally:
+        path.unlink(missing_ok=True)  # pôvodný súbor sa neuchováva; ostáva tabuľka, názov a SHA-256
+    _store_profiled(cfg, db, hid, None, url, table, dataset_id, prof, orgs, format=fmt, size_bytes=size,
+                    sha256=digest.hexdigest(), note="nahral používateľ")
+    return dataset_id
+
+
+def run_user_inputs(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None) -> dict:
+    """Posúdi čakajúce vstupy človeka; vhodnosť ≥ gate1.user_data_threshold → Brána 1 automaticky prešla."""
+    stats: Counter = Counter()
+    router, orgs = None, None
+    threshold = cfg.gate1.user_data_threshold
+    for inp in db.pending_gate1_inputs(ids):
+        if deadline.expired():
+            break
+        hid = inp["hypothesis_id"]
+        hyp, fields = db.get_hypothesis(hid), db.fields_for(hid)
+        if hyp is None:
+            continue
+        if not fields:
+            stats["waiting_for_fields"] += 1  # polia vzniknú v kroku gate1-fields; vstup počká
+            continue
+        dataset_id = inp["dataset_id"]
+        if inp["file_name"] and not dataset_id:
+            if orgs is None:
+                orgs = [(o["id"], o["ico"]) for o in db.organizations_with_ico()]
+            dataset_id = _import_user_file(cfg, db, hid, inp, orgs)
+            if dataset_id:
+                db.set_gate1_input_dataset(inp["id"], dataset_id)
+                stats["files"] += 1
+        ds = db.get_dataset(dataset_id) if dataset_id else None
+        notes, schema = [], ""
+        if inp["file_name"] and ds is None:
+            notes.append("súbor sa nenašiel – nahraj ho znova")
+        elif ds is not None and ds["status"] == "ok":
+            schema = schema_text(cfg, hid, [ds["table_name"]])
+        elif ds is not None:
+            notes.append("súbor sa nepoužil: " + (ds["note"] or ds["status"]))
+        listing = "\n".join(f"- {f['name']}{' [KEY]' if f['is_key'] else ''}: {f['description'] or ''}" for f in fields)
+        content = (f"PROBLEM: {hyp['title']} (segment: {hyp['segment'] or '?'})\nDATA FIELDS:\n{listing}\n\n"
+                   f"<untrusted_document>\nUSER INPUT:\n{inp['text'][:6000]}\n"
+                   + (f"\nUPLOADED TABLE (columns and sample rows):\n{schema[:6000]}\n" if schema else "")
+                   + "</untrusted_document>")
+        router = router or as_router(llm, cfg, db)
+        res = router.run_task(
+            "gate1_user_eval",
+            [{"role": "system", "content": GATE1_USER_EVAL_SYSTEM.format(lang=cfg.pipeline.output_language)},
+             {"role": "user", "content": content}],
+            UserDataEval, object_type="hypothesis", object_id=hid, max_tokens=2500,
+        )
+        if not res.ok:
+            stats["llm_failures"] += 1  # vstup ostáva „čaká“, posúdi sa pri ďalšom behu
+            continue
+        score, per_field = user_data_score(fields, res.value)
+        db.set_gate1_input_result(inp["id"], "evaluated", score, {
+            "skóre": score, "prah": threshold, "váhy": {"kľúčové_spolu": KEY_WEIGHT, "ostatné_spolu": round(1 - KEY_WEIGHT, 2)},
+            "polia": per_field, "zhrnutie": res.value.summary.strip(), "poznámky": notes,
+            "dataset": ds["table_name"] if ds is not None and ds["status"] == "ok" else None})
+        stats["evaluated"] += 1
+        current = db.get_hypothesis(hid)
+        if score >= threshold and current["gate1_status"] in OPEN_STATUSES:
+            decide(db, hid, 1, "passed", f"Automaticky: vhodnosť tvojich dát {_num(score)} ≥ {_num(threshold)} "
+                                         f"(vstup č. {inp['id']}).")
+            stats["auto_passed"] += 1
     return dict(stats)
 
 
 def decide(db: DB, hid: int, gate: int, decision: str, reason: str, org_id: int | None = None) -> None:
-    """Rozhodnutie brány zapisuje človek; uloží sa s aktuálnymi metrikami."""
+    """Rozhodnutie brány (človek alebo pravidlo prechodu s dôvodom); uloží sa s aktuálnymi metrikami."""
     if decision not in ("passed", "paused", "stopped"):
         raise ValueError("Rozhodnutie: passed, paused alebo stopped")
     hyp = db.get_hypothesis(hid)

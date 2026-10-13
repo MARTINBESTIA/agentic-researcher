@@ -543,3 +543,20 @@ CREATE TABLE IF NOT EXISTS themes (         -- témy: zhluky podobných hypotéz
 );
 CREATE INDEX IF NOT EXISTS idx_hypotheses_theme ON hypotheses(theme_id);
 """
+
+SCHEMA_V7 = """
+CREATE TABLE IF NOT EXISTS gate1_inputs (   -- dáta alebo schéma od človeka pre Bránu 1 (keď pripravenosť < prah)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id),
+  text TEXT NOT NULL,                       -- popis dát alebo schéma (voľný text)
+  file_name TEXT,                           -- nahraný súbor (dataset v DuckDB), ak bol
+  dataset_id INTEGER,
+  status TEXT NOT NULL,                     -- pending | evaluated | failed
+  score REAL,                               -- vhodnosť dát 0–1 (počíta kód z posúdenia polí)
+  evaluation_json TEXT,
+  created_at TEXT NOT NULL,
+  evaluated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_gate1_inputs_h ON gate1_inputs(hypothesis_id, status);
+"""
+

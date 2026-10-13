@@ -306,11 +306,12 @@ def _hypothesis_choices(kind: str, mode: str, key: str) -> list[int] | None:
         hyps = d.gate1_hypotheses() if mode == "gate0" else d.gate2_hypotheses()
         if not hyps:
             st.caption("Žiadna hypotéza nie je vybraná na Bránu 0." if mode == "gate0" else
-                       "Zatiaľ žiadna hypotéza neprešla Bránou 1 (rozhoduješ na stránke Brána 1).")
+                       "Zatiaľ žiadna hypotéza neprešla Bránou 1 (pripravenosť ≥ 0,5, tvoje dáta ≥ 0,5 alebo tvoje "
+                       "rozhodnutie na stránke Brána 1).")
             return []
         labels = {h["id"]: f"H{h['id']}: {h['title'][:70]} · {h['gate1_status' if mode == 'gate0' else 'gate2_status']}"
                   for h in hyps}
-        todo = [h["id"] for h in hyps if (h["gate1_status"] in ("not_started", "running") if mode == "gate0"
+        todo = [h["id"] for h in hyps if (h["gate1_status"] in ("not_started", "running", "needs_input") if mode == "gate0"
                                           else h["gate2_status"] in ("not_started", "running"))]
         st.caption("Brána 1 beží súbežne s rozhovormi Brány 0." if mode == "gate0" else
                    "Dvojice hypotéza × organizácia vzniknú z organizácií, ktoré sú v nájdených dátach.")

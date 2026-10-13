@@ -224,21 +224,140 @@ def test_reproduction_of_known_number_scale_and_readiness(tmp_path):
     assert rec.models_for("ReproSpec") == ["radar-qwen3.6-27b"]
 
     db.update_field(fid, status="found")
-    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    stats = gate1.run_finish(cfg, db, Deadline(1), [hid])
     h = db.get_hypothesis(hid)
     summary = json.loads(h["gate1_json"])
     assert summary["zložky"]["pokrytie_kľúčových"] == 1.0 and summary["reprodukcia"] == "match"
-    assert h["gate1_status"] == "ready" and summary["organizácie_v_dátach"] == 1  # návrh, nie automaticky „prešla“
-
-    # Vopred zadaný pokyn človeka pre konkrétnu hypotézu: „prešla“ iba ak je pripravená (záznam s pokynom).
-    db.set_gate_status(hid, 1, "running")
-    db.set_setting(gate1.AUTO_PASS_KEY, {"hypotheses": {str(hid): "používateľ 12. 10. 2026: áno, iba ak bude pripravená"}})
-    assert gate1.run_finish(cfg, db, Deadline(1), [hid])["auto_passed"] == 1
-    assert db.get_hypothesis(hid)["gate1_status"] == "passed"
+    assert summary["organizácie_v_dátach"] == 1
+    # Pravidlo prechodu (používateľ 13. 10. 2026): pripravenosť ≥ 0,5 → Brána 1 prešla automaticky, s dôvodom a metrikami.
+    assert summary["skóre"] >= 0.5 and stats["auto_passed"] == 1 and h["gate1_status"] == "passed"
+    decision = db.gate_decisions_for(hid, 1)[0]
+    assert "pripravenosť dát" in decision["reason"] and json.loads(decision["metrics_json"])["skóre"] == summary["skóre"]
+    assert [x["id"] for x in db.gate2_hypotheses()] == [hid]
+    assert "auto_passed" not in gate1.run_finish(cfg, db, Deadline(1), [hid])  # už prešla – nič sa nezdvojí
     other = db.create_hypothesis("Iná", "", "x")
     db.set_gate_status(other, 1, "running")
-    assert "auto_passed" not in gate1.run_finish(cfg, db, Deadline(1), [other])  # bez polí a pokynu nič
+    assert "auto_passed" not in gate1.run_finish(cfg, db, Deadline(1), [other])  # bez polí nič
 
+
+
+# ======================================================================= prechod do Brány 2 a vstup človeka
+USER_CSV = "ico;rok;mesiac;vydavky_eur\n00313271;2024;1;1200\n00313271;2024;2;1300\n"
+
+
+def _waiting_hyp(cfg, db, fields=(("Výdavky obce", True), ("Termíny projektov", True), ("Počet zamestnancov", False))):
+    hid = gate1_hyp(db)
+    for name, key in fields:
+        db.upsert_field(hid, name, "", key, "")
+    db.start_gate1(hid)
+    return hid
+
+
+def _upload(cfg, db, hid, text, name, content):
+    iid = db.add_gate1_input(hid, text, name)
+    path = gate1.upload_path(cfg, hid, iid, name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return iid, path
+
+
+def test_low_readiness_waits_for_user_and_manual_decision_wins(tmp_path):
+    cfg, db, rec, router = setup(tmp_path)
+    hid = _waiting_hyp(cfg, db)
+    assert gate1.run_finish(cfg, db, Deadline(1), [hid])["needs_input"] == 1
+    assert db.get_hypothesis(hid)["gate1_status"] == "needs_input" and not db.gate_decisions_for(hid, 1)
+    assert "needs_input" not in gate1.run_finish(cfg, db, Deadline(1), [hid])  # stav sa len drží
+    gate1.decide(db, hid, 1, "paused", "čakám na partnera")
+    for f in db.fields_for(hid):
+        db.update_field(f["id"], status="found")  # aj keby pripravenosť stúpla, ručné rozhodnutie sa neprepíše
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    assert db.get_hypothesis(hid)["gate1_status"] == "paused"
+
+
+def test_user_data_is_imported_judged_per_field_and_scored_by_code(tmp_path):
+    cfg, db, rec, router = setup(tmp_path)
+    hid = _waiting_hyp(cfg, db)
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    org, _ = db.upsert_organization("Mesto Fiktívne", "mesto fiktivne", "search", ico="00313271")
+    iid, path = _upload(cfg, db, hid, "Mesačné výdavky obcí podľa IČO za rok 2024.", "vydavky.csv", USER_CSV)
+    seen = []
+
+    def judge(messages):
+        seen.append(messages[-1]["content"])
+        return {"fields": [{"field": "výdavky obce", "coverage": "yes", "reason": "stĺpec vydavky_eur"},
+                           {"field": "Termíny projektov", "coverage": "no", "reason": "nie sú"},
+                           {"field": "Počet zamestnancov", "coverage": "YES", "reason": "v texte"},
+                           {"field": "Úplne iné pole", "coverage": "yes", "reason": "x"}],
+                "summary": "Dáta pokrývajú výdavky."}
+
+    rec.responses["UserDataEval"] = judge
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), None) == {"files": 1, "evaluated": 1, "auto_passed": 1}
+    assert rec.models_for("UserDataEval") == ["radar-qwen3.6-27b"]  # sudca, nie generátor
+    assert "<untrusted_document>" in seen[0] and "vydavky_eur" in seen[0]  # model videl aj stĺpce nahranej tabuľky
+    inp = db.gate1_inputs_for(hid)[0]
+    ev = json.loads(inp["evaluation_json"])
+    # kľúčové 0,35 + 0,35, ostatné 0,3: áno + nie + áno = 0,65 (počíta kód, neznáme pole modelu sa ignoruje)
+    assert inp["status"] == "evaluated" and inp["score"] == pytest.approx(0.65)
+    assert {r["pole"]: r["pokrytie"] for r in ev["polia"]} == {"Výdavky obce": "yes", "Termíny projektov": "no",
+                                                               "Počet zamestnancov": "yes"}
+    ds = db.get_dataset(inp["dataset_id"])
+    assert ds["status"] == "ok" and ds["url"] == f"user://vstup-{iid}/vydavky.csv" and ds["sha256"]
+    assert run_query(cfg, hid, f"SELECT SUM(vydavky_eur) FROM {ds['table_name']}")[0][0] == 2500
+    assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]
+    assert not path.exists()  # pôvodný súbor sa po importe zmaže
+    assert db.get_hypothesis(hid)["gate1_status"] == "passed"
+    assert "vhodnosť tvojich dát 0,65" in db.gate_decisions_for(hid, 1)[0]["reason"]
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), None) == {}  # nič nečaká
+
+
+def test_user_input_with_personal_data_low_score_and_model_failure(tmp_path):
+    from radar.llm import LLMError
+
+    cfg, db, rec, router = setup(tmp_path)
+    hid = _waiting_hyp(cfg, db, (("Výdavky obce", True),))
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    iid, path = _upload(cfg, db, hid, "Zoznam ľudí so sumami.", "ludia.csv", PERSONAL_CSV)
+    rec.responses["UserDataEval"] = LLMError("timeout")
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), [hid]) == {"files": 1, "llm_failures": 1}
+    inp = db.gate1_inputs_for(hid)[0]
+    assert inp["status"] == "pending" and db.get_dataset(inp["dataset_id"])["status"] == "personal_data_blocked"
+    seen = []
+    rec.responses["UserDataEval"] = lambda m: seen.append(m[-1]["content"]) or {
+        "fields": [{"field": "Výdavky obce", "coverage": "partial", "reason": "iba sumy"}], "summary": ""}
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), [hid]) == {"evaluated": 1, "auto_passed": 1}  # bez 2. importu
+    inp = db.gate1_inputs_for(hid)[0]
+    ev = json.loads(inp["evaluation_json"])
+    assert inp["score"] == 0.5 and "Nováková" not in seen[0]  # osobné údaje sa k modelu nedostali
+    assert any("osobné údaje" in n for n in ev["poznámky"])
+    assert db.get_hypothesis(hid)["gate1_status"] == "passed"  # 0,5 ≥ 0,5 (iba z textu)
+    low = _waiting_hyp(cfg, db, (("Termíny", True),))
+    gate1.run_finish(cfg, db, Deadline(1), [low])
+    db.add_gate1_input(low, "Nemám nič, iba tušenie.")
+    rec.responses["UserDataEval"] = {"fields": [{"field": "Termíny", "coverage": "no", "reason": "chýba"}]}
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), [low]) == {"evaluated": 1}
+    assert db.get_hypothesis(low)["gate1_status"] == "needs_input"  # čaká na ďalší vstup
+
+
+def test_autopilot_evaluates_user_inputs_and_retries_waiting_hypotheses_later(tmp_path):
+    from radar.autopilot import ROUND, gate1_ids, pending_work
+    from radar.workflows import ACTIONS, _gate1_input
+
+    cfg, db, rec, router = setup(tmp_path)
+    hid = _waiting_hyp(cfg, db)
+    assert gate1_ids(db) == [hid]  # nikdy nedokončená
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    now = datetime.now(timezone.utc)
+    assert gate1_ids(db, retry_days=3, now=now) == []  # čaká na tvoje dáta – hneď sa znova neprehľadáva
+    assert gate1_ids(db, retry_days=3, now=now + timedelta(days=4)) == [hid]
+    assert "gate1-input" not in pending_work(cfg, db)
+    db.add_gate1_input(hid, "schéma: obec; rok; výdavky v €")
+    assert "H" + str(hid) in pending_work(cfg, db)["gate1-input"]
+    kinds = [k for k, _ in ROUND]
+    assert kinds.index("gate1-input") < kinds.index("gate1") < kinds.index("gate2") and "gate1-input" in ACTIONS
+    ran = []
+    app = SimpleNamespace(cfg=cfg, db=db)
+    _gate1_input(app, Deadline(15), lambda stage, dl: ran.append(stage), None, lambda **kw: None)
+    assert ran == ["gate1-user", "gate1-finish"] and app.gate_ids == [hid]
 
 def test_missing_key_field_gets_info_request_draft_and_six_week_flag(tmp_path):
     cfg, db, rec, router = setup(tmp_path)

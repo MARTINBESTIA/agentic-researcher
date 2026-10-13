@@ -163,7 +163,8 @@ v Prehľade), spracovať zásobník dôkazov, zbierať dôkazy k témam, kritika
 oslovení, LinkedIn profily a celý beh. Naraz beží jedna akcia (GPU); ďalšie sa dajú **zaradiť do
 poradia** alebo bežiacu **zastaviť a spustiť inú**. Stránka ukazuje aj model načítaný v GPU (aj
 z iných aplikácií) a históriu. Z príkazového riadku: `python -m radar workflow <akcia> --minutes N`
-(`scout`, `validate`, `people`, `contacts`, `drafts`, `evidence`, `topics`, `critique`, `gate1`, `gate2`, `bench`, `run-all`).
+(`scout`, `validate`, `people`, `contacts`, `drafts`, `evidence`, `topics`, `critique`, `themes`, `gate1`, `gate1-input`,
+`gate2`, `bench`, `autopilot`, `run-all`).
 
 ## Brána 1 (dáta) a Brána 2 (experimenty)
 
@@ -172,7 +173,16 @@ z iných aplikácií) a históriu. Z príkazového riadku: `python -m radar work
 z prečítanej stránky) → kontrola a kvalita → stiahnutie do DuckDB (`data/datasets`, limit 2 GB na súbor,
 50 GB spolu) → zreprodukovanie známeho čísla z overeného tvrdenia (model navrhne SQL, počíta DuckDB) →
 návrhy žiadostí podľa zákona 211/2000 a pripravenosť dát so zložkami. Chýbajúce dáta sú príznak, nič sa
-nevyraďuje; „Brána 1 prešla“ zapisuješ ty.
+nevyraďuje.
+
+**Prechod do Brány 2:** pripravenosť dát ≥ 0,5 → Brána 1 prejde automaticky (rozhodnutie s dôvodom a metrikami).
+Inak hypotéza „čaká na tvoje dáta“: v GUI (Brána 1 → Tvoje dáta) napíš popis dát alebo aspoň schému (stĺpce,
+jednotky, obdobie, odkiaľ) a prípadne nahraj súbor (CSV, XLSX, JSON, Parquet, ZIP, XML). Akcia „Brána 1: posúdiť tvoje
+dáta“ (aj v autopilotovi) súbor naimportuje do DuckDB (tabuľka s osobnými údajmi sa neuloží, súbor sa zmaže), sudca
+posúdi každé pole (áno / čiastočne / nie) a kód spočíta vhodnosť (kľúčové polia spolu 0,7, ostatné 0,3); ≥ 0,5 →
+Brána 1 prejde. Kedy Brána 2 naozaj beží, určuje akcia, ktorú spustíš ty alebo autopilot. Samotná schéma na prechod
+stačí, spätný test však potrebuje skutočné dáta. Nevkladaj dáta zamestnávateľa. Prahy: `gate1.auto_gate2_readiness`,
+`gate1.user_data_threshold`; ručné rozhodnutie (prešla, pozastaviť, zastaviť) má vždy prednosť.
 
 Zdroje hľadá agent aj v **Národnom katalógu otvorených dát** (data.slovensko.sk, verejný SPARQL, ~22 000
 datasetov) – bez vyhľadávača: poskytovateľ, licencia z podmienok užitia, periodicita, formáty a odkazy na

@@ -88,7 +88,7 @@ def _gate_ids(app) -> list[int] | None:
 
 
 def stage_gate1(step: str) -> Callable[[Any, Deadline], dict]:
-    """Kroky Brány 1: fields (presný), sources (agent), check a datasets (kód), repro (presný), finish (kód)."""
+    """Kroky Brány 1: fields (presný), sources (agent), check a datasets (kód), repro (presný), user (sudca), finish."""
 
     def run(app, deadline: Deadline) -> dict:
         from . import gate1
@@ -104,6 +104,8 @@ def stage_gate1(step: str) -> Callable[[Any, Deadline], dict]:
             return gate1.run_datasets(app.cfg, app.db, app.fetcher, deadline, ids)
         if step == "repro":
             return gate1.run_repro(app.cfg, app.db, app.router, deadline, ids)
+        if step == "user":
+            return gate1.run_user_inputs(app.cfg, app.db, app.router, deadline, ids)
         return gate1.run_finish(app.cfg, app.db, deadline, ids)
 
     return run
@@ -245,6 +247,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "gate1-check": stage_gate1("check"),
     "gate1-datasets": stage_gate1("datasets"),
     "gate1-repro": stage_gate1("repro"),
+    "gate1-user": stage_gate1("user"),
     "gate1-finish": stage_gate1("finish"),
     "gate2-prereg": stage_gate2("prereg"),
     "gate2-backtest": stage_gate2("backtest"),
@@ -271,7 +274,8 @@ STAGE_HELP = {
     "gate1-check": "Brána 1: dostupnosť zdrojov, odkazy na súbory a kvalita (kód).",
     "gate1-datasets": "Brána 1: stiahnutie, import do DuckDB, profil a pokrytie organizácií (kód).",
     "gate1-repro": "Brána 1: zreprodukovať známe číslo (model navrhne SQL, počíta DuckDB).",
-    "gate1-finish": "Brána 1: žiadosti podľa 211/2000 (návrhy), pripravenosť dát a príznaky (kód).",
+    "gate1-user": "Brána 1: posúdi tvoje dáta alebo schému (sudca po poliach, vhodnosť počíta kód; ≥ 0,5 → Brána 2).",
+    "gate1-finish": "Brána 1: žiadosti 211/2000, pripravenosť dát; ≥ 0,5 → Brána 2, inak čaká na tvoje dáta (kód).",
     "gate2-prereg": "Brána 2: návrh predregistrácie experimentu pre hypotézu × organizáciu (presný model).",
     "gate2-backtest": "Brána 2: spätný test uzamknutých experimentov (iba Python a DuckDB).",
     "gate2-demo": "Brána 2: demo pre organizáciu (HTML; text iba z vypočítaných faktov).",

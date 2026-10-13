@@ -74,7 +74,8 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "validate": _route("agent"),  # agent testuje uloženú hypotézu (dôkazy za aj proti)
     "gate1_sources": _route("agent"),  # Brána 1: agent hľadá zdroje dát k poliam
     "gate1_source_extract": _route("accurate"),  # Brána 1: zdroje z prečítaných stránok (keď agent nič neuloží)
-    "gate1_fields": _route("accurate"),  # Brána 1: aké polia treba na riešenie problému
+    "gate1_fields": _route("accurate"),
+    "gate1_user_eval": _route("judge"),  # Brána 1: ktoré polia pokrývajú dáta alebo schéma od človeka (skóre počíta kód)  # Brána 1: aké polia treba na riešenie problému
     "gate1_repro": _route("accurate"),  # Brána 1: SQL na zreprodukovanie známeho čísla (vykoná DuckDB)
     "gate2_prereg": _route("accurate"),  # Brána 2: návrh predregistrácie (hypotéza, metrika, postup)
     "gate2_demo": _route("accurate"),  # Brána 2: text dema iba z vypočítaných faktov
@@ -338,6 +339,12 @@ class Gate1Config(BaseModel):
     repro_close: float = 0.10  # pre „blízko“
     max_repro_per_hypothesis: int = 3
     sql_timeout_s: int = 30
+    # Prechod do Brány 2 (pokyn používateľa 13. 10. 2026): pripravenosť dát ≥ prah → automaticky „prešla“; inak stav
+    # „čaká na tvoje dáta“ – po vstupe človeka (text, schéma, súbor) posúdi model polia a kód spočíta vhodnosť ≥ prah.
+    auto_gate2_readiness: float = 0.5
+    user_data_threshold: float = 0.5
+    # Autopilot: hypotézu „čaká na tvoje dáta“ znova automaticky prehľadá najskôr po toľkých dňoch (zdroje pribúdajú).
+    research_retry_days: float = 3.0
     # Národný katalóg otvorených dát (SPARQL): kandidáti na zdroje bez vyhľadávača, súbory z distribúcií.
     nkod_enabled: bool = True
     nkod_sparql: str = "https://data.slovensko.sk/api/sparql"

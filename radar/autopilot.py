@@ -5,7 +5,8 @@
 ďalšie kolo. Akcie bez práce sa preskočia. Zastavenie: „Zastaviť všetko vrátane poradia“.
 
 Osobné údaje: zber ľudí, kontaktov a návrhov dostane presne hypotézy, ktoré si zapol na Bránu 0 (automatický výber
-top N sa nespustí); Brána 1 iba pre ne, postupne od najdlhšie nespracovaných.
+top N sa nespustí); Brána 1 iba pre ne, postupne od najdlhšie nespracovaných. Tvoje vstupy k dátam (Brána 1 → Tvoje
+dáta) posúdi samostatná krátka úloha pred prieskumom dát; čo prejde Bránou 1, ide v ďalšom kole do Brány 2.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ log = logging.getLogger(__name__)
 # (akcia, minúty) v poradí závislostí: nové hypotézy → test → posúdenie → témy → ľudia → kontakty → návrhy → brány → kritika
 ROUND: list[tuple[str, int]] = [
     ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("people", 60),
-    ("contacts", 20), ("drafts", 30), ("gate1", 60), ("gate2", 30), ("critique", 30),
+    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("gate1", 60), ("gate2", 30), ("critique", 30),
 ]
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
 GATE1_PER_JOB = 3
@@ -43,15 +44,19 @@ def selected_ids(db: DB) -> list[int]:
     return [h["id"] for h in db.people_enabled_hypotheses()]
 
 
-def gate1_ids(db: DB, k: int = GATE1_PER_JOB) -> list[int]:
-    """Vybrané hypotézy s nedokončenou Bránou 1, najprv nikdy nespracované, potom najdlhšie nespracované."""
+def gate1_ids(db: DB, k: int = GATE1_PER_JOB, retry_days: float = 3.0, now: datetime | None = None) -> list[int]:
+    """Vybrané hypotézy s nedokončenou Bránou 1: najprv nikdy nespracované, potom najdlhšie nespracované; tie, ktoré
+    čakajú na tvoje dáta, sa znova automaticky prehľadajú najskôr po `retry_days` (zdroje a katalóg pribúdajú)."""
+    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=retry_days)).isoformat(timespec="seconds")
     rows = []
     for h in db.people_enabled_hypotheses():
-        if (h["gate1_status"] or "not_started") not in ("not_started", "running"):
-            continue
+        status = h["gate1_status"] or "not_started"
         when = (json.loads(h["gate1_json"] or "{}") or {}).get("vypočítané") or ""
-        rows.append((when, h["id"]))
-    return [hid for _, hid in sorted(rows)[:k]]
+        if status in ("not_started", "running"):
+            rows.append((0, when, h["id"]))
+        elif status == "needs_input" and when < cutoff:
+            rows.append((1, when, h["id"]))
+    return [hid for *_, hid in sorted(rows)[:k]]
 
 
 def pending_work(cfg: Config, db: DB) -> dict[str, str]:
@@ -90,9 +95,12 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
                               OR (c.org_id = p.org_id AND c.is_generic = 1))""", tuple(ids))["n"]
         if drafts:
             work["drafts"] = f"{drafts} zoradených ľudí s kontaktom bez návrhu"
-        g1 = gate1_ids(db)
+        g1 = gate1_ids(db, retry_days=cfg.gate1.research_retry_days)
         if g1:
             work["gate1"] = "hypotézy " + ", ".join(f"H{i}" for i in g1)
+    inputs = sorted({r["hypothesis_id"] for r in db.pending_gate1_inputs()})
+    if inputs:
+        work["gate1-input"] = "tvoje dáta na posúdenie: " + ", ".join(f"H{i}" for i in inputs)
     passed = [h["id"] for h in db.gate2_hypotheses()]
     for hid in passed:
         exps = db.experiments_for(hid)
@@ -126,7 +134,8 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
         if slice_min < MIN_SLICE:
             skipped[kind] = "nezmestí sa do času"
             continue
-        ids = gate1_ids(db) if kind == "gate1" else selected_ids(db) if kind in ("people", "contacts", "drafts") else []
+        ids = (gate1_ids(db, retry_days=cfg.gate1.research_retry_days) if kind == "gate1"
+               else selected_ids(db) if kind in ("people", "contacts", "drafts") else [])
         job = db.create_job(kind, {"minutes": round(slice_min), "hypotheses": ids, "config": config,
                                    "autopilot": round_no}, status="queued")
         planned.append({"úloha": job, "akcia": kind, "minúty": round(slice_min), "dôvod": work[kind]})

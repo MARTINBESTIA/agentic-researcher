@@ -8,7 +8,7 @@ from typing import Any
 
 from ..util import utcnow
 
-GATE_STATUSES = ("not_started", "running", "ready", "passed", "paused", "stopped")
+GATE_STATUSES = ("not_started", "running", "ready", "needs_input", "passed", "paused", "stopped")
 
 
 class GatesMixin:
@@ -43,6 +43,26 @@ class GatesMixin:
             "gate1_status = CASE WHEN gate1_status = 'not_started' THEN 'running' ELSE gate1_status END WHERE id = ?",
             (utcnow(), hid),
         )
+
+    # ---------------------------------------------------------------- vstup človeka (Brána 1)
+    def add_gate1_input(self, hid: int, text: str, file_name: str | None = None, dataset_id: int | None = None) -> int:
+        cur = self._exec("INSERT INTO gate1_inputs (hypothesis_id, text, file_name, dataset_id, status, created_at) "
+                         "VALUES (?, ?, ?, ?, 'pending', ?)", (hid, text.strip(), file_name, dataset_id, utcnow()))
+        return int(cur.lastrowid)
+
+    def gate1_inputs_for(self, hid: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM gate1_inputs WHERE hypothesis_id = ? ORDER BY id DESC", (hid,))
+
+    def pending_gate1_inputs(self, ids: list[int] | None = None) -> list[sqlite3.Row]:
+        rows = self._all("SELECT * FROM gate1_inputs WHERE status = 'pending' ORDER BY id")
+        return [r for r in rows if not ids or r["hypothesis_id"] in ids]
+
+    def set_gate1_input_dataset(self, input_id: int, dataset_id: int) -> None:
+        self._exec("UPDATE gate1_inputs SET dataset_id = ? WHERE id = ?", (dataset_id, input_id))
+
+    def set_gate1_input_result(self, input_id: int, status: str, score: float | None, evaluation: dict[str, Any]) -> None:
+        self._exec("UPDATE gate1_inputs SET status = ?, score = ?, evaluation_json = ?, evaluated_at = ? WHERE id = ?",
+                   (status, score, json.dumps(evaluation, ensure_ascii=False), utcnow(), input_id))
 
     def set_gate1_summary(self, hid: int, summary: dict[str, Any]) -> None:
         self._exec("UPDATE hypotheses SET gate1_json = ? WHERE id = ?", (json.dumps(summary, ensure_ascii=False), hid))

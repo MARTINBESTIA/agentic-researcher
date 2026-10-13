@@ -2,21 +2,24 @@ from datetime import date
 
 import streamlit as st
 
-from radar.gate1 import decide
+from radar.datasets import DatasetError
+from radar.gate1 import USER_FILE_EXT, decide, upload_path
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
 
 d, c = db(), cfg()
 st.caption("Brána 1 – dáta a dataset: aké polia treba, kde sú (licencia, frekvencia, kvalita), dataset, z ktorého "
            "zreprodukuješ známe číslo, a čo treba vyžiadať podľa zákona 211/2000. Beží pre hypotézy vybrané na Bránu 0. "
-           "Nič sa automaticky nevyraďuje – chýbajúce dáta sú príznak; rozhodnutie je tvoje.")
+           f"Pravidlo prechodu: pripravenosť dát ≥ {c.gate1.auto_gate2_readiness:.2f} → Brána 1 prejde automaticky (Brána 2); "
+           "inak hypotéza čaká na tvoje dáta alebo schému (záložka Tvoje dáta). Nič sa nevyraďuje; tvoje ručné "
+           "rozhodnutie má prednosť.")
 hyps = d.gate1_hypotheses()
 if not hyps:
     st.info("Žiadna hypotéza nie je vybraná na Bránu 0. Vyber ju v Problémoch alebo akciou „Zbierať ľudí ku overeným "
             "hypotézam“.", icon=":material/info:")
     st.stop()
-STATUS = {"not_started": "nezačatá", "running": "prebieha", "ready": "pripravená na rozhodnutie", "passed": "prešla",
-          "paused": "pozastavená", "stopped": "zastavená"}
+STATUS = {"not_started": "nezačatá", "running": "prebieha", "ready": "pripravená na rozhodnutie",
+          "needs_input": "čaká na tvoje dáta", "passed": "prešla", "paused": "pozastavená", "stopped": "zastavená"}
 labels = {h["id"]: f"H{h['id']}: {h['title'][:80]} · {STATUS.get(h['gate1_status'], h['gate1_status'])}" for h in hyps}
 hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g1_h")
 h = d.get_hypothesis(hid)
@@ -34,12 +37,18 @@ for flag in summary.get("príznaky", []):
 if summary:
     st.caption("Skóre = " + " + ".join(f"{w}·{k}" for k, w in summary.get("váhy", {}).items()) + " · zložky: " + ", ".join(
         f"{k} {v}" for k, v in summary.get("zložky", {}).items()) + ". Poradie, nie pravdepodobnosť úspechu.")
+if h["gate1_status"] == "needs_input":
+    st.warning(f"Pripravenosť dát je pod {c.gate1.auto_gate2_readiness:.2f} – Brána 2 čaká na tvoje dáta alebo aspoň "
+               "schému (záložka Tvoje dáta). Autopilot medzitým občas znova prehľadá zdroje.", icon=":material/upload:")
+last = next(iter(d.gate_decisions_for(hid, 1)), None)
+if h["gate1_status"] == "passed" and last is not None:
+    st.success(f"Brána 1 prešla ({last['decided_at'][:10]}): {last['reason'] or ''}", icon=":material/check_circle:")
 start_job_button("gate1", "Spustiť prieskum dát pre túto hypotézu", 90, [hid], key=f"g1_run_{hid}",
                  icon=":material/database:")
 jobs_panel(show_last=False)
 
-tab_f, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(["Polia", "Zdroje", "Datasety", "Reprodukcia čísla", "Infozákon",
-                                                      "Rozhodnutie"])
+tab_f, tab_u, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(["Polia", "Tvoje dáta", "Zdroje", "Datasety",
+                                                             "Reprodukcia čísla", "Infozákon", "Rozhodnutie"])
 FIELD_STATUS = ["open", "found", "partial", "requested", "partner", "missing"]
 with tab_f:
     fields = d.fields_for(hid)
@@ -62,6 +71,57 @@ with tab_f:
                     d.update_field(new["id"], is_key=int(new["kľúčové"]), status=new["stav"], description=new["popis"],
                                    status_note=new["poznámka"] or None, edited_by_human=1)
             refresh()
+COVERAGE = {"yes": "áno", "partial": "čiastočne", "no": "nie", "chýba": "chýba (model nepovedal)"}
+with tab_u:
+    st.caption("Máš dáta? Nahraj súbor a opíš ho. Nemáš? Napíš aspoň schému: stĺpce, jednotky, obdobie, podrobnosť "
+               "(napr. obec × mesiac) a odkiaľ by dáta boli. Sudca (27B) posúdi každé pole zo záložky Polia (áno, "
+               "čiastočne, nie); vhodnosť počíta kód: kľúčové polia spolu 0,7, ostatné 0,3, áno = 1, čiastočne = 0,5. "
+               f"Vhodnosť ≥ {c.gate1.user_data_threshold:.2f} → Brána 1 prejde automaticky. Samotná schéma stačí na "
+               "prechod, spätný test v Bráne 2 však potrebuje skutočné dáta.")
+    st.caption("Nevkladaj dáta zamestnávateľa ani osobné údaje – tabuľka so stĺpcami ako meno, e-mail či adresa sa "
+               "neuloží. Nahraný súbor sa po importe do DuckDB zmaže (ostáva tabuľka, názov a SHA-256).")
+    with st.form(f"g1_input_{hid}", clear_on_submit=True):
+        text = st.text_area("Popis dát alebo schéma", height=160, key=f"g1_in_text_{hid}",
+                            placeholder="napr. obec; IČO; rok; mesiac; výdavky_eur – mesačne 2019–2025, rozpočty 40 obcí")
+        upload = st.file_uploader("Súbor s dátami (nepovinné)", type=list(USER_FILE_EXT), key=f"g1_in_file_{hid}")
+        if st.form_submit_button("Uložiť a dať posúdiť", icon=":material/upload:"):
+            if not text.strip():
+                st.error("Napíš aspoň krátky popis alebo schému dát.")
+            else:
+                try:
+                    if upload is not None:
+                        upload_path(c, hid, 0, upload.name)  # overí príponu ešte pred uložením vstupu
+                    iid = d.add_gate1_input(hid, text, upload.name if upload is not None else None)
+                    if upload is not None:
+                        path = upload_path(c, hid, iid, upload.name)
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(upload.getbuffer())
+                    st.toast(f"Vstup č. {iid} uložený – posúdi ho akcia „Brána 1: posúdiť tvoje dáta“ (aj v autopilotovi).")
+                except DatasetError as exc:
+                    st.error(str(exc))
+    if not d.fields_for(hid):
+        st.caption("Polia ešte nevznikli – posúdenie počká na prvý krok prieskumu dát.")
+    inputs = d.gate1_inputs_for(hid)
+    if any(i["status"] == "pending" for i in inputs):
+        start_job_button("gate1-input", "Posúdiť moje dáta teraz", 15, [hid], key=f"g1_eval_{hid}",
+                         icon=":material/fact_check:")
+    for inp in inputs:
+        ev = json_or(inp["evaluation_json"], {})
+        state = {"pending": "čaká na posúdenie", "failed": "posúdenie zlyhalo"}.get(
+            inp["status"], f"vhodnosť {inp['score']:.2f}" if inp["score"] is not None else inp["status"])
+        with st.expander(f"Vstup č. {inp['id']} · {inp['created_at'][:16]} · {state}"
+                         + (f" · súbor {inp['file_name']}" if inp["file_name"] else "")):
+            st.text(inp["text"])
+            if ev.get("zhrnutie"):
+                st.markdown(esc(ev["zhrnutie"]))
+            if ev.get("polia"):
+                st.dataframe([{"pole": r["pole"], "kľúčové": r["kľúčové"], "pokrytie": COVERAGE.get(r["pokrytie"], r["pokrytie"]),
+                               "váha": r["váha"], "dôvod": r["dôvod"]} for r in ev["polia"]],
+                             hide_index=True, alt="Posúdenie polí z tvojich dát")
+                st.caption(f"Vhodnosť = súčet váha × pokrytie = {ev.get('skóre', 0):.2f} (prah {ev.get('prah', 0):.2f})"
+                           + (f" · tabuľka {ev['dataset']} je v záložke Datasety" if ev.get("dataset") else ""))
+            for note in ev.get("poznámky", []):
+                st.warning(note, icon=":material/info:")
 with tab_s:
     sources = d.sources_for(hid)
     if not sources:

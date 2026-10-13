@@ -1,4 +1,5 @@
-"""Brána 2 – experimenty a demo (pre hypotézy, pri ktorých si Bránu 1 označil ako prejdenú).
+"""Brána 2 – experimenty a demo (pre hypotézy, ktoré prešli Bránou 1: pripravenosť dát alebo vhodnosť tvojich dát
+≥ 0,5, alebo tvoje rozhodnutie).
 
 Jednotka je dvojica hypotéza × organizácia (alebo región): nájdené dáta môžu patriť jednej alebo viacerým
 organizáciám (pokrytie podľa IČO z Brány 1).

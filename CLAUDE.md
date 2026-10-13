@@ -14,7 +14,7 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 
 **Stav:** verzia 0.2 „Brána 0 agregátor“ podľa `docs/SPEC_brana0.md` je implementovaná (M1–M8,
 11. 10. 2026), rozšírená o Správcu akcií a výber modelov v GUI, LinkedIn a kontakty k osobe, Brány 1 a 2
-(DuckDB; schéma v6) – M9–M13 v `docs/ACCEPTANCE.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+(DuckDB; schéma v7 – vstupy človeka pre Bránu 1) – M9–M13 v `docs/ACCEPTANCE.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -44,7 +44,7 @@ docker compose up -d                     # SearXNG
 | `radar/search.py`, `radar/fetch.py` | SearXNG; sťahovanie s robots.txt, pauzami a blokovanými doménami aj po presmerovaní; `fetch_html` |
 | `radar/collect.py`, `radar/discover.py` | zber k témam; objavovanie (sources.yaml, matica dopytov, Thompson sampling) |
 | `radar/extract.py` → `verify.py` → `cluster.py` → `critic.py` → `market.py` → `report.py` | pipeline dôkazov (screen, kontrola kódom → entail, kandidáti a novosť, správa so sekciami Brány 0) |
-| `radar/gate1.py`, `radar/gate2.py`, `radar/datasets.py` | Brána 1 (polia, zdroje, DuckDB, reprodukcia, infozákon, pripravenosť) a Brána 2 (predregistrácia, spätný test, demo); DuckDB iba na čítanie bez externého prístupu |
+| `radar/gate1.py`, `radar/gate2.py`, `radar/datasets.py` | Brána 1 (polia, zdroje, DuckDB, reprodukcia, infozákon, pripravenosť; pravidlo prechodu ≥ 0,5, inak „čaká na tvoje dáta“ a posúdenie vstupu človeka sudcom, skóre počíta kód) a Brána 2 (predregistrácia, spätný test, demo); DuckDB iba na čítanie bez externého prístupu |
 | `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
 | `radar/crz.py` | Centrálny register zmlúv: denné dávky, vybrané stĺpce bez mien a adries, zlúčenie podľa ID |
 | `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií |

@@ -88,4 +88,4 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   zdrojov málo; agent prieskumu pritom za 17–22 min prečíta ~18 stránok a uloží 3–4 citáty. Zvážiť: viac dokumentov z katalógu
   (napr. 40) a menej sedení agenta. Správy inšpekcií (SIŽP) dávajú hypotézy o jednotlivých incidentoch („Spoločnosť X vypúšťa
   odpadové vody…“, „Analýza vzoriek zistila…“) – extrakcia by mala žiadať problém typu organizácie, nie jeden prípad. · 0,5 dňa.
-
+- **2026-10-13 – Brána 1 → 2 – presnosť posúdenia tvojich dát a prechod bez skutočných dát.** Sudca (27B) triedi polia z popisu alebo schémy; nemá gold labely, takže presnosť nepoznáme. Zbierať tvoje opravy posúdenia (pole, áno/čiastočne/nie) ako labely pre eval. Hypotéza, ktorá prešla iba so schémou, by mala v Bráne 2 dostať príznak „bez dát – spätný test čaká“ a autopilot by ju nemal opakovane posielať do predregistrácie, kým nepribudne dataset. Zvážiť aj šablónu schémy (CSV hlavička z polí Brány 1 na stiahnutie), aby sa vstup ľahšie vypĺňal. · 0,5 dňa.

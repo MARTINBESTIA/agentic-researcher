@@ -98,9 +98,16 @@ ACTIONS: dict[str, Action] = {
         "prístup – iba ak sú na prečítanej stránke) → kontrola a kvalita → stiahnutie do DuckDB (limit 2 GB / 50 GB) → "
         "zreprodukovanie známeho čísla → návrhy žiadostí podľa 211/2000 a pripravenosť dát. Nič sa nevyraďuje ani neodosiela.",
         "polia, zdroje, datasety, reprodukcia, pripravenosť dát", "presný + agent", 120, "gate0"),
+    "gate1-input": Action(
+        "Brána 1: posúdiť tvoje dáta",
+        "Pre hypotézy, ku ktorým si v Bráne 1 vložil popis dát, schému alebo súbor: súbor do DuckDB (tabuľka s osobnými "
+        "údajmi sa neuloží) → sudca posúdi každé pole (áno / čiastočne / nie) → kód spočíta vhodnosť (kľúčové polia 0,7). "
+        "Vhodnosť ≥ 0,5 → Brána 1 prešla automaticky a hypotéza ide do Brány 2.",
+        "posúdenie vstupu, dataset, rozhodnutie Brány 1", "sudca (27B)", 15),
     "gate2": Action(
         "Brána 2: experimenty a demo",
-        "Pre hypotézy, pri ktorých si Bránu 1 označil ako prejdenú: dvojice hypotéza × organizácia z dát → návrh "
+        "Pre hypotézy, ktoré prešli Bránou 1 (pripravenosť ≥ 0,5, tvoje dáta ≥ 0,5 alebo tvoje rozhodnutie): dvojice "
+        "hypotéza × organizácia z dát → návrh "
         "predregistrácie (potvrdíš a uzamkneš v GUI) → spätný test proti naivnému odhadu (iba Python) → demo pre organizáciu.",
         "experimenty, výsledky spätného testu, demá", "presný (výpočty bez modelu)", 60, "gate1_passed"),
     "bench": Action(
@@ -342,6 +349,16 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
     for stage in ("gate1-sources", "gate1-check", "gate1-datasets"):
         run(stage, fast)
     run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 1)))
+    run("gate1-user", Deadline(8))  # čakajúce vstupy človeka (bez nich bez modelu)
+    run("gate1-finish", Deadline(2))
+
+
+def _gate1_input(app, deadline: Deadline, run, ids, report_progress) -> None:
+    """Iba posúdenie tvojich vstupov a prepočet pripravenosti (bez hľadania zdrojov)."""
+    app.gate_ids = ids or sorted({r["hypothesis_id"] for r in app.db.pending_gate1_inputs()})
+    if not app.gate_ids:
+        return
+    run("gate1-user", deadline.sub(max(1.0, deadline.remaining_minutes() - 2)))
     run("gate1-finish", Deadline(2))
 
 
@@ -376,6 +393,6 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
-    "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate2": _gate2, "bench": _bench,
+    "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot,
 }

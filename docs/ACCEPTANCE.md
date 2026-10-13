@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 199 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v6).
+Stav 13. 10. 2026: 203 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v7).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -77,11 +77,15 @@ Stav 13. 10. 2026: 199 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M12 | 1 DuckDB import (cp1250), profil, pokrytie podľa IČO, pôvodný súbor zmazaný | `test_datasets_go_to_duckdb_with_profile_coverage_and_limits` |
 | M12 | 2 osobné údaje → neuložené (GDPR), limit veľkosti | `test_personal_data_dataset_is_not_kept_and_size_limit` |
 | M12 | 3 SQL od modelu iba na čítanie, jeden SELECT | `test_sql_from_model_is_read_only_single_select` |
-| M12 | 4 reprodukcia s mierkou, pripravenosť, stav „ready“ iba ako návrh | `test_reproduction_of_known_number_scale_and_readiness` |
+| M12 | 4 reprodukcia s mierkou, pripravenosť; skóre ≥ 0,5 → Brána 1 prešla automaticky s dôvodom | `test_reproduction_of_known_number_scale_and_readiness` |
+| M12 | 4a skóre < 0,5 → „čaká na tvoje dáta“, ručné rozhodnutie sa neprepíše | `test_low_readiness_waits_for_user_and_manual_decision_wins` |
+| M12 | 4b tvoje dáta: súbor do DuckDB, sudca po poliach, vhodnosť počíta kód, ≥ 0,5 → prešla | `test_user_data_is_imported_judged_per_field_and_scored_by_code` |
+| M12 | 4c tvoje dáta s osobnými údajmi sa neuložia ani nepošlú modelu; zlyhanie modelu → vstup čaká; nízka vhodnosť → čaká | `test_user_input_with_personal_data_low_score_and_model_failure` |
+| M12 | 4d autopilot: posúdenie vstupov pred Bránou 1, „čaká na dáta“ znova až po 3 dňoch | `test_autopilot_evaluates_user_inputs_and_retries_waiting_hypotheses_later` |
 | M12 | 5 návrh žiadosti 211/2000, príznak 6 týždňov, bez vyradenia | `test_missing_key_field_gets_info_request_draft_and_six_week_flag` |
 | M13 | 1 spätný test (rolling origin, bootstrap) | `test_backtest_series_math` |
 | M13 | 2 predregistrácia → uzamknutie → spätný test → demo bez čísel mimo faktov | `test_gate2_prereg_lock_backtest_and_demo`, `test_invalid_prereg_columns_cannot_be_locked` |
-| M13 | 3 GUI Brány 1 (pripravenosť, príznaky, žiadosť) | `test_m2_gui.py::test_gate1_page_shows_readiness_fields_and_info_request` |
+| M13 | 3 GUI Brány 1 (pripravenosť, príznaky, žiadosť, „čaká na tvoje dáta“ a formulár vstupu) | `test_m2_gui.py::test_gate1_page_shows_readiness_fields_and_info_request` |
 | M11 | 3 zdroje z prečítaných stránok, keď agent nič neuloží; pole „názov: popis“, citát s „…“ | `test_sources_from_read_pages_when_agent_only_reads`, `test_field_name_with_description_and_shortened_quote` |
 | M12 | 6 API s popisom OpenAPI → JSON endpointy, vnorené IČO → pokrytie | `test_openapi_endpoints_become_json_datasets_with_nested_fields` |
 | M13 | 4 dátumový stĺpec zoskupený po obdobiach (štvrťrok) | `test_backtest_groups_date_column_by_period` |

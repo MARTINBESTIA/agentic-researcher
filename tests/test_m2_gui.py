@@ -199,6 +199,13 @@ def test_gate1_page_shows_readiness_fields_and_info_request(gui):
     assert any(m.label == "Kľúčové polia nájdené" and m.value == "0 / 1" for m in at.metric)
     assert any("dáta nenájdené" in w.value for w in at.warning)
     assert any("211/2000" in c.value for c in at.code)
+    assert any("Brána 2 čaká na tvoje dáta" in w.value for w in at.warning)  # pripravenosť < 0,5
+    at.text_area(key="g1_in_text_1").input("obec; rok; výdavky v € – mesačne 2019–2025")  # formulár: odošle sa s kliknutím
+    next(b for b in at.button if b.label == "Uložiť a dať posúdiť").click().run()
+    assert not at.exception, at.exception
+    db = DB(cfg.db_path)
+    assert [(i["status"], i["file_name"]) for i in db.gate1_inputs_for(1)] == [("pending", None)]
+    db.close()
 
 
 def test_problems_theme_view_and_rename(gui):
