@@ -524,3 +524,10 @@ def test_label_on_few_entities_is_flagged_and_nku_supplier_join_warned(tmp_path)
     assert exp_plan.source_warnings(db, hid, plan) and not exp_plan.source_warnings(
         db, hid, {"steps": [{"op": "lookup", "name": "nku", "table": "ds9", "keys": ["ico_objednavatel"], "days": 365}]})
 
+
+def test_conclusion_number_check_reads_thousands_separators():
+    from radar.exp_conclude import _numbers
+
+    assert _numbers("239 z 75 726 entít, 2024 2025, 0,536") == {"239", "75726", "2024", "2025", "0.536"}
+    assert _numbers("75\u00a0726 a 1 234 567") == {"75726", "1234567"}
+

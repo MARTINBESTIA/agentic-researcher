@@ -31,6 +31,7 @@ from .util import Deadline, utcnow
 log = logging.getLogger(__name__)
 
 NUM_RE = re.compile(r"\d+(?:[.,]\d+)?")
+THOUSANDS_RE = re.compile(r"(?<![\d.,])\d{1,3}(?:[ \u00a0\u202f]\d{3})+(?![\d])")  # „75 726“ = 75726
 
 
 class Conclusion(BaseModel):
@@ -116,8 +117,10 @@ def facts(card: dict[str, Any] | None, exp, res: dict[str, Any]) -> list[str]:
 
 
 def _numbers(text: str) -> set[str]:
+    """Čísla v texte; oddeľovač tisícov medzerou sa zlúči (model píše „75 726“, fakt „75726“ – E6 sa inak zamietol)."""
+    text = THOUSANDS_RE.sub(lambda m: re.sub(r"\s", "", m.group()), text or "")
     return {n.replace(",", ".").rstrip("0").rstrip(".") if "." in n.replace(",", ".") else n
-            for n in NUM_RE.findall(text or "")}
+            for n in NUM_RE.findall(text)}
 
 
 def code_conclusion(card: dict[str, Any] | None, exp, res: dict[str, Any], fact_list: list[str]) -> dict[str, Any]:

@@ -310,7 +310,7 @@ EXPERIMENT_CONCLUSION_SYSTEM = """You write the conclusion of a Gate 2 experimen
 Use ONLY the numbered FACTS for numbers; do not add any number that is not in the facts, do not promise anything.
 Return:
 - "what_tested": one sentence – what was tested on which data;
-- "result_for_decision": 2–3 sentences – what the result means for the DECISION in the card (e.g. how many of the checked items would have the problem compared with today's practice), including whether the success rule was met;
+- "result_for_decision": 2–3 sentences – what the result means for the DECISION in the card (e.g. how many of the checked items would have the problem compared with today's practice), including whether the success rule was met; if a fact says a stronger naive baseline exists or the label sits on far fewer entities than random, say it here as well and do not claim a benefit for the decision;
 - "robustness": one sentence – do secondary metrics and the interval support the result; if a fact says the strongest naive baseline is not the preregistered one, state the improvement against the strongest one as well;
 - "limits": 1–2 sentences – data length, the label is only a proxy, what is uncertain; if a fact says the label sits on far fewer entities than random, say that the result shows mainly WHICH entities carry the label, not which items;
 - "interview_questions": 2–3 questions for interviews with the people in the card that would confirm whether such output is useful."""
