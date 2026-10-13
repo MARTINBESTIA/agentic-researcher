@@ -167,6 +167,9 @@ def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
             if int(s.get("days") or 0) == 0:
                 errors.append(f'{where}: nastav "days" – záporné = história pred dátumom riadku (príznak), kladné = '
                               "udalosť po ňom (štítok); 0 = kedykoľvek iba ak čas nie je známy")
+            elif -7 < int(s.get("days") or 0) < 0:  # reálny beh: 27B dal -1 v zmysle „celá história“ (okno 1 deň)
+                errors.append(f'{where}: "days" {s.get("days")} je okno iba {-int(s["days"])} dní pred riadkom – pre celú '
+                              'históriu použi napr. -3650, pre posledný rok -365')
         if op in ("linked_agg", "future_agg") and int(s.get("days") or 0) <= 0:
             errors.append(f'{where}: "days" musí byť kladné (okno po dátume riadku)')
         if op == "linked_agg" and not s.get("link"):

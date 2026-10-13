@@ -435,4 +435,7 @@ def test_precheck_lists_all_missing_step_parameters_and_fills_unambiguous_ico(tm
     assert '"days"' in joined and "kladné" in joined and 'agg sum potrebuje "column"' in joined
     assert "value_desc potrebuje" in joined and plan["steps"][0]["target_column"] == "ico"  # jediné IČO doplnil kód
     assert plan["steps"][0]["match"] == "ico"
+    short = RANKING_PLAN | {"steps": [{"op": "lookup", "name": "x", "table": "ds2", "keys": ["ico_objednavatel"],
+                                       "target_column": "ico", "other_time": "koniec_kontroly", "days": -1}]}
+    assert any("-3650" in e for e in exp_plan.precheck_steps(cfg, hid, short))  # -1 = jeden deň, nie celá história
 
