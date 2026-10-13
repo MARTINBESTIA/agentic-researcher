@@ -36,6 +36,7 @@ from rapidfuzz.utils import default_process
 from .agent import ResearchAgent
 from .catalogs import NKOD_DATASET_RE, CatalogDataset, NKODClient
 from .crz import dedupe_latest, download_crz, is_crz_export
+from .nku import is_nku_page
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
@@ -59,6 +60,11 @@ OPEN_LICENSE_RE = re.compile(r"cc[- ]?by|cc0|creative commons|otvoren\w* licenc|
 RESTRICTED_LICENSE_RE = re.compile(r"(cc[-_ ]?)?by[-_ ]?nc|by[-_ ]?nd|noncommercial|non-commercial|nekomer", re.I)
 MACHINE_FORMATS = ("csv", "xlsx", "json", "xml", "api", "parquet", "sparql")
 REPRO_SCORE = {"match": 1.0, "close": 0.7, "mismatch": 0.2, "failed": 0.0}
+REPRO_LABELS = {"match": "zhoda", "close": "blízko", "mismatch": "nesedí", "failed": "nevyšla", "no_target": "bez cieľa"}
+YEAR_RE = re.compile(r"^(19|20)\d\d$")
+MONTHS_RE = re.compile(r"január|február|marec|marca|apríl|máj|jún|júl|august|septemb|októb|novemb|decemb|dátum|deň|rok\b", re.I)
+VOLUME_RE = re.compile(r"€|eur|kč|mil|mld|tis|sum|výdav|náklad|rozpočet|hodnot", re.I)
+COUNT_RE = re.compile(r"počet|zmlúv|zmluv|projekt|obc|osôb|prípad|žiadost|faktúr|organizác|kontrol|podnik|subjekt", re.I)
 
 
 # ======================================================================= 1. polia
@@ -156,9 +162,10 @@ SOURCE_TOOLS: list[dict[str, Any]] = [
 class SourceAgent(ResearchAgent):
     """Agent zdrojov dát: rovnaké nástroje na čítanie, namiesto dôkazu ukladá zdroj poľa."""
 
-    def __init__(self, cfg: Config, db: DB, llm: Any, searx, fetcher, hyp, fields: list):
+    def __init__(self, cfg: Config, db: DB, llm: Any, searx, fetcher, hyp, fields: list, embedder=None):
         super().__init__(cfg, db, llm, searx, fetcher, topic=f"Brána 1: {hyp['title']}", hypothesis_id=hyp["id"],
                          task_name="gate1_sources", claim_origin="gate1", doc_kind="gate1")
+        self.embedder = embedder
         self.tools = SOURCE_TOOLS
         self.hyp = hyp
         self.fields = {f["name"]: f for f in fields}
@@ -196,13 +203,29 @@ class SourceAgent(ResearchAgent):
         if self.catalog is None:
             return lines
         for f in fields:
-            for ds in self.catalog.search(f["name"], limit=self.cfg.gate1.nkod_hits_per_field):
+            for ds in self.rank_candidates(f, self.catalog.search(f["name"], limit=self.cfg.gate1.nkod_rerank_pool)):
                 self.add_catalog_page(ds)
                 lines.append(f"- for \"{f['name']}\": {ds.title} ({ds.publisher or '?'}; {', '.join(ds.formats) or '?'}) "
                              f"page_url {ds.uri}")
             if self.catalog.failed:
                 break
         return lines
+
+    def rank_candidates(self, field, found: list) -> list:
+        """Najbližšie k významu poľa a hypotézy podľa embeddingov (hľadanie podľa kmeňov slov je zašumené:
+        „Rozpočet projektu“ → „Zoznam projektov rozvoja IT“); bez embeddingov poradie katalógu."""
+        n = self.cfg.gate1.nkod_hits_per_field
+        if self.embedder is None or len(found) <= n:
+            return found[:n]
+        try:
+            query = f"{field['name']}: {field['description'] or ''} – {self.hyp['title']}"
+            vecs = self.embedder.embed_texts([query] + [f"{d.title}. {(d.description or '')[:300]} ({d.publisher or ''})"
+                                                         for d in found])
+            sims = vecs[1:] @ vecs[0]
+            return [found[i] for i in sorted(range(len(found)), key=lambda i: -sims[i])[:n]]
+        except Exception as exc:  # noqa: BLE001 – bez embeddingov poradie katalógu
+            log.warning("Poradie kandidátov z katalógu bez embeddingov: %s", exc)
+            return found[:n]
 
     def _page_text(self, url: str) -> str | None:
         if url not in self.pages:
@@ -325,7 +348,8 @@ def catalog_text(cfg: Config) -> str:
     return "\n".join(f"- {c.name} ({c.publisher}): {c.url} – {c.topics}" for c in cfg.gate1.catalog)
 
 
-def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, ids: list[int] | None) -> dict:
+def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, ids: list[int] | None,
+                embedder=None) -> dict:
     stats: Counter = Counter()
     done: list[tuple[Any, SourceAgent, list]] = []  # extrakcia (presný model) až po všetkých agentoch: menej výmen modelu
     for hyp in _hypotheses(cfg, db, ids):
@@ -342,7 +366,7 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
         listing = "\n".join(f"- {f['name']}{' [KEY]' if f['is_key'] else ''}: {f['description'] or ''}" for f in todo)
         task = (f"Problem: {hyp['title']} (segment: {hyp['segment'] or '?'}).\nFind sources for these fields:\n{listing}\n"
                 "Start with the known portals; search in Slovak first.")
-        agent = SourceAgent(cfg, db, llm, searx, fetcher, hyp, todo)
+        agent = SourceAgent(cfg, db, llm, searx, fetcher, hyp, todo, embedder=embedder)
         candidates = agent.prefetch_catalog(todo)
         if candidates:
             task += ("\nCatalogue candidates already read (verify they fit the field; record_source with this page_url):\n"
@@ -583,6 +607,11 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         if is_crz_export(url):  # katalóg uvádza iba adresár; súbory sú denné dávky s dátumom v názve
             dl = download_crz(cfg, fetcher, hyp_dir(cfg, hid), fetcher.blocked, cfg.gate1.crz_days, deadline)
             fmt = "json"
+        elif is_nku_page(url):  # NKÚ: zistenia + zoznam subjektov (IČO), adresy sa neukladajú
+            from .nku import download_nku
+
+            dl = download_nku(cfg, fetcher, hyp_dir(cfg, hid), fetcher.blocked)
+            fmt = "csv"
         elif paging and paging.get("limit") and any(paging.get(k) for k in ("cursor", "offset", "page")):
             dl = download_paginated(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked, paging)
             fmt = "json"
@@ -628,11 +657,44 @@ def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: s
         stats["long_tables"] += 1 if (prof["dlhý_tvar"] or {}).get("tabuľka") else 0
     db.add_dataset(hid, source_id, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
                    status="ok")
+    for other in sharing_hypotheses(db, hid):  # rozdelená hypotéza: tabuľka je v spoločnej DuckDB, záznam pre všetky
+        if other != hid:
+            db.add_dataset(other, None, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
+                           status="ok")
     for org_id, col, n in coverage(cfg, hid, table, prof["ico_columns"], orgs):
         db.set_coverage(dataset_id, org_id, col, n)
         stats["coverage"] += 1
     stats["datasets"] += 1
     return stats
+
+
+def sharing_hypotheses(db: DB, hid: int) -> list[int]:
+    """Hypotézy so spoločnou DuckDB: rodič a jeho podhypotézy (rozdelenie)."""
+    h = db.get_hypothesis(hid)
+    root = (h["parent_id"] if h is not None and h["parent_id"] else hid)
+    return [root] + [c["id"] for c in db.children_of(root)]
+
+
+MANUAL_FIELD = "Doplnkové dáta (pridané ručne)"
+
+
+def add_dataset_url(cfg: Config, db: DB, hid: int, url: str, name: str = "", fetcher=None,
+                    deadline: Deadline | None = None) -> dict:
+    """Dataset z odkazu (CSV, XLSX, JSON, XML, ZIP, stránka NKÚ, adresár CRZ): zdroj „pridaný ručne“; s fetcherom
+    sa hneď stiahne, inak pri najbližšom kroku gate1-datasets."""
+    if not re.match(r"^https?://", url or ""):
+        raise DatasetError("odkaz musí začínať http:// alebo https://")
+    fid = next((f["id"] for f in db.fields_for(hid) if f["name"] == MANUAL_FIELD), None)
+    if fid is None:
+        fid = db.upsert_field(hid, MANUAL_FIELD, "dáta pridané človekom (štítky, číselníky, ďalšie zdroje)", False,
+                              "pridané ručne")
+    sid = db.add_source(fid, hid, name or url[:80], url, "manual", access="open", formats="")
+    db.update_source(sid, status="verified", checks_json={"http_ok": True, "súbory": [url], "pridané_ručne": True})
+    if fetcher is None:
+        return {"source": sid, "stiahnuté": False}
+    orgs = [(o["id"], o["ico"]) for o in db.organizations_with_ico()]
+    stats = _one_dataset(cfg, db, fetcher, hid, db.get_source(sid), url, orgs, None, None, deadline)
+    return {"source": sid, "stiahnuté": True, **dict(stats)}
 
 
 # ======================================================================= 5. reprodukcia známeho čísla
@@ -655,6 +717,26 @@ def compare(result: float, target: float, cfg: Config) -> tuple[str, float, floa
     return verdict, scale, err
 
 
+def repro_target(numbers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Číslo, ktoré sa dá z dát vypočítať: bez rokov a dátumov; prednosť má objem (suma, výdavky) a počet
+    (zmluvy, projekty, obce). H11 malo iba „10 mil. €“ z metodiky, „40 %“ podielu a „2025 decembra“ – reprodukcia
+    „nevyšla“, hoci cieľ vôbec nebol vypočítateľný."""
+    best, score = None, -1
+    for n in numbers or []:
+        try:
+            value = float(n.get("value"))
+        except (TypeError, ValueError):
+            continue
+        unit, meaning = str(n.get("unit") or ""), str(n.get("meaning") or "")
+        text = f"{unit} {meaning}"
+        if (value == int(value) and YEAR_RE.match(str(int(value))) and not VOLUME_RE.search(unit)) or MONTHS_RE.search(unit):
+            continue  # rok alebo dátum
+        s = 2 * bool(VOLUME_RE.search(text)) + 2 * bool(COUNT_RE.search(text)) - bool(re.search(r"%|percent|podiel", text))
+        if s > score:
+            best, score = n, s
+    return best if score > 0 else None
+
+
 def run_repro(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None) -> dict:
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
@@ -669,10 +751,10 @@ def run_repro(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         for claim in targets:
             if deadline.expired():
                 return dict(stats)
-            numbers = json.loads(claim["numbers_json"] or "[]")
-            if not numbers:
+            fact = repro_target(json.loads(claim["numbers_json"] or "[]"))
+            if fact is None:
+                stats["no_target"] += 1
                 continue
-            fact = numbers[0]
             res = router.run_task(
                 "gate1_repro",
                 [{"role": "system", "content": GATE1_REPRO_SYSTEM.format(lang=cfg.pipeline.output_language)},
@@ -687,10 +769,10 @@ def run_repro(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 stats["llm_failures"] += 1
                 continue
             spec = res.value
-            if not spec.sql.strip():
-                db.add_reproduction(hid, claim["id"], "failed", explanation=spec.explanation, note="model: z dostupných "
+            if not spec.sql.strip():  # z týchto dát sa číslo vypočítať nedá – nie je to neúspech reprodukcie
+                db.add_reproduction(hid, claim["id"], "no_target", explanation=spec.explanation, note="model: z dostupných "
                                     "tabuliek sa číslo nedá vypočítať", **base)
-                stats["failed"] += 1
+                stats["no_target"] += 1
                 continue
             try:
                 rows = run_query(cfg, hid, spec.sql)
@@ -756,8 +838,12 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
         q = [json.loads(s["quality_json"] or "{}").get("skóre", 0) for s in sources if s["field_id"] == f["id"]
              and s["status"] != "rejected"]
         best_quality.append(max(q) if q else 0.0)
-    repro = [r["verdict"] for r in db.reproductions_for(hid)]
+    repro = [r["verdict"] for r in db.reproductions_for(hid) if r["verdict"] in REPRO_SCORE]
     best_repro = max(repro, key=lambda v: REPRO_SCORE.get(v, 0)) if repro else None
+    # bez vypočítateľného cieľa sa zložka reprodukcie nepočíta (inak by trestala hypotézu za chýbajúce číslo v zdrojoch)
+    no_target = not repro and not any(repro_target(json.loads(c["numbers_json"] or "[]")) and not any(
+        r["claim_id"] == c["id"] and r["verdict"] == "no_target" for r in db.reproductions_for(hid))
+        for c in db.number_claims(hid, 20))
     datasets = db.datasets_for(hid)
     ok = [d for d in datasets if d["status"] == "ok"]
     comp = {
@@ -769,6 +855,10 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
     }
     weights = {"pokrytie_kľúčových": 0.35, "pokrytie_polí": 0.15, "kvalita_zdrojov": 0.2, "reprodukcia": 0.2,
                "dataset_stiahnutý": 0.1}
+    if no_target:
+        comp.pop("reprodukcia")
+        weights = {k: round(w / 0.8, 4) for k, w in weights.items() if k != "reprodukcia"}
+        best_repro = "no_target"
     score = round(sum(comp[k] * w for k, w in weights.items()), 2)
     flags = []
     if fields and not keys_found:

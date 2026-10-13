@@ -1,5 +1,6 @@
 import streamlit as st
 
+from radar.eta import local
 from radar.gui.common import (
     JOB_STATUS, action_card, cfg, config_path, db, job_label, jobs_panel, json_or, start_job_button,
 )
@@ -85,7 +86,13 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
                                                                        f"{c.models.roles[r].model}:latest")}
                 d.set_setting(MODEL_SETTINGS_KEY, {"roles": changed, "profile": profile})
                 st.toast("Výber modelov uložený – platí pre ďalšie spustené akcie.", icon=":material/check:")
+                st.session_state["models_changed"] = True
                 st.rerun()
+        if st.session_state.get("models_changed"):
+            st.info("Modely sa zmenili. Odporúčam zmerať ich rýchlosť a schopnosti (JSON, nástroje); presnosť porovná "
+                    "eval na referenčných hodnoteniach (Kontrola → gold labely).", icon=":material/speed:")
+            start_job_button("bench", "Zmerať rýchlosť vybraných modelov", 20, key="am_bench_after_change",
+                             icon=":material/speed:")
         if chosen:
             st.caption("Aktívny výber z GUI (prepisuje config.yaml): " + ", ".join(
                 f"{r} = {m}" for r, m in (chosen.get("roles") or {}).items()) + f" · profil {chosen.get('profile')}")
@@ -100,7 +107,7 @@ with st.container(border=True):
     st.caption(ACTIONS_INFO.what)
     plan = autopilot_status(d)
     if plan:
-        st.info(f"Autopilot beží do {plan['do'].replace('T', ' ')} UTC · kolo {plan['kolo']} · naplánované: "
+        st.info(f"Autopilot beží do {local(plan['do'])} · kolo {plan['kolo']} · naplánované: "
                 + (", ".join(f"{p['akcia']} ({p['minúty']} min)" for p in plan["naplánované"]) or "nič")
                 + ((" · bez práce: " + ", ".join(k for k, v in plan["preskočené"].items() if v == "bez práce"))
                    if plan.get("preskočené") else ""), icon=":material/autorenew:")
@@ -118,7 +125,7 @@ if queue_stalled(d):
         st.rerun()
 for j in interrupted_jobs(d)[:3]:
     with st.container(horizontal=True, vertical_alignment="center"):
-        st.caption(f"Prerušená #{j['id']} · {job_label(j['kind'])} · {(j['started_at'] or '')[:16].replace('T', ' ')} UTC. "
+        st.caption(f"Prerušená #{j['id']} · {job_label(j['kind'])} · {local(j['started_at'])}. "
                    "Rozpracovaný stav je v databáze – akcia pokračuje tam, kde prestala.")
         if st.button("Spustiť znova", icon=":material/replay:", key=f"am_restart_{j['id']}",
                      help="Rovnaký limit a hypotézy; ak niečo beží, zaradí sa do poradia."):
@@ -160,8 +167,8 @@ rows = []
 for j in d.recent_jobs(25):
     args = json_or(j["args_json"], {})
     rows.append({"#": j["id"], "akcia": job_label(j["kind"]), "stav": JOB_STATUS.get(j["status"], j["status"]),
-                 "začiatok": (j["started_at"] or "")[:16].replace("T", " "),
-                 "koniec": (j["finished_at"] or "")[:16].replace("T", " "), "limit (min)": args.get("minutes"),
+                 "začiatok": local(j["started_at"]) if j["started_at"] else "",
+                 "koniec": local(j["finished_at"]) if j["finished_at"] else "", "limit (min)": args.get("minutes"),
                  "hypotézy": ", ".join(f"H{x}" for x in args.get("hypotheses") or [])})
 st.dataframe(rows, hide_index=True, alt="História akcií", column_config={"#": st.column_config.NumberColumn(format="%d")})
-st.caption("Časy sú v UTC. Výstup každej akcie: logs/jobs/job-<číslo>-<akcia>.log (e-maily a telefóny maskované).")
+st.caption("Časy sú v miestnom čase. Výstup každej akcie: logs/jobs/job-<číslo>-<akcia>.log (e-maily a telefóny maskované).")

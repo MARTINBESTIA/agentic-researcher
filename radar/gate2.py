@@ -170,8 +170,14 @@ def lock(cfg: Config, db: DB, exp_id: int) -> str:
                               {c["id"]: c["quote"] for c in db.evidence_for(exp["hypothesis_id"])})
         if check["chyby"]:
             raise ValueError("Predregistráciu nemožno uzamknúť: " + "; ".join(check["chyby"]))
+        from .exp_plan import plan_fingerprint
+
         digest = prereg_hash(exp)
-        db.update_experiment(exp_id, prereg_hash=digest, locked_at=utcnow(), status="locked")
+        flags = json.loads(exp["flags_json"] or "{}")
+        original = (spec.get("návrh") or {}).get("odtlačok")
+        if original:  # meranie kvality návrhov: zmenil človek plán modelu pred uzamknutím?
+            flags["upravené_pred_uzamknutím"] = original != plan_fingerprint(spec)
+        db.update_experiment(exp_id, prereg_hash=digest, locked_at=utcnow(), status="locked", flags_json=flags)
         return digest
     errors = validate_spec(cfg, exp["hypothesis_id"], spec)
     if errors:

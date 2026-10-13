@@ -74,6 +74,34 @@ class PlanSet(BaseModel):
     experiments: list[ExperimentPlan] = Field(default_factory=list)
 
 
+AUTO_LOCK_KEY = "gate2_auto_lock"  # {"enabled": bool, "since": čas, "by": "GUI"} – uzamknúť bezchybné návrhy hneď
+
+
+def plan_fingerprint(plan: dict[str, Any]) -> str:
+    """Odtlačok plánu bez skúšobného behu a metadát – podľa neho sa zistí, či človek plán pred uzamknutím zmenil."""
+    import hashlib
+
+    core = {k: v for k, v in plan.items() if k not in ("skúšobný_beh", "návrh")}
+    return hashlib.sha256(json.dumps(core, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def plan_quality(db: DB) -> dict[str, Any]:
+    """Ako sa darí modelu navrhovať experimenty: na prvý pokus bez chýb, po oprave, uzamknuté bez úprav."""
+    rows = db._all("SELECT spec_json, flags_json, locked_at FROM experiments WHERE task IS NOT NULL")
+    c: Counter = Counter()
+    for r in rows:
+        meta = (json.loads(r["spec_json"] or "{}") or {}).get("návrh") or {}
+        flags = json.loads(r["flags_json"] or "{}") or {}
+        c["návrhy"] += 1
+        c["bez_chýb_na_prvý_pokus"] += bool(meta.get("bez_chýb_na_prvý_pokus"))
+        c["bez_chýb_po_oprave"] += bool(meta.get("bez_chýb_po_oprave")) and not meta.get("bez_chýb_na_prvý_pokus")
+        c["s_chybami"] += bool(flags.get("chyby_návrhu"))
+        c["uzamknuté"] += bool(r["locked_at"])
+        c["uzamknuté_bez_úprav"] += bool(r["locked_at"]) and flags.get("upravené_pred_uzamknutím") is False
+        c["uzamknuté_automaticky"] += bool(flags.get("uzamknuté_automaticky"))
+    return dict(c)
+
+
 def success_rule(plan: dict[str, Any]) -> str:
     """Pravidlo úspechu píše kód (prah vyhodnocuje `gate2.rule_threshold`)."""
     if plan["task"] == "threshold":
@@ -121,6 +149,8 @@ def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: d
     try:
         for i, raw in enumerate(plan.get("steps") or []):
             try:
+                if raw.get("op") == "lookup" and base_table(raw.get("table", "")) not in tables:
+                    raise DatasetError(f"tabuľka {raw.get('table')!r} nie je medzi datasetmi hypotézy")
                 ws.apply(Step.model_validate(raw))
             except (DatasetError, ValueError) as exc:
                 errors.append(f"krok {i + 1} ({raw.get('op')} {raw.get('name', '')}): {exc}")
@@ -288,6 +318,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         for plan in res.value.experiments[: cfg.experiments.plans_per_hypothesis - len(existing)]:
             data = plan.model_dump()
             check = validate_plan(cfg, db, hid, data, quotes)
+            first_ok, attempts = not check["chyby"], 1
             for _ in range(cfg.experiments.max_plan_retries):
                 if not check["chyby"] or deadline.expired():
                     break
@@ -302,7 +333,10 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                     break
                 data = fix.value.model_dump()
                 check = validate_plan(cfg, db, hid, data, quotes)
+                attempts += 1
             data["skúšobný_beh"] = {k: v for k, v in check["štatistiky"].items()}
+            data["návrh"] = {"pokusy": attempts, "bez_chýb_na_prvý_pokus": first_ok, "bez_chýb_po_oprave": not check["chyby"],
+                             "model": res.model, "odtlačok": plan_fingerprint(data)}
             flags = {k: v for k, v in (("chyby_návrhu", check["chyby"]), ("upozornenia", check["upozornenia"])) if v}
             exp_id = db.add_experiment(hid, None, None, data["statement"].strip() or data["title"], data["primary_metric"] or "?",
                                        data["primary_baseline"] or "?", success_rule(data), data, task=data["task"],
@@ -310,4 +344,14 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
             if flags:
                 db.update_experiment(exp_id, flags_json=flags)
             stats["plans_ok" if not check["chyby"] else "plans_with_errors"] += 1
+            auto = db.get_setting(AUTO_LOCK_KEY, {}) or {}
+            if auto.get("enabled") and not check["chyby"] and not check["upozornenia"]:
+                from .gate2 import lock  # predregistrácia ešte pred testom; človek to vopred povolil v GUI
+
+                try:
+                    lock(cfg, db, exp_id)
+                    db.update_experiment(exp_id, flags_json={**flags, "uzamknuté_automaticky": True})
+                    stats["auto_locked"] += 1
+                except ValueError as exc:
+                    log.warning("Automatické uzamknutie E%s zlyhalo: %s", exp_id, exc)
     return dict(stats)

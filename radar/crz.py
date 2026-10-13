@@ -145,7 +145,7 @@ def append_days(cfg: Config, fetcher, hid: int, table: str, days: list[str], blo
     if not re.fullmatch(r"ds\d+", table):
         raise DatasetError("neplatný názov tabuľky")
     tmp = hyp_dir(cfg, hid) / "crz-append.jsonl"
-    got, failed, n = [], [], 0
+    got, failed, errors, n = [], [], [], 0
     with open(tmp, "w", encoding="utf-8") as fh:
         for i, day in enumerate(days):
             if i:
@@ -154,6 +154,8 @@ def append_days(cfg: Config, fetcher, hid: int, table: str, days: list[str], blo
                 dl = download(cfg, fetcher, CRZ_FILE.format(day=day), hyp_dir(cfg, hid), blocked)
             except DatasetError as exc:
                 failed.append(day)
+                if not str(exc).startswith(("HTTP 404", "HTTP 410")):  # sieť, server: deň treba skúsiť znova
+                    errors.append(day)
                 log.info("CRZ %s: %s", day, exc)
                 continue
             try:
@@ -183,11 +185,12 @@ def append_days(cfg: Config, fetcher, hid: int, table: str, days: list[str], blo
         finally:
             con.close()
     tmp.unlink(missing_ok=True)
-    return {"days_ok": got, "days_failed": failed, "added": added}
+    return {"days_ok": got, "days_failed": failed, "days_error": errors, "added": added}
 
 
 def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30,
-                  sleep: Callable[[float], None] = time.sleep, progress: Callable[[str], None] | None = None) -> dict:
+                  sleep: Callable[[float], None] = time.sleep, progress: Callable[[str], None] | None = None,
+                  retry: bool = False) -> dict:
     """Doplní staršie dávky CRZ k existujúcemu datasetu hypotézy, kým okno nepokryje `days` dní pred jeho koncom.
     Ide odzadu po blokoch (`chunk` dní); po každom bloku sa uloží do DuckDB a posunie sa začiatok okna, takže
     prerušenie (uspatie, pád) nič nestratí a ďalší beh pokračuje. Dni, ktoré CRZ nemá alebo zlyhali, sa zapíšu."""
@@ -207,6 +210,14 @@ def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30
     start = date.fromisoformat(window["od"])
     stats = {"pridané_zmluvy": 0, "dni_ok": 0, "dni_chýba": 0, "od_pred": window["od"]}
     missing = list(window.get("chýbajúce_dni") or [])
+    if retry and missing:  # znova dni, ktoré predtým chýbali (výpadok siete); 404 ostanú v zozname
+        res = append_days(cfg, fetcher, hid, ds["table_name"], missing, fetcher.blocked, sleep)
+        stats["opakované_ok"] = len(res["days_ok"])
+        stats["pridané_zmluvy"] += res["added"]
+        missing = sorted(set(missing) - set(res["days_ok"]))
+        window = {**window, "chýbajúce_dni": missing}
+        prof["časové_okno"] = window
+        db.update_dataset(ds["id"], profile_json=prof)
     while start > target:
         first = max(target, start - timedelta(days=chunk))
         batch = [(first + timedelta(days=i)).isoformat() for i in range((start - first).days)]
@@ -218,8 +229,19 @@ def extend_window(cfg: Config, db, fetcher, hid: int, days: int, chunk: int = 30
                 if attempt == 2:
                     raise
                 sleep(15)
+        if res["days_error"]:  # výpadok siete: chvíľu počkať a dni skúsiť znova
+            sleep(60)
+            again = append_days(cfg, fetcher, hid, ds["table_name"], res["days_error"], fetcher.blocked, sleep)
+            res = {"days_ok": res["days_ok"] + again["days_ok"], "added": res["added"] + again["added"],
+                   "days_failed": [d for d in res["days_failed"] if d not in again["days_ok"]],
+                   "days_error": again["days_error"]}
         stats["pridané_zmluvy"] += res["added"]
         stats["dni_ok"] += len(res["days_ok"])
+        if len(res["days_error"]) > max(2, len(batch) // 10):  # okno sa neposunie cez dni bez dát
+            stats["zastavené"] = f"{len(res['days_error'])} dní zlyhalo (sieť alebo server) – spusti znova neskôr"
+            if progress:
+                progress(f"CRZ H{hid}: zastavené pri {first.isoformat()} – {stats['zastavené']}")
+            break
         stats["dni_chýba"] += len(res["days_failed"])
         missing += res["days_failed"]
         start = first

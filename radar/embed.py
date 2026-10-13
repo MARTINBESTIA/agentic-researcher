@@ -70,9 +70,15 @@ class Embedder:
         for start in range(0, len(missing), 32):
             batch = missing[start : start + 32]
             matrix = self.embed_texts([text for _, _, text, _ in batch])
+            rows = []
             for (pos, ref_id, _, digest), vec in zip(batch, matrix):
-                self.db.put_embedding(kind, ref_id, self.model, digest, vec.astype(np.float32).tobytes())
+                rows.append((kind, ref_id, self.model, digest, vec.astype(np.float32).tobytes()))
                 out[pos] = vec
+            if hasattr(self.db, "put_embeddings"):
+                self.db.put_embeddings(rows)
+            else:
+                for row in rows:
+                    self.db.put_embedding(*row)
         return np.vstack(out) if out else np.zeros((0, 0), dtype=np.float32)
 
     def hypothesis_matrix(self, hypotheses: Sequence) -> np.ndarray:

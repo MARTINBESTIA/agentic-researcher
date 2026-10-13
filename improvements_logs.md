@@ -22,19 +22,19 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-12 – kontakty – kontakty z PDF výročných správ a úradných zverejnení.**~~ **Hotové 12. 10. 2026** (vyhľadanie `filetype:pdf` na webe organizácie, okná textu okolo mena). Krok `contacts` číta iba
   HTML stránky; mnohé obce majú kontakty zamestnancov v PDF (organizačný poriadok). Extrakcia blokov z PDF
   (pypdf + rovnaké pravidlo „meno pred kontaktom“) by doplnila časť zo 24 ľudí bez kontaktu. · 1 deň.
-- **2026-10-12 – Brána 1 – posúdenie GDPR priamo v GUI pre zablokovaný dataset.** Dataset s osobnými údajmi
+- **2026-10-12 – Brána 1 – posúdenie GDPR priamo v GUI pre zablokovaný dataset.** *Neurobené 13. 10. 2026: rozhodnutie o spracovaní osobných údajov (agregácia, právny základ) je tvoje – zatiaľ sa takéto datasety neukladajú vôbec.* Dataset s osobnými údajmi
   sa dnes neuloží vôbec; tlačidlo „posúdenie GDPR hotové, ponechať iba agregáty“ by uložilo agregovanú
   verziu (napr. GROUP BY bez mien). · 1–2 dni.
 - ~~**2026-10-12 – Brána 1 – ďalšie formáty a archívy.**~~ **Hotové 12. 10. 2026** (ZIP, XML; API so stránkovaním). Podporované sú CSV/XLSX/JSON/Parquet; chýba ZIP (veľa
   portálov balí CSV), XML (ITMS, vestník ÚVO) a API so stránkovaním (RÚZ, ITMS2014+). · 2–3 dni.
 - ~~**2026-10-12 – Brána 1 – lepšie časové stĺpce.**~~ **Hotové 12. 10. 2026** (dlhý tvar `dsN_long`; ostáva: exporty DATAcube s viacriadkovou hlavičkou nad tabuľkou – CSV sa načíta s nesprávnymi názvami stĺpcov, treba nájsť riadok hlavičky). Obdobia ako „2021-Q1“, „01/2022“ alebo rok v názve stĺpca
   (široké tabuľky ŠÚ SR) sa dnes neprevedú na časový rad; normalizácia „wide → long“ by sprístupnila DATAcube. · 2 dni.
-- ~~**2026-10-12 – Brána 2 – viac modelov a sezónnosť.**~~ **Čiastočne hotové 12. 10. 2026** (sezóna podľa obdobia, ses, holt_damped, seasonal_trend, auto; ostáva model naprieč organizáciami – pooled). Spätný test má lineárny trend a AR(1) proti naivnému odhadu;
+- ~~**2026-10-12 – Brána 2 – viac modelov a sezónnosť.**~~ **Hotové 13. 10. 2026** (ETS zo statsmodels, spoločný gradient boosting naprieč organizáciami, 4 naivné odhady × 5 metrík). Spätný test má lineárny trend a AR(1) proti naivnému odhadu;
   automatická detekcia periódy (mesačné dáta), exponenciálne vyrovnávanie a model naprieč organizáciami
   (pooled) by dali férovejšie porovnanie. · 2–3 dni.
-- **2026-10-12 – Brána 2 – sledovanie expertov.** Spätná väzba expertov je dnes jedno pole pri experimente;
+- ~~**2026-10-12 – Brána 2 – sledovanie expertov.**~~ **Hotové 13. 10. 2026** (história záznamov pri experimente s odkazom na rozhovor – pseudonym, bez mien; metrika „nové poznatky X z Y“). Spätná väzba expertov je dnes jedno pole pri experimente;
   prepojenie s formulárom Rozhovory (expert, dátum, citát) by dalo históriu a metriku „nové poznatky“. · 1 deň.
-- **2026-10-12 – modely – automatický eval po zmene modelu v GUI.** Po výbere nového modelu pre rolu by sa
+- **2026-10-12 – modely – automatický eval po zmene modelu v GUI.** *Čiastočne hotové 13. 10. 2026: po uložení modelov GUI ponúkne meranie rýchlosti a schopností; eval presnosti čaká na gold labely (Kontrola).* Po výbere nového modelu pre rolu by sa
   mohol spustiť benchmark a eval na označených príkladoch a ukázať rozdiel oproti predchádzajúcemu. · 1–2 dni.
 - **2026-10-12 – vyhľadávanie – spoľahlivejší vyhľadávač.** *Čiastočne hotové 12. 10. 2026: tempo, zopakovanie, dopyt bez úvodzoviek, pamäť dopytov; pre Bránu 1 národný katalóg cez SPARQL (bez vyhľadávača); ostáva lokálny index domén organizácií.* SearXNG má pri automatických dopytoch funkčný
   najmä Bing a Yahoo (DuckDuckGo CAPTCHA, Google CSE limit, Seznam timeout; Mojeek a Startpage sú v novej
@@ -59,7 +59,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-12 – Brána 2 – hodnoty filtrov z dát.**~~ **Hotové 12. 10. 2026** (schéma pre model uvádza všetky hodnoty textových stĺpcov s ≤ 30 hodnotami; výber v GUI zo zoznamu ostáva). Model pri predregistrácii vidí iba 3 ukážkové riadky, takže
   hodnotu filtra (presný názov ukazovateľa alebo kraja) často nepozná. Zoznam odlišných hodnôt nízkokardinalitných
   stĺpcov (napr. ≤ 50) v schéme a výber filtra v GUI zo zoznamu by znížili počet chybných návrhov. · 0,5 dňa.
-- **2026-10-12 – Brána 1 – relevantnejšie kandidáty z národného katalógu.** Hľadanie podľa kmeňov slov z názvu poľa
+- ~~**2026-10-12 – Brána 1 – relevantnejšie kandidáty z národného katalógu.**~~ **Čiastočne hotové 13. 10. 2026** (8 kandidátov z katalógu sa zoradí embeddingmi podľa poľa a hypotézy, agent dostane 2 najbližšie; ostáva lokálny index celého katalógu). Hľadanie podľa kmeňov slov z názvu poľa
   je zašumené (napr. „Rozpočet projektu“ → „Zoznam projektov rozvoja IT“). Lokálny index názvov a popisov ~22 500
   datasetov s embeddingmi (raz týždenne zo SPARQL) by dal poradie podľa významu poľa aj témy hypotézy. · 1 deň.
 - **2026-10-12 – modely – otestovať presnosť ostatných modelov pre úlohy presnej roly (rozhodnutie: zatiaľ ostáva 27B).**
@@ -71,24 +71,24 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   modely a porovnať presnosť, podiel neplatného JSON a čas na položku. Zhoda s 27B nie je presnosť – referenciou sú
   iba ľudské labely. Model meniť po úlohách, nie celú rolu naraz (napr. role_map na 35B, entail ostáva 27B), a iba
   ak rozdiel presnosti nie je štatisticky významný na úkor kvality. · 1 deň + zber labelov.
-- **2026-10-13 – GUI – odhadované časy v dashboarde (požiadavka používateľa).** V Prehľade a Správcovi akcií chýba,
+- ~~**2026-10-13 – GUI – odhadované časy v dashboarde (požiadavka používateľa).**~~ **Hotové 13. 10. 2026** (`radar/eta.py`: odhad konca bežiacej úlohy z histórie a limitu, začiatok a koniec úloh v poradí, „všetko hotové ~HH:MM“, typické trvanie na kartách akcií, časy v miestnom čase). V Prehľade a Správcovi akcií chýba,
   kedy čo skončí. Doplniť: (1) pri bežiacej akcii odhad konca (začiatok + limit, presnejšie podľa priemerného trvania
   rovnakej akcie z histórie `jobs.stats_json` – úlohy často skončia skôr), (2) pri každej úlohe v poradí odhadovaný
   začiatok a koniec (kumulatívne podľa limitov a histórie), (3) pri autopilotovi koniec kola a celého behu a ktoré akcie
   ešte prídu na rad, (4) pri akciách v Správcovi akcií typické trvanie (medián z histórie) a pri kartách s prácou
   odhad, koľko z nej sa stihne (napr. test hypotéz ~3 min na hypotézu, posúdenie citátu ~2 s na 9B), (5) časy
   v miestnom čase namiesto UTC. · 0,5–1 deň.
-- **2026-10-13 – Brána 1 – lepší výber čísla na reprodukciu.** Pri H11 boli jedinými cieľmi „10 mil. €“ (metodika), „40 %“
+- ~~**2026-10-13 – Brána 1 – lepší výber čísla na reprodukciu.**~~ **Hotové 13. 10. 2026** (bez rokov a dátumov, prednosť objem a počet; verdikt „bez cieľa“ a pripravenosť bez tejto zložky). Pri H11 boli jedinými cieľmi „10 mil. €“ (metodika), „40 %“
   (vlastnícky podiel) a „2025 decembra“ (dátum) – žiadne sa z dát zmlúv nedá vypočítať, preto reprodukcia „nevyšla“ a hypotéza
   nedostala stav pripravená napriek pokrytiu všetkých polí. Vyraďovať dátumy a roky, uprednostniť čísla o objeme, počte a sume
   z tvrdení o rovnakej doméne ako dataset; ak vhodné číslo neexistuje, označiť „reprodukcia nemožná (bez cieľa)“ namiesto
   „nevyšla“ a pripravenosť počítať bez tejto zložky. · 0,5 dňa.
-- **2026-10-13 – objavovanie – rozpočet pre nové zdroje a kvalita hypotéz z inšpekcií.** Autopilot dáva objavovaniu
+- ~~**2026-10-13 – objavovanie – rozpočet pre nové zdroje a kvalita hypotéz z inšpekcií.**~~ **Hotové 13. 10. 2026** (40 dokumentov a 3 sedenia na úlohu; extrakcia: jednotlivý incident iba ak text hovorí o opakovanom alebo rozšírenom probléme). Autopilot dáva objavovaniu
   15 dokumentov na úlohu, pri 15 kategóriách ~1 dokument na kategóriu (noc 13. 10.: 3 dokumenty na kategóriu) – na posúdenie
   zdrojov málo; agent prieskumu pritom za 17–22 min prečíta ~18 stránok a uloží 3–4 citáty. Zvážiť: viac dokumentov z katalógu
   (napr. 40) a menej sedení agenta. Správy inšpekcií (SIŽP) dávajú hypotézy o jednotlivých incidentoch („Spoločnosť X vypúšťa
   odpadové vody…“, „Analýza vzoriek zistila…“) – extrakcia by mala žiadať problém typu organizácie, nie jeden prípad. · 0,5 dňa.
-- **2026-10-13 – Brána 1 → 2 – presnosť posúdenia tvojich dát a prechod bez skutočných dát.** Sudca (27B) triedi polia z popisu alebo schémy; nemá gold labely, takže presnosť nepoznáme. Zbierať tvoje opravy posúdenia (pole, áno/čiastočne/nie) ako labely pre eval. Hypotéza, ktorá prešla iba so schémou, by mala v Bráne 2 dostať príznak „bez dát – spätný test čaká“ a autopilot by ju nemal opakovane posielať do predregistrácie, kým nepribudne dataset. Zvážiť aj šablónu schémy (CSV hlavička z polí Brány 1 na stiahnutie), aby sa vstup ľahšie vypĺňal. · 0,5 dňa.
-- **2026-10-13 – Brána 2 – experiment, ktorý testuje samotnú hypotézu.** Predregistrácia je vždy predpoveď časového radu (napr. mesačná suma zmlúv organizácie) proti naivnému odhadu. Pri H11 („neprehľadnosť financií a korupčné riziká“) to overuje predvídateľnosť výdavkov, nie problém. Doplniť typy experimentov podľa hypotézy: detekcia anomálií (zmluvy tesne pod limitom obstarávania, dodatky zvyšujúce sumu, koncentrácia dodávateľov) s ručným posúdením vzorky a metrikou presnosti; model navrhne typ, kód počíta. Okno CRZ (9 mesiacov) na sezónnosť nestačí – pre ročné porovnanie stiahnuť aspoň 24 mesiacov (~2× dlhšie sťahovanie, ~1 GB). · 1–2 dni.
-- **2026-10-13 – Brána 2 – štítky z nálezov kontrol (NKÚ, ÚHP, ÚVO).** Experimenty typu poradie a porovnanie zatiaľ používajú náhradné štítky z dát (napr. dodatok s navýšením). Silnejšie štítky: organizácie a zmluvy so zisteniami NKÚ, negatívne hodnotenia ÚHP, rozhodnutia ÚVO – extrakcia z dokumentov (citát + IČO cez RPO), nová operácia `external_label` (spojenie podľa IČO a obdobia). Pozor na málo prípadov a oneskorenie nálezov. · 2 dni.
-- **2026-10-13 – Brána 2 – merať kvalitu návrhov 27B.** Zapisovať, koľko návrhov prešlo skúšobným behom na prvý pokus a po oprave, koľko ich človek uzamkol bez úprav; podľa toho upraviť prompt alebo pridať príklady. · 0,5 dňa.
+- ~~**2026-10-13 – Brána 1 → 2 – presnosť posúdenia tvojich dát a prechod bez skutočných dát.**~~ **Hotové 13. 10. 2026** (opravy posúdenia polí sa ukladajú ako gold labely `gate1_user_eval`; šablóna CSV z polí; Brána 2 bez datasetu upozorní a experimenty sa nenavrhujú). Sudca (27B) triedi polia z popisu alebo schémy; nemá gold labely, takže presnosť nepoznáme. Zbierať tvoje opravy posúdenia (pole, áno/čiastočne/nie) ako labely pre eval. Hypotéza, ktorá prešla iba so schémou, by mala v Bráne 2 dostať príznak „bez dát – spätný test čaká“ a autopilot by ju nemal opakovane posielať do predregistrácie, kým nepribudne dataset. Zvážiť aj šablónu schémy (CSV hlavička z polí Brány 1 na stiahnutie), aby sa vstup ľahšie vypĺňal. · 0,5 dňa.
+- ~~**2026-10-13 – Brána 2 – experiment, ktorý testuje samotnú hypotézu.**~~ **Hotové 13. 10. 2026** (problémová karta, 5 typov úloh, operácie podľa hypotézy, CRZ 36 mesiacov). Predregistrácia je vždy predpoveď časového radu (napr. mesačná suma zmlúv organizácie) proti naivnému odhadu. Pri H11 („neprehľadnosť financií a korupčné riziká“) to overuje predvídateľnosť výdavkov, nie problém. Doplniť typy experimentov podľa hypotézy: detekcia anomálií (zmluvy tesne pod limitom obstarávania, dodatky zvyšujúce sumu, koncentrácia dodávateľov) s ručným posúdením vzorky a metrikou presnosti; model navrhne typ, kód počíta. Okno CRZ (9 mesiacov) na sezónnosť nestačí – pre ročné porovnanie stiahnuť aspoň 24 mesiacov (~2× dlhšie sťahovanie, ~1 GB). · 1–2 dni.
+- ~~**2026-10-13 – Brána 2 – štítky z nálezov kontrol (NKÚ, ÚHP, ÚVO).**~~ **Čiastočne hotové 13. 10. 2026** (NKÚ: otvorený dataset kontrolných zistení spojený so zoznamom subjektov – 34 tis. zistení, 99,7 % s IČO; operácia `lookup` pripojí ľubovoľný dataset hypotézy podľa IČO a časového okna; „Pridať dataset z odkazu“ v Bráne 1. Ostáva: ÚVO „Správne delikty“ je iba HTML, ÚHP hodnotenia nemajú dataset). Experimenty typu poradie a porovnanie zatiaľ používajú náhradné štítky z dát (napr. dodatok s navýšením). Silnejšie štítky: organizácie a zmluvy so zisteniami NKÚ, negatívne hodnotenia ÚHP, rozhodnutia ÚVO – extrakcia z dokumentov (citát + IČO cez RPO), nová operácia `external_label` (spojenie podľa IČO a obdobia). Pozor na málo prípadov a oneskorenie nálezov. · 2 dni.
+- ~~**2026-10-13 – Brána 2 – merať kvalitu návrhov 27B.**~~ **Hotové 13. 10. 2026** (pri návrhu: pokusy, bez chýb na prvý pokus, po oprave; pri uzamknutí: zmenil človek plán?; súhrn v Bráne 2; voliteľné automatické uzamknutie bezchybných návrhov). Zapisovať, koľko návrhov prešlo skúšobným behom na prvý pokus a po oprave, koľko ich človek uzamkol bez úprav; podľa toho upraviť prompt alebo pridať príklady. · 0,5 dňa.

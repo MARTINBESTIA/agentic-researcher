@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 # (akcia, minúty) v poradí závislostí: nové hypotézy → test → posúdenie → témy → ľudia → kontakty → návrhy → brány → kritika
 ROUND: list[tuple[str, int]] = [
     ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("cards", 30), ("people", 60),
-    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("gate1", 60), ("gate2", 30), ("critique", 30),
+    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("gate1", 60), ("gate2", 60), ("critique", 30),
 ]
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
 GATE1_PER_JOB = 3

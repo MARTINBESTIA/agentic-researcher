@@ -3,7 +3,7 @@ from datetime import date
 import streamlit as st
 
 from radar.datasets import DatasetError
-from radar.gate1 import USER_FILE_EXT, decide, upload_path
+from radar.gate1 import REPRO_LABELS, USER_FILE_EXT, add_dataset_url, decide, upload_path
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
 
@@ -30,7 +30,7 @@ with st.container(horizontal=True):
     st.metric("Kľúčové polia nájdené", f"{summary.get('kľúčové_nájdené', 0)} / {summary.get('kľúčové', 0)}", border=True)
     st.metric("Datasety", summary.get("datasety", 0), border=True)
     st.metric("Organizácie v dátach", summary.get("organizácie_v_dátach", 0), border=True)
-    st.metric("Reprodukcia čísla", {"match": "zhoda", "close": "blízko", "mismatch": "nesedí", "failed": "nevyšla"}.get(
+    st.metric("Reprodukcia čísla", REPRO_LABELS.get(
         summary.get("reprodukcia"), "–"), border=True)
 for flag in summary.get("príznaky", []):
     st.warning(flag, icon=":material/flag:")
@@ -101,6 +101,17 @@ with tab_u:
                     st.error(str(exc))
     if not d.fields_for(hid):
         st.caption("Polia ešte nevznikli – posúdenie počká na prvý krok prieskumu dát.")
+    else:
+        import re as _re
+        import unicodedata as _ud
+
+        def _col(name: str) -> str:
+            ascii_ = _ud.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+            return _re.sub(r"[^a-z0-9]+", "_", ascii_).strip("_")[:40]
+
+        header = ";".join(_col(f["name"]) for f in d.fields_for(hid) if f["name"] != "Doplnkové dáta (pridané ručne)")
+        st.download_button("Stiahnuť šablónu CSV (stĺpce = polia Brány 1)", header + "\n", file_name=f"H{hid}_sablona.csv",
+                           mime="text/csv", icon=":material/download:", key=f"g1_tpl_{hid}")
     inputs = d.gate1_inputs_for(hid)
     if any(i["status"] == "pending" for i in inputs):
         start_job_button("gate1-input", "Posúdiť moje dáta teraz", 15, [hid], key=f"g1_eval_{hid}",
@@ -118,6 +129,19 @@ with tab_u:
                 st.dataframe([{"pole": r["pole"], "kľúčové": r["kľúčové"], "pokrytie": COVERAGE.get(r["pokrytie"], r["pokrytie"]),
                                "váha": r["váha"], "dôvod": r["dôvod"]} for r in ev["polia"]],
                              hide_index=True, alt="Posúdenie polí z tvojich dát")
+                fids = {f["name"]: f["id"] for f in d.fields_for(hid)}
+                with st.form(f"g1_fix_{inp['id']}"):
+                    st.caption("Nesedí posúdenie? Oprav ho – uloží sa ako referenčné hodnotenie (gold label) na meranie presnosti.")
+                    fixes = {r["pole"]: st.selectbox(r["pole"], ["yes", "partial", "no"], format_func=COVERAGE.get,
+                                                     index=["yes", "partial", "no"].index(r["pokrytie"]) if r["pokrytie"] in
+                                                     ("yes", "partial", "no") else 2, key=f"g1_fix_{inp['id']}_{i}")
+                             for i, r in enumerate(ev["polia"])}
+                    if st.form_submit_button("Uložiť ako referenčné hodnotenie", icon=":material/verified:"):
+                        for r in ev["polia"]:
+                            if r["pole"] in fids:
+                                d.add_label("gate1_user_eval", f"gate1_input:{inp['id']}", fids[r["pole"]], fixes[r["pole"]],
+                                            note=f"model: {r['pokrytie']}")
+                        st.toast("Referenčné hodnotenie uložené.", icon=":material/check:")
                 st.caption(f"Vhodnosť = súčet váha × pokrytie = {ev.get('skóre', 0):.2f} (prah {ev.get('prah', 0):.2f})"
                            + (f" · tabuľka {ev['dataset']} je v záložke Datasety" if ev.get("dataset") else ""))
             for note in ev.get("poznámky", []):
@@ -171,6 +195,18 @@ with tab_d:
                          "stav": ds["status"], "poznámka": ds["note"] or ""})
         st.dataframe(rows, hide_index=True, alt="Stiahnuté datasety",
                      column_config={"url": st.column_config.LinkColumn("URL")})
+    with st.form(f"g1_addurl_{hid}"):
+        st.caption("Pridať dataset z odkazu (CSV, XLSX, JSON, XML, ZIP; stránka https://www.nku.gov.sk/datasety = kontrolné "
+                   "zistenia NKÚ s IČO). Stiahne sa pri najbližšom prieskume dát; do DuckDB sa uloží iba bez osobných údajov.")
+        url = st.text_input("Odkaz", key=f"g1_url_{hid}")
+        if st.form_submit_button("Pridať", icon=":material/add_link:"):
+            try:
+                add_dataset_url(c, d, hid, url.strip())
+            except Exception as exc:  # noqa: BLE001 – zlý odkaz
+                st.error(str(exc))
+            else:
+                st.toast("Pridané – stiahne sa v akcii „Brána 1: prieskum dát“.", icon=":material/check:")
+    if datasets:
         cov = d.coverage_for(hid)
         if cov:
             st.markdown("**Organizácie v dátach** (podľa IČO) – kandidáti na Bránu 2:")
@@ -184,7 +220,7 @@ with tab_r:
     if not reps:
         st.caption("Reprodukcia beží, keď je stiahnutý dataset a hypotéza má overené tvrdenie s číslom.")
     for r in reps:
-        verdict = {"match": "zhoda", "close": "blízko", "mismatch": "nesedí", "failed": "nevyšla"}[r["verdict"]]
+        verdict = REPRO_LABELS.get(r["verdict"], r["verdict"])
         with st.expander(f"{verdict} · cieľ {r['target_value']} {r['target_unit'] or ''} · výsledok "
                          f"{'' if r['result_value'] is None else round(r['result_value'], 3)}"):
             st.html(f"<blockquote>{esc(r['target_text'])}</blockquote>")

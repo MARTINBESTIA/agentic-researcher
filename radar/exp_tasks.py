@@ -86,21 +86,29 @@ def _top_k(scores: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
     return np.argpartition(-s, k - 1)[:k] if k > 0 else np.array([], dtype=int)
 
 
-def rank_metrics(y: np.ndarray, scores: np.ndarray | None, k: int, rng: np.random.Generator) -> dict[str, float | None]:
+def rank_metrics(y: np.ndarray, scores: np.ndarray | None, k: int, rng: np.random.Generator,
+                 only: str | None = None) -> dict[str, float | None]:
+    """Metriky poradia; `only` = iba jedna (bootstrap stovky ráz – priemerná presnosť a AUC triedia celý test)."""
     from sklearn.metrics import average_precision_score, roc_auc_score
 
     pos = y.sum()
     if scores is None:  # náhodný výber: očakávané hodnoty
         prev = pos / len(y) if len(y) else 0
-        return {"precision@k": prev, "recall@k": min(k, len(y)) / len(y) if len(y) else None, "avg_precision": prev,
-                "roc_auc": 0.5}
-    top = _top_k(scores, k, rng)
-    s = np.nan_to_num(scores, nan=-1e18, neginf=-1e18)
-    both = 0 < pos < len(y)
-    return {"precision@k": float(y[top].mean()) if len(top) else None,
-            "recall@k": float(y[top].sum() / pos) if pos else None,
-            "avg_precision": float(average_precision_score(y, s)) if both else None,
-            "roc_auc": float(roc_auc_score(y, s)) if both else None}
+        out = {"precision@k": prev, "recall@k": min(k, len(y)) / len(y) if len(y) else None, "avg_precision": prev,
+               "roc_auc": 0.5}
+        return {only: out[only]} if only else out
+    want = (only,) if only else ("precision@k", "recall@k", "avg_precision", "roc_auc")
+    out: dict[str, float | None] = {}
+    if {"precision@k", "recall@k"} & set(want):
+        top = _top_k(scores, k, rng)
+        out["precision@k"] = float(y[top].mean()) if len(top) else None
+        out["recall@k"] = float(y[top].sum() / pos) if pos else None
+    if {"avg_precision", "roc_auc"} & set(want):
+        s = np.nan_to_num(scores, nan=-1e18, neginf=-1e18)
+        both = 0 < pos < len(y)
+        out["avg_precision"] = float(average_precision_score(y, s)) if both else None
+        out["roc_auc"] = float(roc_auc_score(y, s)) if both else None
+    return {m: out.get(m) for m in want}
 
 
 class _Encoder:
@@ -229,9 +237,9 @@ def _ranking(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, Any]
         idx_all = np.arange(len(yt))
         for _ in range(cfg.experiments.bootstrap):
             idx = rng.choice(idx_all, size=len(idx_all), replace=True)
-            mk = rank_metrics(yt[idx], scores[chosen][idx], k, rng).get(primary)
+            mk = rank_metrics(yt[idx], scores[chosen][idx], k, rng, only=primary).get(primary)
             bs = base_scores[base]
-            bk = rank_metrics(yt[idx], None if bs is None else bs[idx], k, rng).get(primary)
+            bk = rank_metrics(yt[idx], None if bs is None else bs[idx], k, rng, only=primary).get(primary)
             if mk is not None and bk is not None:
                 diffs.append(mk - bk)
         if diffs:

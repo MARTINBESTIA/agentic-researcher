@@ -5,7 +5,7 @@ import streamlit as st
 
 from radar.cards import FIELD_LABELS, OUTPUT_LABELS
 from radar.datasets import DatasetError
-from radar.exp_plan import TASK_LABELS, success_rule, validate_plan
+from radar.exp_plan import AUTO_LOCK_KEY, TASK_LABELS, plan_quality, success_rule, validate_plan
 from radar.gate1 import decide
 from radar.gate2 import complete_periods, data_limits, lock, series
 from radar.gate2_trace import as_markdown, explain
@@ -34,6 +34,22 @@ with st.container(horizontal=True):
     start_job_button("gate2", "Karta, návrh a test experimentov", 60, [hid], key=f"g2_run_{hid}", icon=":material/science:",
                      help="Karta (ak chýba) → model navrhne experimenty → test uzamknutých → záver.")
 jobs_panel(show_last=False)
+with st.expander("Nastavenie: automatické uzamknutie a kvalita návrhov modelu", icon=":material/tune:"):
+    auto = d.get_setting(AUTO_LOCK_KEY, {}) or {}
+    on = st.toggle("Uzamknúť návrhy bez chýb a upozornení hneď po návrhu (aj v autopilotovi)", value=bool(auto.get("enabled")),
+                   key="g2_autolock", help="Predregistrácia ostáva pred testom (výsledok ju nemôže ovplyvniť), ale bez "
+                                           "tvojej kontroly plánu. Návrhy s upozornením (napr. prah bez citátu) čakajú na teba.")
+    if on != bool(auto.get("enabled")):
+        from radar.util import utcnow
+
+        d.set_setting(AUTO_LOCK_KEY, {"enabled": on, "since": utcnow(), "by": "GUI"})
+        refresh()
+    q = plan_quality(d)
+    if q.get("návrhy"):
+        st.caption(f"Návrhy modelu spolu: {q['návrhy']} · bez chýb na prvý pokus {q.get('bez_chýb_na_prvý_pokus', 0)} · "
+                   f"až po oprave {q.get('bez_chýb_po_oprave', 0)} · s chybami {q.get('s_chybami', 0)} · uzamknuté "
+                   f"{q.get('uzamknuté', 0)} (bez úprav {q.get('uzamknuté_bez_úprav', 0)}, automaticky "
+                   f"{q.get('uzamknuté_automaticky', 0)})")
 
 # ======================================================================= problémová karta
 VERDICT = {"supported": "✅ podložené", "partial": "◐ čiastočne", "unsupported": "✗ nepodložené", "undecided": "? neurčené"}
@@ -90,6 +106,10 @@ with st.container(border=True):
                 refresh()
 
 # ======================================================================= experimenty
+if not d.datasets_for(hid, only_ok=True):
+    st.warning("Hypotéza prešla Bránou 1 bez stiahnutého datasetu (iba popis alebo schéma). Experimenty počkajú, kým "
+               "pribudnú dáta: Brána 1 → Tvoje dáta (nahraj súbor) alebo Datasety → Pridať dataset z odkazu.",
+               icon=":material/database_off:")
 exps = d.experiments_for(hid)
 if not exps:
     st.caption("Experimenty navrhne model z karty v akcii „Karta, návrh a test experimentov“.")
@@ -359,13 +379,28 @@ if e["demo_path"] and Path(e["demo_path"]).exists():
 with st.container(border=True):
     st.markdown("**Spätná väzba expertov a rozhodnutie**")
     expert = json_or(e["expert_json"], {})
+    records = expert.get("záznamy") or ([{"kedy": "", "rozhovor": None, "pseudonym": "", "nové": expert["nové"],
+                                          "poznámka": expert.get("poznámka", "")}] if expert.get("nové") else [])
+    talks = {i["id"]: i for hh in {hid, h["parent_id"]} if hh for i in d.interviews_for(hh)}
+    if records:
+        new_n = sum(r["nové"] == "áno" for r in records)
+        st.caption(f"Nové poznatky pre expertov: {new_n} z {len(records)} záznamov")
+        st.dataframe([{"kedy": r.get("kedy", ""), "rozhovor": r.get("pseudonym") or "–", "nové": r["nové"],
+                       "poznámka": r.get("poznámka", "")} for r in records], hide_index=True, alt="Spätná väzba expertov")
     with st.form(f"g2_expert_{eid}"):
-        new = st.radio("Priniesol výsledok expertom niečo nové?", ["áno", "nie", "zatiaľ nevieme"],
-                       index=["áno", "nie", "zatiaľ nevieme"].index(expert.get("nové", "zatiaľ nevieme")), horizontal=True)
-        note = st.text_area("Poznámka (kto, čo povedal)", expert.get("poznámka", ""))
-        if st.form_submit_button("Uložiť spätnú väzbu"):
-            flags["experti_nic_nove"] = new == "nie"
-            d.update_experiment(eid, expert_json={"nové": new, "poznámka": note}, flags_json=flags)
+        talk = st.selectbox("Rozhovor (Rozhovory, pseudonym – bez mien)", [None] + list(talks),
+                            format_func=lambda i: "bez rozhovoru" if i is None else
+                            f"{talks[i]['pseudonym']} · {talks[i]['role_label'] or talks[i]['interviewee_kind']} · {talks[i]['held_at']}")
+        new = st.radio("Priniesol výsledok niečo nové?", ["áno", "nie", "zatiaľ nevieme"], horizontal=True)
+        note = st.text_area("Čo povedal (bez mien a kontaktov)")
+        if st.form_submit_button("Pridať záznam"):
+            from datetime import date as _date
+
+            records.append({"kedy": _date.today().isoformat(), "rozhovor": talk,
+                            "pseudonym": talks[talk]["pseudonym"] if talk else "", "nové": new, "poznámka": note.strip()})
+            decided = [r for r in records if r["nové"] != "zatiaľ nevieme"]
+            flags["experti_nic_nove"] = bool(decided) and all(r["nové"] == "nie" for r in decided)
+            d.update_experiment(eid, expert_json={"záznamy": records, "nové": new}, flags_json=flags)
             refresh()
     with st.form(f"g2_decide_{eid}"):
         decision = st.selectbox("Rozhodnutie", ["passed", "paused", "stopped"])

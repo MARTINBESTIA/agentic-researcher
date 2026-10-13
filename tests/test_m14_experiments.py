@@ -310,3 +310,91 @@ def test_conclusion_from_facts_rejects_invented_numbers_and_writes_report(tmp_pa
     exp_conclude.run_conclusions(cfg, db, router, Deadline(1), [hid])
     concl = json.loads(db.get_experiment(exp)["conclusion_json"])
     assert concl["zdroj"] == "model" and concl["text"]["interview_questions"] == ["Koľko zmlúv ročne preveríte?"]
+
+
+# ======================================================================= iná tabuľka (lookup) a NKÚ
+def test_lookup_joins_other_table_by_ico_within_time_window(tmp_path):
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kontrola", "", "obce")
+    dataset(cfg, db, hid, "cid;buyer;datum", [(1, "00313271", "2024-01-10"), (2, "313271", "2025-06-01"),
+                                              (3, "00999999", "2024-03-01")], "2024-01-01", "2025-12-31")
+    dataset(cfg, db, hid, "ico;koniec_kontroly;typ", [("00313271", "2024-06-30", "Finančná nezrovnalosť"),
+                                                      ("00313271", "2025-03-01", "Formálna nezrovnalosť")],
+            "2024-01-01", "2025-12-31", name="ds2")
+    ws = Workspace(cfg, hid, "ds1", "datum", {"od": "2024-01-01", "do": "2025-12-31"})
+    ws.apply(Step(op="lookup", name="fin_after", table="ds2", keys=["buyer"], target_column="ico", match="ico",
+                  other_time="koniec_kontroly", days=365, expr="typ = 'Finančná nezrovnalosť'"))
+    ws.apply(Step(op="lookup", name="before", table="ds2", keys=["buyer"], target_column="ico", match="ico",
+                  other_time="koniec_kontroly", days=-730))
+    got = {r[0]: r[1:] for r in ws.query(f"SELECT cid, fin_after, before FROM {ws.table} ORDER BY cid")}
+    assert got == {1: (1, 0), 2: (0, 2), 3: (0, 0)}  # IČO „313271“ = „00313271“; zistenie po podpise vs. pred
+    assert "fin_after" in ws.future and "before" not in ws.future  # budúcnosť iba ako štítok
+    ws.close()
+    bad = RANKING_PLAN | {"steps": [{"op": "lookup", "name": "x", "table": "ds77", "keys": ["buyer"], "target_column": "ico"}]}
+    assert any("nie je medzi datasetmi" in e for e in exp_plan.validate_plan(cfg, db, hid, bad)["chyby"])
+
+
+NKU_FINDINGS = ("Kontrolované obdobie,Začiatok kontroly,Koniec kontroly,Výsledky kontroly,Linka (URL) na výsledok kontroly,"
+                "Znenie zistenia,Typ nedostatku,Porušený predpis,Číslo KA,Názov kontrolnej akcie,Skrátený názov KA,Etapa KA,"
+                "Účel KA,Kontrolovaný subjekt,Linka (URL) na informácie o kontroľovatelnom subjekte\n"
+                "2020,01.02.2023,30.06.2023,a.pdf,https://x/a.pdf,Obec nezverejnila zmluvu,Odchýlka od súladu,211/2000,KA-1,"
+                "Zverejňovanie,Zv,Správa,Účel,Obec Fiktívna,https://www.nku.gov.sk/s?_kisdataPortlet_entryId=11\n"
+                "2021,01.03.2024,30.09.2024,b.pdf,https://x/b.pdf,Prekročený rozpočet,Finančná nezrovnalosť,523/2004,KA-2,"
+                "Rozpočet,Ro,Správa,Účel,Mesto Vzorové,https://www.nku.gov.sk/s?_kisdataPortlet_entryId=12\n")
+NKU_SUBJECTS = ("Názov subjektu,Linka (URL) na informácie o kontrolovateľnom subjekte,Adresa,IČO\n"
+                "Obec Fiktívna,https://www.nku.gov.sk/s?_kisdataPortlet_entryId=11,Hlavná 1,00313271\n"
+                "Mesto Vzorové,https://www.nku.gov.sk/s?_kisdataPortlet_entryId=12,Námestie 2,603481\n")
+
+
+def test_nku_findings_get_ico_without_addresses_and_dataset_is_shared_with_subhypotheses(tmp_path):
+    import httpx
+
+    from radar.datasets import share_datasets
+    from tests.fakes import mock_fetcher
+
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kontrola", "", "obce")
+    dataset(cfg, db, hid, "cid;datum", [(1, "2025-01-01")], "2025-01-01", "2025-12-31")
+    child = db.create_hypothesis("Podproblém", "", "obce")
+    db.set_parent(child, hid)
+    share_datasets(cfg, child, hid)
+    page = ('<a href="/documents/1/kontrolne_zistenia_20260101.csv/a?download=true">old</a>'
+            '<a href="/documents/1/kontrolne_zistenia_20261001.csv/b?download=true">new</a>'
+            '<a href="/documents/1/zoznam_kontrolovatelnych_subj_20261001.csv/c?download=true">s</a>')
+    routes = {"https://www.nku.gov.sk/datasety": httpx.Response(200, text=page, headers={"content-type": "text/html"}),
+              "https://www.nku.gov.sk/documents/1/kontrolne_zistenia_20261001.csv/b?download=true":
+                  httpx.Response(200, content=NKU_FINDINGS.encode(), headers={"content-type": "text/csv"}),
+              "https://www.nku.gov.sk/documents/1/zoznam_kontrolovatelnych_subj_20261001.csv/c?download=true":
+                  httpx.Response(200, content=NKU_SUBJECTS.encode(), headers={"content-type": "text/csv"})}
+    stats = gate1.add_dataset_url(cfg, db, hid, "https://www.nku.gov.sk/datasety", "NKÚ zistenia", fetcher=mock_fetcher(routes))
+    assert stats["stiahnuté"] and stats["datasets"] == 1
+    ds = [d for d in db.datasets_for(hid) if "nku" in d["url"]][0]
+    cols = json.loads(ds["columns_json"])
+    assert ds["status"] == "ok" and "ico" in cols and not any("adres" in c.lower() for c in cols)
+    assert sorted(run_query(cfg, hid, f"SELECT ico, typ_nedostatku FROM {ds['table_name']}")) == [
+        ("00313271", "Odchýlka od súladu"), ("00603481", "Finančná nezrovnalosť")]
+    assert [d["table_name"] for d in db.datasets_for(child) if "nku" in d["url"]] == [ds["table_name"]]
+    assert db.fields_for(hid)[0]["name"] == gate1.MANUAL_FIELD
+
+
+def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kontrola zmlúv", "", "obce")
+    header, rows = contracts_with_amendments()
+    dataset(cfg, db, hid, header, rows, "2024-01-01", "2025-12-31")
+    gate1.decide(db, hid, 1, "passed", "test")
+    db.add_card(hid, {"decision": {"text": "Výber zmlúv na kontrolu", "claims": []}})
+    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"features": ["x", "zle"]}]}
+    rec.responses["ExperimentPlan"] = RANKING_PLAN
+    exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
+    q = exp_plan.plan_quality(db)
+    assert q["návrhy"] == 1 and q["bez_chýb_po_oprave"] == 1 and q["bez_chýb_na_prvý_pokus"] == 0
+    e = db.experiments_for(hid)[0]
+    gate2.lock(cfg, db, e["id"])
+    assert exp_plan.plan_quality(db)["uzamknuté_bez_úprav"] == 1  # človek plán nezmenil
+    db.set_setting(exp_plan.AUTO_LOCK_KEY, {"enabled": True})
+    cfg.experiments.plans_per_hypothesis = 2
+    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40}]}
+    assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])["auto_locked"] == 1
+    second = db.experiments_for(hid)[1]
+    assert second["status"] == "locked" and json.loads(second["flags_json"])["uzamknuté_automaticky"]

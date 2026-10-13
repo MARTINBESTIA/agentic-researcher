@@ -49,6 +49,8 @@ docker compose up -d                     # SearXNG
 | `radar/exp_ops.py`, `radar/exp_plan.py`, `radar/exp_tasks.py`, `radar/exp_conclude.py` | univerzálne experimenty Brány 2: operácie nad dátami (DuckDB, bez únikov budúcich dát), návrh modelom + skúšobný beh, testy podľa úlohy (poradie, predpoveď, anomália, prah, porovnanie) s výsledkovou tabuľkou, záver pre problém |
 | `radar/gate2_trace.py` | postup experimentu Brány 2 krok po kroku (výber organizácie, návrh, uzamknutie, SQL a rad, kolá testu, výber auto, výpočet, demo) – GUI a Markdown |
 | `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
+| `radar/nku.py` | NKÚ: otvorené dáta kontrolných zistení + zoznam subjektov (IČO), bez adries – štítky pre experimenty |
+| `radar/eta.py` | odhady časov pre dashboard (história akcií, poradie, miestny čas) |
 | `radar/crz.py` | Centrálny register zmlúv: denné dávky, vybrané stĺpce bez mien a adries, zlúčenie podľa ID |
 | `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií |
 | `radar/themes.py` | témy: zhluky podobných hypotéz (average linkage nad embeddingmi), názov z rýchleho modelu, stabilné ID medzi behmi; hypotézy sa nezlučujú |

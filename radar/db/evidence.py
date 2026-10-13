@@ -689,6 +689,12 @@ class EvidenceMixin:
         )
         return None if row is None else bytes(row["vector"])
 
+    def put_embeddings(self, rows: list[tuple[str, int, str, str, bytes]]) -> None:
+        """Dávka vektorov v jednej transakcii (zatriedenie desiatok tisíc textov – zápis po jednom trval minúty)."""
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO embeddings (kind, ref_id, model, text_hash, vector) VALUES (?, ?, ?, ?, ?)", rows)
+        self.conn.commit()
+
     def put_embedding(self, kind: str, ref_id: int, model: str, text_hash: str, vector: bytes) -> None:
         self._exec(
             "INSERT OR REPLACE INTO embeddings (kind, ref_id, model, text_hash, vector) VALUES (?, ?, ?, ?, ?)",

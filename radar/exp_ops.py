@@ -17,6 +17,9 @@ Operácie:
 - linked_agg (name, link, agg, column, days, expr) – súhrn naviazaných riadkov do `days` dní po rodičovi,
 - prior_agg (name, keys, agg, column, days, expr) – súhrn skorších riadkov rovnakých kľúčov (0 = celá história),
 - future_agg (name, keys, agg, column, days, expr) – súhrn neskorších riadkov do `days` dní (štítok).
+- lookup (name, table, keys, target_column, match, other_time, days, agg, other_value, expr) – súhrn riadkov INEJ
+  tabuľky hypotézy so zhodným kľúčom (napr. IČO objednávateľa = IČO subjektu kontroly NKÚ): days > 0 = do N dní
+  po dátume riadku (štítok), days < 0 = N dní pred (príznak), 0 = kedykoľvek (iba štítok – čas nie je ohraničený).
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ from .datasets import DatasetError, duck_path
 
 log = logging.getLogger(__name__)
 
-OPS = ("filter", "derive", "text_category", "link_records", "linked_agg", "prior_agg", "future_agg")
+OPS = ("filter", "derive", "text_category", "link_records", "linked_agg", "prior_agg", "future_agg", "lookup")
 AGGS = {"count": "SUM(CASE WHEN {cond} THEN 1 ELSE 0 END)", "sum": "SUM(CASE WHEN {cond} THEN {col} END)",
         "avg": "AVG(CASE WHEN {cond} THEN {col} END)", "max": "MAX(CASE WHEN {cond} THEN {col} END)"}
 FORBIDDEN_RE = re.compile(r";|--|/\*|\*/|\b(attach|detach|copy|export|import|install|load|pragma|create|drop|alter|"
@@ -45,7 +48,7 @@ TABLE_RE = re.compile(r"^ds\d+(_long)?$")
 
 
 class Step(BaseModel):
-    op: Literal["filter", "derive", "text_category", "link_records", "linked_agg", "prior_agg", "future_agg"]
+    op: Literal["filter", "derive", "text_category", "link_records", "linked_agg", "prior_agg", "future_agg", "lookup"]
     name: str = ""
     expr: str = ""
     column: str = ""
@@ -56,6 +59,10 @@ class Step(BaseModel):
     link: str = ""
     agg: Literal["count", "sum", "avg", "max"] = "count"
     days: int = 0
+    table: str = ""  # lookup: iná tabuľka hypotézy
+    match: Literal["exact", "ico"] = "exact"
+    other_time: str = ""
+    other_value: str = ""
     why: str = ""
 
 
@@ -177,6 +184,8 @@ class Workspace:
             entry |= self._linked_agg(step)
         elif step.op in ("prior_agg", "future_agg"):
             entry |= self._window(step)
+        elif step.op == "lookup":
+            entry |= self._lookup(step)
         entry["riadky_po"] = self.rows()
         if step.name and step.op not in ("filter",):
             entry |= self.column_stats(step.name)
@@ -295,6 +304,52 @@ class Workspace:
                          f"({'skôr' if step.op == 'prior_agg' else 'neskôr'}: {when}, bez toho istého dňa)"
                          + (f", podmienka {step.expr}" if step.expr.strip() else "")
                          + (" – budúcnosť (štítok)" if step.op == "future_agg" else "")}
+
+    def _lookup(self, step: Step) -> dict[str, Any]:
+        from .datasets import ico_sql
+
+        name = self._new_name(step.name)
+        other = (step.table or "").strip()
+        if not TABLE_RE.match(other):
+            raise DatasetError(f"lookup: neznáma tabuľka {other!r}")
+        ocols = [r[0] for r in self.con.execute(f"DESCRIBE {other}").fetchall()] if self.con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [other]).fetchone()[0] else []
+        if not ocols:
+            raise DatasetError(f"lookup: tabuľka {other} neexistuje")
+        if len(step.keys) != 1:
+            raise DatasetError("lookup potrebuje práve jeden kľúč (stĺpec riadku)")
+        local = self._col(step.keys[0])
+        for c in [step.target_column] + ([step.other_time] if step.other_time else []) + (
+                [step.other_value] if step.agg != "count" else []):
+            if c not in ocols:
+                raise DatasetError(f"lookup: stĺpec {c!r} nie je v tabuľke {other} ({', '.join(ocols)[:300]})")
+        key = (lambda x: ico_sql(x)) if step.match == "ico" else (lambda x: f"lower(trim(CAST({x} AS VARCHAR)))")
+        ot = f"CAST(TRY_CAST({q(step.other_time)} AS TIMESTAMP) AS DATE)" if step.other_time else "NULL"
+        val = f"TRY_CAST({q(step.other_value)} AS DOUBLE)" if step.agg != "count" else "NULL"
+        d = int(step.days)
+        if d and not step.other_time:
+            raise DatasetError("lookup s oknom dní potrebuje other_time (dátum v druhej tabuľke)")
+        when = ("" if d == 0 else f" AND o.ot > r._t AND o.ot <= r._t + INTERVAL {d} DAY" if d > 0 else
+                f" AND o.ot >= r._t - INTERVAL {-d} DAY AND o.ot < r._t")
+        agg = {"count": "SUM(CASE WHEN o.ok THEN 1 ELSE 0 END)", "sum": "SUM(CASE WHEN o.ok THEN o.v END)",
+               "avg": "AVG(CASE WHEN o.ok THEN o.v END)", "max": "MAX(CASE WHEN o.ok THEN o.v END)"}[step.agg]
+        zero = "0" if step.agg in ("count", "sum") else "NULL"
+        cond = self._frame_cond(step)
+        self._next(
+            f"""SELECT w.*, COALESCE(a.v, {zero}) AS {name} FROM {self.table} w LEFT JOIN (
+                  SELECT r._rid AS rid, {agg} AS v
+                  FROM (SELECT _rid, _t, {key(local)} AS k FROM {self.table}) r
+                  JOIN (SELECT {key(q(step.target_column))} AS k, {ot} AS ot, {val} AS v, {cond} AS ok FROM {other}) o
+                    ON o.k = r.k{when}
+                  GROUP BY r._rid) a ON a.rid = w._rid""")
+        if d >= 0:  # budúcnosť alebo neohraničený čas: iba štítok
+            self.future[step.name] = max(d, 1)
+        hit = self.con.execute(f"SELECT COUNT(*) FROM {self.table} WHERE {name} IS NOT NULL AND {name} != 0").fetchone()[0]
+        when_txt = ("kedykoľvek (čas neohraničený – iba štítok)" if d == 0 else f"do {d} dní po dátume riadku (štítok)"
+                    if d > 0 else f"{-d} dní pred dátumom riadku (príznak)")
+        return {"popis": f"{step.name} = {step.agg} riadkov {other} so zhodným {step.keys[0]} = {step.target_column}"
+                         f" ({'IČO' if step.match == 'ico' else 'presná zhoda'}), {when_txt}"
+                         + (f", podmienka {step.expr}" if step.expr.strip() else ""), "riadkov_so_zhodou": int(hit)}
 
     # -------------------------------------------------------------- štítky z budúcnosti
     def matured(self, label: str) -> int:

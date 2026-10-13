@@ -97,7 +97,8 @@ def stage_gate1(step: str) -> Callable[[Any, Deadline], dict]:
         if step == "fields":
             return gate1.run_fields(app.cfg, app.db, app.router, deadline, ids)
         if step == "sources":
-            return gate1.run_sources(app.cfg, app.db, app.router, app.searx, app.fetcher, deadline, ids)
+            return gate1.run_sources(app.cfg, app.db, app.router, app.searx, app.fetcher, deadline, ids,
+                                     embedder=getattr(app, "embedder", None))
         if step == "check":
             return gate1.run_check(app.cfg, app.db, app.fetcher, deadline, ids)
         if step == "datasets":
@@ -574,9 +575,15 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("dataset-add", help="Pridá dataset z odkazu k hypotéze (CSV, XLSX, JSON, XML, ZIP, NKÚ, CRZ) a stiahne ho.")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--url", required=True, help="napr. https://www.nku.gov.sk/datasety (kontrolné zistenia NKÚ s IČO)")
+    p.add_argument("--name", default="")
+
     p = sub.add_parser("crz-extend", help="Doplní staršie dávky CRZ k datasetu hypotézy (po blokoch, dá sa prerušiť).")
     p.add_argument("--hypothesis", type=int, required=True)
     p.add_argument("--months", type=int, default=36, help="Koľko mesiacov pred koncom okna má dataset pokrývať.")
+    p.add_argument("--retry", action="store_true", help="Najprv znova stiahnuť dni, ktoré predtým chýbali (výpadok siete).")
 
     sub.add_parser("gui", help="GUI v prehliadači na 127.0.0.1:8501.")
 
@@ -603,11 +610,19 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--person", type=int, help="Všetky údaje o osobe (žiadosť o prístup).")
 
 
+def cmd_dataset_add(app, args) -> int:
+    from .gate1 import add_dataset_url
+
+    stats = add_dataset_url(app.cfg, app.db, args.hypothesis, args.url, args.name, fetcher=app.fetcher)
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_crz_extend(app, args) -> int:
     from .crz import extend_window
 
     stats = extend_window(app.cfg, app.db, app.fetcher, args.hypothesis, round(args.months * 365.25 / 12),
-                          progress=lambda m: print(m, flush=True))
+                          progress=lambda m: print(m, flush=True), retry=args.retry)
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 
@@ -615,6 +630,7 @@ def cmd_crz_extend(app, args) -> int:
 HANDLERS = {
     "workflow": cmd_workflow,
     "crz-extend": cmd_crz_extend,
+    "dataset-add": cmd_dataset_add,
     "job": cmd_job,
     "discover": cmd_discover,
     "sources": cmd_sources,

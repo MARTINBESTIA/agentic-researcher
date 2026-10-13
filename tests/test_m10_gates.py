@@ -359,6 +359,26 @@ def test_autopilot_evaluates_user_inputs_and_retries_waiting_hypotheses_later(tm
     _gate1_input(app, Deadline(15), lambda stage, dl: ran.append(stage), None, lambda **kw: None)
     assert ran == ["gate1-user", "gate1-finish"] and app.gate_ids == [hid]
 
+
+def test_repro_target_skips_years_and_dates_and_readiness_ignores_missing_target(tmp_path):
+    """H11: ciele „10 mil. €“ (metodika), „40 %“ a „2025 decembra“ – reprodukcia „nevyšla“ a znížila pripravenosť."""
+    assert gate1.repro_target([{"value": 2025, "unit": "decembra"}, {"value": 2024, "unit": ""}]) is None
+    assert gate1.repro_target([{"value": 40, "unit": "%", "meaning": "vlastnícky podiel"},
+                               {"value": 1.5, "unit": "mil. €", "meaning": "výdavky"}])["value"] == 1.5
+    assert gate1.repro_target([{"value": 120, "unit": "", "meaning": "počet zmlúv"}])["value"] == 120
+    cfg, db, rec, router, hid, fid, org, fetcher = _dataset_env(tmp_path)
+    gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])
+    db.update_field(fid, status="found")
+    doc, _ = db.upsert_document("https://nku.gov.sk/x", "NKÚ", "search", "t", "q", "h", "V roku 2025 …")
+    cid = db.insert_claim(doc, 0, "t", "Kontrola v decembri 2025", "obce", "cost", "V decembri 2025",
+                          [{"value": 2025, "unit": "decembra", "meaning": "dátum"}])
+    db.set_claim_verification(cid, "verified", 100, "ok")
+    db.assign_claim(hid, cid)
+    assert gate1.run_repro(cfg, db, router, Deadline(1), [hid]) == {"no_target": 1}  # model sa ani nevolal
+    summary = gate1.readiness(cfg, db, hid)
+    assert "reprodukcia" not in summary["zložky"] and summary["reprodukcia"] == "no_target"
+    assert abs(sum(summary["váhy"].values()) - 1) < 0.01 and summary["skóre"] == 0.75  # s nulovou reprodukciou 0,6
+
 def test_missing_key_field_gets_info_request_draft_and_six_week_flag(tmp_path):
     cfg, db, rec, router = setup(tmp_path)
     hid = gate1_hyp(db)
@@ -1036,6 +1056,33 @@ def test_crz_window_extends_backwards_in_chunks_and_records_missing_days(tmp_pat
     assert run_query(cfg, hid, "SELECT COUNT(*) FROM ds1")[0][0] == 8
     assert extend_window(cfg, db, mock_fetcher({}), hid, days=19)["pridané_zmluvy"] == 0  # už pokryté
 
+
+def test_crz_window_does_not_move_over_network_outage_and_retries_missing_days(tmp_path):
+    """13. 10. 2026: výpadok DNS počas doplňovania – okno sa nesmie posunúť cez dni bez dát; neskôr --retry."""
+    from radar.crz import extend_window
+    from radar.datasets import hyp_dir, import_table
+
+    cfg, db, rec, router = setup(tmp_path, crz_delay_s=0)
+    hid = gate1_hyp(db)
+    hyp_dir(cfg, hid).mkdir(parents=True)
+    path = tmp_path / "crz.csv"
+    path.write_text("ID;suma_spolu\n1;100\n", encoding="utf-8")
+    import_table(cfg, hid, "ds1", path, "csv")
+    ds = db.add_dataset(hid, None, "http://www.crz.gov.sk/export/", "ds1", status="ok",
+                        profile_json={"časové_okno": {"od": "2026-03-10", "do": "2026-03-20", "chýbajúce_dni": ["2026-03-15"]}})
+
+    def batch(zid):
+        xml = f"<?xml version='1.0' encoding='UTF-8'?><zmluvy><zmluva><ID>{zid}</ID><suma_spolu>{zid}</suma_spolu></zmluva></zmluvy>"
+        return httpx.Response(200, content=_zip_bytes("d.xml", xml.encode()), headers={"content-type": "application/zip"})
+
+    down = {f"https://www.crz.gov.sk/export/2026-03-0{d}.zip": httpx.Response(503) for d in range(2, 10)}
+    stats = extend_window(cfg, db, mock_fetcher(down), hid, days=19, chunk=8, sleep=lambda s: None)
+    assert "zastavené" in stats and json.loads(db.get_dataset(ds)["profile_json"])["časové_okno"]["od"] == "2026-03-10"
+    ok = {f"https://www.crz.gov.sk/export/2026-03-{d:02d}.zip": batch(100 + d) for d in range(2, 16)}
+    stats = extend_window(cfg, db, mock_fetcher(ok), hid, days=19, chunk=8, sleep=lambda s: None, retry=True)
+    win = json.loads(db.get_dataset(ds)["profile_json"])["časové_okno"]
+    assert stats["opakované_ok"] == 1 and win["chýbajúce_dni"] == [] and win["od"] == "2026-03-02"
+
 def test_gate_stage_cli_accepts_hypotheses():
     """Bez zadania spracuje krok najviac gate1.max_hypotheses_per_run hypotéz (CRZ pre H11 sa preto nespustilo)."""
     from radar.cli import build_parser
@@ -1069,7 +1116,7 @@ def test_crz_append_missing_days_adds_only_new_contracts(tmp_path):
            "<zmluva><ID>2</ID><zs1>Mesto Fiktívne</zs1><ico1>00313271</ico1><suma_zmluva>50</suma_zmluva></zmluva></zmluvy>")
     routes = {"https://www.crz.gov.sk/export/2026-01-20.zip": httpx.Response(200, content=_zip_bytes("d.xml", xml.encode()))}
     res = append_days(cfg, mock_fetcher(routes), hid, "ds9", ["2026-01-20", "2026-02-27"], [])
-    assert res == {"days_ok": ["2026-01-20"], "days_failed": ["2026-02-27"], "added": 1}
+    assert res == {"days_ok": ["2026-01-20"], "days_failed": ["2026-02-27"], "days_error": [], "added": 1}  # 404 nie je chyba siete
     assert run_query(cfg, hid, "SELECT COUNT(*), SUM(suma_zmluva) FROM ds9")[0] == (2, 150.0)  # ID 1 ostalo pôvodné
 
 
@@ -1096,3 +1143,21 @@ def test_xlsx_without_extension_imports_and_bad_file_is_dataset_error(tmp_path):
     bad.write_bytes(b"PK\x03\x04 nie je excel")
     with pytest.raises(DatasetError):
         import_table(cfg, 5, "ds2", bad, "xlsx")
+
+
+def test_catalog_candidates_ranked_by_meaning_of_field():
+    """„Rozpočet projektu“ → kandidát o rozpočtoch pred „Zoznamom projektov rozvoja IT“ (embeddingy, bez siete)."""
+    from radar.catalogs import CatalogDataset
+
+    class Emb:
+        def embed_texts(self, texts):
+            return np.array([[1.0, 0.0] if "rozpo" in t.lower() else [0.0, 1.0] for t in texts])
+
+    cfg = Config()
+    found = [CatalogDataset(uri=f"u{i}", title=t, description="", publisher="", modified="", periodicity="",
+                            landing_page="", distributions=[]) for i, t in
+             enumerate(["Zoznam projektov rozvoja IT", "Číselník krajov", "Rozpočty projektov obcí"])]
+    me = SimpleNamespace(embedder=Emb(), cfg=cfg, hyp={"title": "Obce nevidia rozpočty"})
+    ranked = gate1.SourceAgent.rank_candidates(me, {"name": "Rozpočet projektu", "description": ""}, found)
+    assert [d.title for d in ranked][0] == "Rozpočty projektov obcí" and len(ranked) == cfg.gate1.nkod_hits_per_field
+    assert gate1.SourceAgent.rank_candidates(SimpleNamespace(embedder=None, cfg=cfg, hyp={}), {}, found) == found[:2]

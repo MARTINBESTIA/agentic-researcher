@@ -13,6 +13,7 @@ Rules:
 3. "numbers": include only numbers that literally appear inside your quote. Copy each number as written (e.g. "1,444" -> 1.444, "2 890" -> 2890) and put the scale and unit into "unit" (e.g. "mld. €", "%", "mostov").
 4. "affected_party": the TYPE of organization or the role that has the problem (e.g. "obce do 1000 obyvateľov", "mestá", "štátne inštitúcie", "nákupca v strojárskej firme"). Never one named organization, never names or contact details of persons.
 5. Prefer problems that many organizations of the same type share. A finding about one named organization is useful as an example of such a wider problem: write "problem" for the type and mention the organization as the example.
+   A single incident (one inspection finding, one accident, one fine or one leak at one named organization) is NOT a problem by itself: extract it only when the document says the same issue is repeated, widespread or systemic (several organizations, several years, "často", "opakovane", "vo viacerých"); otherwise skip it.
 6. Return at most {max_claims} claims: the most specific and best documented ones.
 7. "claim_type": use "regulation" for a new legal obligation and fill "effective_date" (YYYY-MM-DD or YYYY-MM, only if the date is in the document) and "regulation" (who must do what, and the sanction if stated). Use "demand_signal" when an organization actively looks for a solution (preliminary market consultation, tender, call for innovation, repeated procurement of the same thing) and fill "demand" (who looks for what).
 8. "sector_hint": the industry or area of the affected party (e.g. "stavebníctvo", "samosprávy obcí", "nemocnice", "účtovníctvo").
@@ -267,6 +268,7 @@ STEPS (data preparation run by code in order; new column names in snake_case):
 - {{"op":"linked_agg","name":"x","link":"<link column>","agg":"count|sum|avg|max","column":"<numeric column for sum/avg/max>","days":N,"expr":"<optional condition on the linked rows>"}} – what happens to the row within N days AFTER its date (label)
 - {{"op":"prior_agg","name":"x","keys":["<entity columns>"],"agg":"count|sum|avg|max","column":"...","days":N,"expr":"..."}} – rows of the same keys BEFORE the row's date (feature); days 0 = whole history
 - {{"op":"future_agg","name":"x","keys":["..."],"agg":"...","column":"...","days":N,"expr":"..."}} – rows of the same keys within N days AFTER (label)
+- {{"op":"lookup","name":"x","table":"<another table of DATA>","keys":["<column of the row, e.g. buyer IČO>"],"target_column":"<matching column of the other table>","match":"ico|exact","other_time":"<date column of the other table>","days":N,"agg":"count|sum|avg|max","other_value":"<numeric column for sum/avg/max>","expr":"<optional condition on the other table's rows>"}} – joins another table (e.g. audit findings, sanctions, registers): days>0 = its rows within N days AFTER the row's date (label, e.g. a later audit finding), days<0 = within |N| days BEFORE (feature), days 0 = any time (label only)
 
 RULES:
 - Use only columns listed in DATA and columns created by earlier steps. SQL dialect is DuckDB; text columns may need TRY_CAST(x AS DOUBLE) or TRY_CAST(x AS DATE).

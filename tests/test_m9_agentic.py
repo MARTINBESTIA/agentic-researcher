@@ -695,3 +695,29 @@ def test_code_only_checks_run_even_when_fast_phase_ran_out(tmp_path):
     app = SimpleNamespace(cfg=cfg, db=db)
     _scout(app, Deadline(0), run, None, lambda **kw: None)
     assert "verify-code" in ran and "source-types" in ran and "extract" not in ran
+
+
+def test_dashboard_eta_from_history_and_queue(tmp_path):
+    """Odhad konca: limit × medián pomeru skutočné trvanie / limit z histórie; poradie kumulatívne."""
+    from datetime import datetime, timedelta, timezone
+
+    from radar.eta import expected_minutes, local, schedule, typical_minutes
+
+    cfg, db, rec, router = setup(tmp_path)
+    t0 = datetime(2026, 10, 13, 8, 0, tzinfo=timezone.utc)
+    for i, mins in enumerate((15, 20, 25)):  # validate s limitom 60 zvyčajne skončí za ~20 min
+        j = db.create_job("validate", {"minutes": 60})
+        db.update_job(j, status="done", started_at=(t0 + timedelta(hours=i)).isoformat(),
+                      finished_at=(t0 + timedelta(hours=i, minutes=mins)).isoformat())
+    assert typical_minutes(db, "validate") == 20 and round(expected_minutes(db, "validate", 60)) == 20
+    assert expected_minutes(db, "scout", 45) == 45  # bez histórie = limit
+    now = datetime(2026, 10, 13, 12, 0, tzinfo=timezone.utc)
+    run = db.create_job("validate", {"minutes": 60})
+    db.update_job(run, status="running")
+    db.update_job(run, started_at=(now - timedelta(minutes=5)).isoformat())  # „running“ nastaví skutočný štart
+    db.create_job("scout", {"minutes": 45}, status="queued")
+    plan = schedule(db, now)
+    assert plan[0]["koniec_odhad"] == now + timedelta(minutes=15) and plan[0]["koniec_najneskôr"] == now + timedelta(minutes=55)
+    assert plan[1]["začiatok"] == plan[0]["koniec_odhad"] and plan[1]["koniec_odhad"] == plan[1]["začiatok"] + timedelta(minutes=45)
+    assert ":" in local(now.isoformat(), now)
+

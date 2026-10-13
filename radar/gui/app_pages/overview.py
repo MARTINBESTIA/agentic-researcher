@@ -2,6 +2,7 @@ import json
 
 import streamlit as st
 
+from radar.eta import local
 from radar.crm import gate0_metrics
 from radar.gui.common import action_card, cfg, db, jobs_panel
 from radar.jobs import refresh_jobs
@@ -81,7 +82,7 @@ runs = []
 for r in reversed(d.recent_runs(15)):
     stats = json.loads(r["stats_json"] or "{}")
     stats.pop("report", None)
-    runs.append({"krok": r["stage"], "začiatok": (r["started_at"] or "")[:16].replace("T", " "),
-                 "koniec": (r["finished_at"] or "beží / prerušené")[:16].replace("T", " "),
+    runs.append({"krok": r["stage"], "začiatok": local(r["started_at"]) if r["started_at"] else "",
+                 "koniec": local(r["finished_at"]) if r["finished_at"] else "beží / prerušené",
                  "výsledok": ", ".join(f"{k} {v}" for k, v in stats.items())[:200]})
 st.dataframe(runs, hide_index=True, alt="Posledné kroky behu a ich výsledky")

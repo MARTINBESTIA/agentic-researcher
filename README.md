@@ -208,7 +208,13 @@ nižšie skóre a príznak – over, či sa hodia pre tvoj produkt. Vypnutie: `g
    Brány 0; čísla iba z faktov (inak záver poskladá kód). Správa HTML.
 
 Pôvodné experimenty (predpoveď sumy pre organizáciu) ostávajú zobrazené s postupom krok po kroku.
-`python -m radar crz-extend --hypothesis 11 --months 36` doplní staršie dávky CRZ (po blokoch, dá sa prerušiť).
+`python -m radar crz-extend --hypothesis 11 --months 36` doplní staršie dávky CRZ (po blokoch, dá sa prerušiť;
+`--retry` znova stiahne dni, ktoré zlyhali pre výpadok siete).
+
+**Štítky z kontrol:** `python -m radar dataset-add --hypothesis 11 --url https://www.nku.gov.sk/datasety` (alebo GUI
+Brána 1 → Datasety → Pridať dataset z odkazu) stiahne kontrolné zistenia NKÚ s IČO subjektu. Operácia `lookup` ich v
+experimentoch pripojí k riadkom podľa IČO a času (napr. „zistenie NKÚ u objednávateľa do 2 rokov po podpise“).
+**Automatické uzamknutie** bezchybných návrhov (Brána 2 → Nastavenie) je predvolene vypnuté.
 
 **Modely:** Správca akcií → Modely – výber modelu pre každú rolu (rýchly, presný, agent, embeddingy) a
 profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je praktické maximum ~30–35B

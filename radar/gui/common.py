@@ -219,9 +219,15 @@ def _render_job(job, live: bool) -> None:
         if live:
             from datetime import datetime, timezone
 
+            from radar.eta import local, schedule
+
             elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(job["started_at"])).total_seconds() / 60
             limit = json_or(job["args_json"], {}).get("minutes")
-            bits.append(f"beží {elapsed:.0f} min" + (f" z limitu {limit:g} min" if limit else ""))
+            bits.append(f"beží od {local(job['started_at'])} ({elapsed:.0f} min" + (f" z limitu {limit:g} min)" if limit else ")"))
+            plan = next((s for s in schedule(db()) if s["job"]["id"] == job["id"]), None)
+            if plan:
+                bits.append(f"odhad konca ~{local(plan['koniec_odhad'])}"
+                            + (f" (najneskôr {local(plan['koniec_najneskôr'])})" if plan["koniec_najneskôr"] else ""))
         summary = _job_summary(job)
         if summary:
             bits.append(summary)
@@ -263,12 +269,19 @@ def queue_panel() -> None:
     queued = d.queued_jobs()
     if not queued:
         return
-    st.markdown(f"**V poradí ({len(queued)})**")
+    from radar.eta import local, schedule
+
+    plan = {s["job"]["id"]: s for s in schedule(d)}
+    last = max((s["koniec_odhad"] for s in plan.values()), default=None)
+    st.markdown(f"**V poradí ({len(queued)})**" + (f" · všetko hotové ~{local(last)}" if last else ""))
     for i, job in enumerate(queued, 1):
         args = json_or(job["args_json"], {})
         ids = ", ".join(f"H{x}" for x in args.get("hypotheses") or [])
+        when = plan.get(job["id"])
         with st.container(horizontal=True, vertical_alignment="center"):
-            st.markdown(f"{i}. {esc(job_label(job['kind']))} · limit {args.get('minutes', '?')} min" + (f" · {ids}" if ids else ""))
+            st.markdown(f"{i}. {esc(job_label(job['kind']))} · limit {args.get('minutes', '?')} min"
+                        + (f" · ~{local(when['začiatok'])} – {local(when['koniec_odhad'])}" if when else "")
+                        + (f" · {ids}" if ids else ""))
             if st.button("Zrušiť", key=f"cancel_{job['id']}", icon=":material/close:"):
                 _stop(job["id"])
     if not d.active_jobs() and st.button("Spustiť ďalšiu z poradia", key="queue_next", icon=":material/play_arrow:",
@@ -345,6 +358,11 @@ def action_card(kind: str, key_prefix: str = "act", extra: str | None = None) ->
         blocked = a.needs_lia and not c.privacy.lia_completed
         if blocked:
             st.warning("Zablokované, kým nepotvrdíš LIA (privacy.lia_completed).", icon=":material/lock:")
+        from radar.eta import typical_minutes
+
+        typical = typical_minutes(db(), kind)
+        if typical is not None:
+            st.caption(f"Zvyčajne trvá ~{typical:g} min (medián posledných behov; skončí aj pred limitom, keď nemá prácu).")
         ids = _hypothesis_choices(kind, a.hypotheses, f"{key_prefix}_{kind}_h") if a.hypotheses else None
         minutes = st.number_input("Limit (min)", 5, 1440, a.minutes, step=15, key=f"{key_prefix}_{kind}_min")
         start_job_button(kind, a.label, minutes, ids, key=f"{key_prefix}_{kind}_go",

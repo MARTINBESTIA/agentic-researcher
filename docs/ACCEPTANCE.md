@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 218 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
+Stav 13. 10. 2026: 226 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -151,3 +151,10 @@ Stav 13. 10. 2026: 218 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M14 | 7 záver iba z faktov (vymyslené číslo → záver z kódu), správa HTML | `test_conclusion_from_facts_rejects_invented_numbers_and_writes_report` |
 | M14 | 8 CRZ dozadu po blokoch, chýbajúce dni | `test_m10_gates.py::test_crz_window_extends_backwards_in_chunks_and_records_missing_days` |
 | M14 | 9 GUI: karta, čomu experiment slúži, výsledková tabuľka, záver | `test_m2_gui.py::test_gate2_page_shows_card_scorecard_items_and_conclusion` |
+| M14 | 10 `lookup`: iná tabuľka podľa IČO a časového okna, budúcnosť iba štítok | `test_m14_experiments.py::test_lookup_joins_other_table_by_ico_within_time_window` |
+| M14 | 11 NKÚ: zistenia s IČO bez adries, nový dataset zdieľaný s podhypotézou | `test_nku_findings_get_ico_without_addresses_and_dataset_is_shared_with_subhypotheses` |
+| M14 | 12 kvalita návrhov a voliteľné automatické uzamknutie | `test_plan_quality_is_measured_and_optional_auto_lock` |
+| M14 | 13 CRZ: výpadok siete neposunie okno, `--retry` | `test_m10_gates.py::test_crz_window_does_not_move_over_network_outage_and_retries_missing_days` |
+| M14 | 14 reprodukcia bez cieľa a pripravenosť bez tejto zložky | `test_m10_gates.py::test_repro_target_skips_years_and_dates_and_readiness_ignores_missing_target` |
+| M14 | 15 kandidáti z katalógu podľa významu poľa | `test_m10_gates.py::test_catalog_candidates_ranked_by_meaning_of_field` |
+| M14 | 16 odhady časov z histórie a poradia | `test_m9_agentic.py::test_dashboard_eta_from_history_and_queue` |
