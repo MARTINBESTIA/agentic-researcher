@@ -34,7 +34,7 @@ import duckdb
 from pydantic import BaseModel, Field
 
 from .config import Config
-from .datasets import DatasetError, duck_path
+from .datasets import DatasetError, connect_ro, duck_path
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class Workspace:
         if not path.exists():
             raise DatasetError("hypotéza nemá žiadny dataset")
         self.cfg = cfg
-        self.con = duckdb.connect(str(path), read_only=True, config={"enable_external_access": False})
+        self.con = connect_ro(path, {"enable_external_access": False})
         self.n = 0
         self.protocol: list[dict[str, Any]] = []
         self.future: dict[str, int] = {}  # stĺpec → dni budúcnosti, z ktorých vznikol

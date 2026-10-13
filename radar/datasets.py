@@ -88,6 +88,19 @@ class Download:
 SHARED_MARKER = "zdielane_z.txt"  # podhypotéza používa DuckDB rodiča (rozdelenie hypotézy)
 
 
+
+def connect_ro(path: Path | str, config: dict | None = None, attempts: int = 12, wait_s: float = 5.0):
+    """DuckDB iba na čítanie; keď ju práve zapisuje iný proces (doplňovanie CRZ, krok datasetov), chvíľu počká."""
+    import time
+
+    for i in range(attempts):
+        try:
+            return duckdb.connect(str(path), read_only=True, config=config or {})
+        except duckdb.IOException:
+            if i == attempts - 1:
+                raise
+            time.sleep(wait_s)
+
 def hyp_dir(cfg: Config, hid: int) -> Path:
     base = cfg.path(cfg.gate1.datasets_dir)
     own = base / f"H{hid}"
@@ -476,7 +489,7 @@ def drop_table(cfg: Config, hid: int, table: str) -> None:
 
 def profile_table(cfg: Config, hid: int, table: str) -> dict[str, Any]:
     """Riadky, stĺpce (typ, podiel prázdnych, rozsah), časový rozsah a podozrenie na osobné údaje."""
-    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    con = connect_ro(duck_path(cfg, hid))
     try:
         cols = con.execute(f"DESCRIBE {table}").fetchall()
         rows = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -626,7 +639,7 @@ def coverage(cfg: Config, hid: int, table: str, ico_columns: list[str], orgs: li
     by_ico = {str(ico).zfill(8): oid for oid, ico in orgs if ico}
     if not by_ico or not ico_columns:
         return []
-    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    con = connect_ro(duck_path(cfg, hid))
     found: dict[int, list[tuple[str, int]]] = {}
     try:
         for col in ico_columns:
@@ -650,7 +663,7 @@ def schema_text(cfg: Config, hid: int, tables: list[str], samples: int = 3) -> s
     sa neukladajú)."""
     if not duck_path(cfg, hid).exists():
         return ""
-    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    con = connect_ro(duck_path(cfg, hid))
     parts = []
     try:
         existing = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
@@ -680,7 +693,7 @@ def planner_profile(cfg: Config, hid: int, tables: list[str], max_columns: int =
     bez neho hádal (napr. roky pri 9-mesačnom okne)."""
     if not duck_path(cfg, hid).exists():
         return ""
-    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    con = connect_ro(duck_path(cfg, hid))
     parts = []
     try:
         existing = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
@@ -754,7 +767,7 @@ def run_query(cfg: Config, hid: int, sql: str, params: list[Any] | None = None, 
     path = duck_path(cfg, hid)
     if not path.exists():
         raise DatasetError("hypotéza nemá žiadny dataset")
-    con = duckdb.connect(str(path), read_only=True, config={"enable_external_access": False})
+    con = connect_ro(path, {"enable_external_access": False})
     timer = threading.Timer(timeout_s or cfg.gate1.sql_timeout_s, con.interrupt)
     timer.start()
     try:
@@ -769,7 +782,7 @@ def run_query(cfg: Config, hid: int, sql: str, params: list[Any] | None = None, 
 def table_columns(cfg: Config, hid: int, table: str) -> list[str]:
     if not TABLE_RE.fullmatch(table or "") or not duck_path(cfg, hid).exists():
         return []
-    con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
+    con = connect_ro(duck_path(cfg, hid))
     try:
         return [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
     except duckdb.Error:
