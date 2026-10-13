@@ -82,6 +82,7 @@ class Download:
     final_url: str
     content_type: str
     note: str | None = None  # napr. počet strán API alebo skrátenie na limit
+    window: tuple[str, str] | None = None  # obdobie, ktoré stiahnuté dáta pokrývajú (napr. dni dávok CRZ)
 
 
 def hyp_dir(cfg: Config, hid: int) -> Path:
@@ -582,24 +583,46 @@ def base_table(table: str) -> str:
     return re.sub(r"_long$", "", table or "")
 
 
+def ico_sql(expr: str) -> str:
+    """SQL: IČO zo stĺpca ako 8 číslic – prvá samostatná skupina 6–8 číslic (aj „IČO: 00322521“ alebo „51 049 775“
+    z CRZ), inak NULL."""
+    text = f"replace(CAST({expr} AS VARCHAR), ' ', '')"
+    return f"lpad(NULLIF(regexp_extract({text}, '(^|[^0-9])([0-9]{{6,8}})([^0-9]|$)', 2), ''), 8, '0')"
+
+
+# Strana zmluvy, ktorá je samotná organizácia (objednávateľ, obstarávateľ, prijímateľ), nie jej protistrana (dodávateľ).
+OWN_SIDE_RE = re.compile(r"objedn|obstar|zadav|prijim|ziadat|odberat|kupuj", re.I)
+
+
+def _ascii(text: str) -> str:
+    import unicodedata
+
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+
+
 def coverage(cfg: Config, hid: int, table: str, ico_columns: list[str], orgs: list[tuple[int, str]]) -> list[tuple[int, str, int]]:
-    """(org_id, stĺpec, počet riadkov) pre organizácie z DB, ktorých IČO je v datasete."""
+    """(org_id, stĺpec, počet riadkov) pre organizácie z DB, ktorých IČO je v datasete – jeden stĺpec na organizáciu:
+    prednostne jej vlastná strana (objednávateľ, prijímateľ), inak stĺpec s najviac riadkami. MF SR je v CRZ
+    dodávateľom tisícok zmlúv obcí (výpomoci), no jeho vlastné výdavky sú tam, kde je objednávateľom."""
     by_ico = {str(ico).zfill(8): oid for oid, ico in orgs if ico}
     if not by_ico or not ico_columns:
         return []
     con = duckdb.connect(str(duck_path(cfg, hid)), read_only=True)
-    out = []
+    found: dict[int, list[tuple[str, int]]] = {}
     try:
         for col in ico_columns:
-            q = _quote(col)
-            rows = con.execute(
-                f"SELECT lpad(trim(CAST({q} AS VARCHAR)), 8, '0') AS ico, COUNT(*) FROM {table} "
-                f"WHERE lpad(trim(CAST({q} AS VARCHAR)), 8, '0') IN (SELECT unnest(?)) GROUP BY 1",
-                [list(by_ico)],
-            ).fetchall()
-            out += [(by_ico[ico], col, n) for ico, n in rows]
+            ico = ico_sql(_quote(col))
+            rows = con.execute(f"SELECT {ico} AS ico, COUNT(*) FROM {table} WHERE {ico} IN (SELECT unnest(?)) GROUP BY 1",
+                               [list(by_ico)]).fetchall()
+            for value, n in rows:
+                found.setdefault(by_ico[value], []).append((col, n))
     finally:
         con.close()
+    out = []
+    for org_id, cols in found.items():
+        own = [c for c in cols if OWN_SIDE_RE.search(_ascii(c[0]))]
+        col, n = max(own or cols, key=lambda c: c[1])
+        out.append((org_id, col, n))
     return out
 
 

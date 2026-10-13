@@ -176,6 +176,9 @@ class GatesMixin:
             (dataset_id, org_id, column, rows),
         )
 
+    def clear_coverage(self, dataset_id: int) -> None:
+        self._exec("DELETE FROM dataset_coverage WHERE dataset_id = ?", (dataset_id,))
+
     def coverage_for(self, hid: int) -> list[sqlite3.Row]:
         return self._all(
             """SELECT c.*, d.table_name, d.url, o.name AS org_name, o.ico FROM dataset_coverage c

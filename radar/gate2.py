@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Any, Literal
@@ -34,7 +34,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from .config import Config
-from .datasets import DatasetError, base_table, run_query, schema_text, table_columns
+from .datasets import DatasetError, base_table, ico_sql, run_query, schema_text, table_columns
 from .db import DB
 from .models import as_router
 from .prompts import GATE2_DEMO_SYSTEM, GATE2_PREREG_SYSTEM
@@ -169,7 +169,7 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
     agg = {"sum": "SUM", "avg": "AVG", "count": "COUNT"}[spec.get("aggregation", "sum")]
     conds, params = [], []
     if spec.get("entity_column") and spec.get("entity_value"):
-        conds.append(f"lpad(trim(CAST({_q(spec['entity_column'])} AS VARCHAR)), 8, '0') = ?")
+        conds.append(f"{ico_sql(_q(spec['entity_column']))} = ?")
         params.append(str(spec["entity_value"]).zfill(8))
     for col, value in (spec.get("filters") or {}).items():
         conds.append(f"trim(CAST({_q(col)} AS VARCHAR)) = ?")
@@ -187,6 +187,60 @@ def series(cfg: Config, hid: int, spec: dict[str, Any]) -> list[tuple[Any, float
            f"FROM {spec['table']} {where} GROUP BY 1 ORDER BY 1")
     rows = run_query(cfg, hid, sql, params)
     return [(t, float(y)) for t, y in rows if t is not None and y is not None]
+
+
+def _period_end(start: date, period: str) -> date:
+    if period == "year":
+        return date(start.year, 12, 31)
+    y, m = divmod(start.month - 1 + (3 if period == "quarter" else 1), 12)
+    return date(start.year + y, m + 1, 1) - timedelta(days=1)
+
+
+def _period_start(day: date, period: str) -> date:
+    month = 1 if period == "year" else (day.month - 1) // 3 * 3 + 1 if period == "quarter" else day.month
+    return date(day.year, month, 1)
+
+
+def data_limits(db: DB, hid: int, table: str) -> dict[str, str]:
+    """Obdobie, ktoré dataset pokrýva: okno dávok (CRZ), inak do dňa pred stiahnutím (neskoršie udalosti v ňom nie sú)."""
+    ds = next((d for d in db.datasets_for(hid, only_ok=True) if d["table_name"] == base_table(table)), None)
+    if ds is None:
+        return {}
+    window = (json.loads(ds["profile_json"] or "{}") or {}).get("časové_okno") or {}
+    end = window.get("do") or (date.fromisoformat(ds["fetched_at"][:10]) - timedelta(days=1)).isoformat()
+    return {"od": window.get("od") or "", "do": end}
+
+
+def complete_periods(data: list[tuple[Any, float]], period: str | None, limits: dict[str, str], aggregation: str = "sum",
+                     today: date | None = None) -> tuple[list[tuple[Any, float]], dict[str, list[str]]]:
+    """Iba úplné obdobia v rozsahu dát: prvé obdobie, ktoré celé leží v okne (CRZ: zmluvy pred oknom sú iba tie, čo sa
+    v okne menili), a posledné, ktoré skončilo pred koncom dát (bežiaci mesiac je neúplný; budúce dátumy sú preklepy).
+    Pri súčte a počte je obdobie bez riadkov 0 (organizácia v ňom nemala zmluvu), pri priemere chýba."""
+    if period not in ("year", "quarter", "month") or not data:
+        return data, {}
+    today = today or date.today()
+    end = min(date.fromisoformat(limits["do"]), today) if limits.get("do") else today
+    lo = None
+    if limits.get("od"):
+        first = date.fromisoformat(limits["od"])
+        lo = first if _period_start(first, period) == first else _period_end(first, period) + timedelta(days=1)
+    kept, dropped = {}, []
+    for t, y in data:
+        start = t if isinstance(t, date) else date.fromisoformat(str(t)[:10])
+        if (lo is not None and start < lo) or _period_end(start, period) > end:
+            dropped.append(start.isoformat())
+        else:
+            kept[start] = y
+    filled = []
+    if kept and aggregation in ("sum", "count"):
+        cur = lo if lo is not None and lo < min(kept) else min(kept)
+        while _period_end(cur, period) <= end:
+            if cur not in kept:
+                kept[cur] = 0.0
+                filled.append(cur.isoformat())
+            cur = _period_end(cur, period) + timedelta(days=1)
+    notes = {k: v for k, v in (("vyradené_neúplné", dropped), ("doplnené_nuly", filled)) if v}
+    return sorted(kept.items()), notes
 
 
 MODELS = ("linear_trend", "ar1", "ses", "holt_damped", "seasonal_trend", "auto")
@@ -323,7 +377,9 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
             spec = json.loads(exp["spec_json"])
             flags = json.loads(exp["flags_json"] or "{}")
             try:
-                data = series(cfg, hyp["id"], spec)
+                limits = data_limits(db, hyp["id"], spec.get("table", ""))
+                data, trimmed = complete_periods(series(cfg, hyp["id"], spec), spec.get("period"), limits,
+                                                 spec.get("aggregation", "sum"))
                 res = backtest_series([v for _, v in data], exp["baseline"], spec.get("model", "linear_trend"),
                                       cfg.gate2.backtest_folds, cfg.gate2.min_history, exp["metric"], cfg.gate2.bootstrap,
                                       season=season_length(spec.get("period"), [t for t, _ in data]))
@@ -334,6 +390,8 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
                 continue
             res["periods"] = [str(t) for t, _ in data]
             res["values"] = [v for _, v in data]
+            res["rozsah_dát"] = limits
+            res.update(trimmed)  # ktoré obdobia vypadli ako neúplné a kde je 0 (žiadny riadok)
             flags.pop("chyba_testu", None)
             flags["model_neprekonal_naivny_odhad"] = res["improvement"] <= 0
             flags["malo_obdobi"] = res["n_folds"] < 4

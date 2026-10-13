@@ -208,6 +208,31 @@ def test_gate1_page_shows_readiness_fields_and_info_request(gui):
     db.close()
 
 
+
+def test_gate2_page_previews_series_before_lock(gui):
+    """Pred uzamknutím vidno rad, ktorý sa otestuje: iba úplné obdobia v rozsahu dát (december je po konci dát)."""
+    from radar.datasets import hyp_dir, import_table
+    from radar.gate1 import decide
+
+    cfg = load_config(gui / "config.yaml")
+    db = DB(cfg.db_path)
+    hyp_dir(cfg, 1).mkdir(parents=True, exist_ok=True)
+    path = gui / "rad.csv"
+    path.write_text("ico;datum;suma\n" + "".join(f"00313271;2025-{m:02d}-10;{100 + m}\n" for m in range(1, 13)),
+                    encoding="utf-8")
+    import_table(cfg, 1, "ds1", path, "csv")
+    db.add_dataset(1, None, "user://vstup-1/rad.csv", "ds1", status="ok",
+                   profile_json={"časové_okno": {"od": "2025-01-01", "do": "2025-11-30"}})
+    decide(db, 1, 1, "passed", "test")
+    db.add_experiment(1, None, None, "Trend predpovie výdavky.", "MAE", "last_value", "MAE modelu < naivného",
+                      {"table": "ds1", "time_column": "datum", "value_column": "suma", "aggregation": "sum",
+                       "period": "month", "model": "auto"})
+    db.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/gate2.py").run()
+    assert not at.exception, at.exception
+    assert any(c.value.startswith("11 období") and "vyradené neúplné: 2025-12-01" in c.value for c in at.caption)
+
 def test_problems_theme_view_and_rename(gui):
     """Témy: súhrn dôkazov za tému, filter hypotéz podľa témy a ručný názov."""
     db = DB(load_config(gui / "config.yaml").db_path)

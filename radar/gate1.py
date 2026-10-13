@@ -594,6 +594,8 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         if is_crz_export(url):
             dedupe_latest(cfg, hid, table)
         prof = profile_table(cfg, hid, table)
+        if dl.window and dl.window[0]:  # dávky CRZ: zmluvy zverejnené v týchto dňoch (časový rad Brány 2 iba v okne)
+            prof["časové_okno"] = {"od": dl.window[0], "do": dl.window[1], "podľa": "deň zverejnenia (dávky)"}
     except DatasetError as exc:
         db.add_dataset(hid, src["id"], url, table, status="too_large" if "limit" in str(exc) else "error",
                        note=str(exc)[:300])
@@ -786,6 +788,26 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
             "organizácie_v_dátach": len(orgs), "reprodukcia": best_repro, "vypočítané": utcnow()}
 
 
+def refresh_coverage(cfg: Config, db: DB, hid: int) -> int:
+    """Pokrytie organizácií v stiahnutých datasetoch nanovo: organizácie pribúdajú aj po stiahnutí dát (zber ľudí)."""
+    orgs = [(o["id"], o["ico"]) for o in db.organizations_with_ico()]
+    n = 0
+    for ds in db.datasets_for(hid, only_ok=True):
+        prof = json.loads(ds["profile_json"] or "{}")
+        if not prof.get("ico_columns"):
+            continue
+        try:
+            rows = coverage(cfg, hid, ds["table_name"], prof["ico_columns"], orgs)
+        except Exception as exc:  # noqa: BLE001 – DuckDB zamknutá inou úlohou: ostane staré pokrytie
+            log.warning("Pokrytie %s pre H%s sa neobnovilo: %s", ds["table_name"], hid, exc)
+            continue
+        db.clear_coverage(ds["id"])
+        for org_id, col, rows_n in rows:
+            db.set_coverage(ds["id"], org_id, col, rows_n)
+        n += len(rows)
+    return n
+
+
 # Stavy, v ktorých smie rozhodnúť pravidlo; „prešla“, „pozastavená“ a „zastavená“ (aj ručné) sa neprepisujú.
 OPEN_STATUSES = ("not_started", "running", "ready", "needs_input")
 
@@ -801,6 +823,7 @@ def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -
         if not db.fields_for(hyp["id"]):
             continue
         stats["info_requests"] += draft_info_requests(cfg, db, hyp["id"])
+        stats["coverage"] += refresh_coverage(cfg, db, hyp["id"])
         summary = readiness(cfg, db, hyp["id"])
         db.set_gate1_summary(hyp["id"], summary)
         stats["hypotheses"] += 1

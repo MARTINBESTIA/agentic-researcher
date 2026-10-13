@@ -4,7 +4,8 @@ from pathlib import Path
 import streamlit as st
 
 from radar.gate1 import decide
-from radar.gate2 import lock
+from radar.datasets import DatasetError
+from radar.gate2 import complete_periods, data_limits, lock, series
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, start_job_button
 
 d, c = db(), cfg()
@@ -66,6 +67,22 @@ with st.container(border=True):
                     st.error(str(exc))
                 else:
                     refresh()
+        with st.expander("Náhľad časového radu – čo sa po uzamknutí otestuje", icon=":material/show_chart:"):
+            spec_now = json_or(e["spec_json"], {})
+            try:
+                limits = data_limits(d, hid, spec_now.get("table", ""))
+                data, trimmed = complete_periods(series(c, hid, spec_now), spec_now.get("period"), limits,
+                                                 spec_now.get("aggregation", "sum"))
+            except (DatasetError, ValueError, KeyError) as exc:
+                st.caption(f"Rad sa nedá zostaviť: {exc}")
+            else:
+                st.caption(f"{len(data)} období · dáta od {limits.get('od') or 'začiatku'} do {limits.get('do', '?')}"
+                           + (f" · vyradené neúplné: {', '.join(trimmed['vyradené_neúplné'])}"
+                              if trimmed.get("vyradené_neúplné") else "")
+                           + (f" · bez riadkov (0): {len(trimmed['doplnené_nuly'])}" if trimmed.get("doplnené_nuly") else "")
+                           + f". Spätný test potrebuje aspoň {c.gate2.min_history + 1} období.")
+                if data:
+                    st.line_chart({str(t): v for t, v in data}, height=220)
         if st.button("Uzamknúť predregistráciu (potom sa už nemení)", icon=":material/lock:", key=f"g2_lock_{eid}"):
             try:
                 lock(c, d, eid)
@@ -86,6 +103,10 @@ if res:
         if res.get("model"):
             st.caption(f"model {res['model']} · sezóna {res.get('season', 1)} "
                        f"{'(bez sezónnosti)' if res.get('season', 1) == 1 else 'období'}")
+        if res.get("rozsah_dát"):
+            st.caption(f"Dáta od {res['rozsah_dát'].get('od') or 'začiatku'} do {res['rozsah_dát'].get('do')}"
+                       + (f" · vyradené neúplné obdobia: {', '.join(res['vyradené_neúplné'])}" if res.get("vyradené_neúplné") else "")
+                       + (f" · obdobia bez riadkov (0): {', '.join(res['doplnené_nuly'])}" if res.get("doplnené_nuly") else ""))
         if flags.get("model_neprekonal_naivny_odhad"):
             st.warning("Stop podmienka: model neprekonal naivný odhad.", icon=":material/flag:")
         if flags.get("malo_obdobi"):

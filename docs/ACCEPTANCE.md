@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 203 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v7).
+Stav 13. 10. 2026: 207 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v7).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -89,6 +89,10 @@ Stav 13. 10. 2026: 203 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M11 | 3 zdroje z prečítaných stránok, keď agent nič neuloží; pole „názov: popis“, citát s „…“ | `test_sources_from_read_pages_when_agent_only_reads`, `test_field_name_with_description_and_shortened_quote` |
 | M12 | 6 API s popisom OpenAPI → JSON endpointy, vnorené IČO → pokrytie | `test_openapi_endpoints_become_json_datasets_with_nested_fields` |
 | M13 | 4 dátumový stĺpec zoskupený po obdobiach (štvrťrok) | `test_backtest_groups_date_column_by_period` |
+| M13 | 4a iba úplné obdobia v okne dát (CRZ), budúce a bežiace vyradené, prázdne obdobie = 0 pri súčte | `test_backtest_uses_only_complete_periods_inside_data_window` |
+| M13 | 4b organizácia podľa vlastnej strany zmluvy (objednávateľ), IČO s medzerami a predponou | `test_coverage_prefers_own_side_of_contract_and_dirty_ico` |
+| M13 | 4c pokrytie sa obnoví pre organizácie pridané po stiahnutí dát | `test_finish_refreshes_coverage_for_organizations_added_later` |
+| M13 | 4d GUI: náhľad časového radu pred uzamknutím predregistrácie | `test_m2_gui.py::test_gate2_page_previews_series_before_lock` |
 | M10 | 4 stránka osoby zo sitemap.xml bez vyhľadávača | `test_sitemap_finds_person_page_without_search_engine` |
 | M9 | 16 test hypotézy: tvrdenia z prečítaných stránok, keď agent nič neuloží | `test_m9_agentic.py::test_validation_agent_that_only_reads_gets_claims_from_extraction` |
 | M12 | 7 stránkovanie API (kurzor, offset, ignorované stránkovanie), náhrada jednostránkového datasetu | `test_api_pagination_cursor_offset_and_ignored_paging`, `test_paginated_api_replaces_single_page_dataset` |

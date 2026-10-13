@@ -174,7 +174,10 @@ with tab_d:
         cov = d.coverage_for(hid)
         if cov:
             st.markdown("**Organizácie v dátach** (podľa IČO) – kandidáti na Bránu 2:")
-            st.dataframe([{"organizácia": r["org_name"], "IČO": r["ico"], "tabuľka": r["table_name"], "riadky": r["rows"]}
+            st.caption("Stĺpec: strana zmluvy, podľa ktorej sa organizácia v dátach našla (prednostne jej vlastná – "
+                       "objednávateľ, prijímateľ; inak protistrana).")
+            st.dataframe([{"organizácia": r["org_name"], "IČO": r["ico"], "tabuľka": r["table_name"],
+                           "stĺpec": r["column_name"], "riadky": r["rows"]}
                           for r in cov], hide_index=True, alt="Organizácie nájdené v datasetoch")
 with tab_r:
     reps = d.reproductions_for(hid)

@@ -897,7 +897,54 @@ def test_crz_daily_exports_deduplicated_without_supplier_names(tmp_path):
     assert "zs2" not in cols and "sidlo" not in cols and "_den" not in cols and "ico_objednavatel" in cols
     assert run_query(cfg, hid, f'SELECT COUNT(*), SUM(suma_zmluva) FROM {table}')[0] == (2, 350.5)  # ID 1 iba raz, posledná zmena
     assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]  # IČO objednávateľa (ico1)
+    # okno dávok pre časový rad Brány 2: od prvej po poslednú stiahnutú dávku
+    assert json.loads(ds["profile_json"])["časové_okno"] == {"od": days[0], "do": days[2], "podľa": "deň zverejnenia (dávky)"}
 
+
+
+def test_coverage_prefers_own_side_of_contract_and_dirty_ico(tmp_path):
+    """Úloha #44: MF SR bolo v CRZ párované ako dodávateľ (výpomoci obciam), nie ako objednávateľ vlastných zmlúv;
+    IČO objednávateľa býva „51 049 775“ alebo „IČO: 00313271“."""
+    from radar.datasets import coverage, hyp_dir, import_table
+
+    cfg, *_ = setup(tmp_path)
+    hid = 3
+    hyp_dir(cfg, hid).mkdir(parents=True)
+    path = tmp_path / "crz.csv"
+    rows = (["IČO: 00313271;99999999"] * 2 + ["00313271;99999999"] + ["12345678;00313271"] * 5
+            + ["51 049 775;12345678", "  ;00151742"])
+    path.write_text("ico_objednavatel;ico_dodavatel\n" + "\n".join(rows) + "\n", encoding="utf-8")
+    import_table(cfg, hid, "ds1", path, "csv")
+    got = coverage(cfg, hid, "ds1", ["ico_objednavatel", "ico_dodavatel"],
+                   [(1, "00313271"), (2, "51049775"), (3, "151742")])
+    assert sorted(got) == [(1, "ico_objednavatel", 3), (2, "ico_objednavatel", 1), (3, "ico_dodavatel", 1)]
+
+
+def test_backtest_uses_only_complete_periods_inside_data_window():
+    """CRZ (okno dávok 15. 1. – 11. 10.): január je neúplný, október beží, november je preklep; mesiac bez zmlúv = 0."""
+    data = [(gate2.date(2023, 12, 1), 5.0), (gate2.date(2026, 1, 1), 4.0), (gate2.date(2026, 2, 1), 10.0),
+            (gate2.date(2026, 4, 1), 30.0), (gate2.date(2026, 9, 1), 20.0), (gate2.date(2026, 10, 1), 1.0),
+            (gate2.date(2026, 11, 1), 2.0)]
+    limits = {"od": "2026-01-15", "do": "2026-10-11"}
+    kept, notes = gate2.complete_periods(data, "month", limits, "sum", today=gate2.date(2026, 10, 13))
+    assert [str(t) for t, _ in kept] == [f"2026-{m:02d}-01" for m in range(2, 10)]
+    assert dict((str(t), v) for t, v in kept)["2026-03-01"] == 0.0 and len(notes["doplnené_nuly"]) == 5
+    assert notes["vyradené_neúplné"] == ["2023-12-01", "2026-01-01", "2026-10-01", "2026-11-01"]
+    avg, notes = gate2.complete_periods(data, "month", limits, "avg", today=gate2.date(2026, 10, 13))
+    assert len(avg) == 3 and "doplnené_nuly" not in notes  # priemer prázdneho mesiaca nie je 0
+    # okno začína prvým dňom štvrťroka → ten štvrťrok ostáva; bez okna platí deň pred stiahnutím
+    q = [(gate2.date(2026, 1, 1), 1.0), (gate2.date(2026, 7, 1), 2.0)]
+    assert len(gate2.complete_periods(q, "quarter", {"od": "2026-01-01", "do": "2026-09-30"})[0]) == 3
+    assert gate2.complete_periods(q, "none", limits) == (q, {})
+
+
+def test_finish_refreshes_coverage_for_organizations_added_later(tmp_path):
+    cfg, db, rec, router, hid, fid, org, fetcher = _dataset_env(tmp_path)
+    gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])
+    later, _ = db.upsert_organization("Obec Neskoršia", "obec neskorsia", "search", ico="00603481")  # zber ľudí po stiahnutí
+    assert {c["org_name"] for c in db.coverage_for(hid)} == {"Mesto Fiktívne"}
+    assert gate1.run_finish(cfg, db, Deadline(1), [hid])["coverage"] == 2
+    assert {c["org_name"] for c in db.coverage_for(hid)} == {"Mesto Fiktívne", "Obec Neskoršia"}
 
 def test_gate_stage_cli_accepts_hypotheses():
     """Bez zadania spracuje krok najviac gate1.max_hypotheses_per_run hypotéz (CRZ pre H11 sa preto nespustilo)."""

@@ -72,6 +72,7 @@ def download_crz(cfg: Config, fetcher, dest_dir: Path, blocked: list[str], days:
     end = end or date.today() - timedelta(days=1)
     digest = hashlib.sha256()
     got = missing = rows = total = 0
+    first_day = last_day = None
     dest_dir.mkdir(parents=True, exist_ok=True)
     out = dest_dir / "crz-export.jsonl"
     with open(out, "w", encoding="utf-8") as fh:
@@ -101,6 +102,7 @@ def download_crz(cfg: Config, fetcher, dest_dir: Path, blocked: list[str], days:
                         fh.write(json.dumps({**row, "_den": day}, ensure_ascii=False) + "\n")
                         rows += 1
                 got += 1
+                first_day, last_day = first_day or day, day
             except (zipfile.BadZipFile, etree.XMLSyntaxError) as exc:
                 missing += 1
                 log.warning("CRZ %s: poškodená dávka (%s)", day, exc)
@@ -112,7 +114,7 @@ def download_crz(cfg: Config, fetcher, dest_dir: Path, blocked: list[str], days:
     note = (f"CRZ: {got} denných dávok ({missing} chýba), {rows} záznamov pred zlúčením podľa ID; bez mien "
             "dodávateľov a adries (minimalizácia)")
     return Download(path=out, sha256=digest.hexdigest(), size=total, final_url=CRZ_FILE.format(day="RRRR-MM-DD"),
-                    content_type="application/json", note=note)
+                    content_type="application/json", note=note, window=(first_day, last_day))
 
 
 def dedupe_latest(cfg: Config, hid: int, table: str) -> int:
