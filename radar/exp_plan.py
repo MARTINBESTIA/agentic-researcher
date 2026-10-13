@@ -137,6 +137,19 @@ def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
     Bezpečné doplnenie kódom: lookup s jediným stĺpcom IČO v druhej tabuľke dostane target_column a match „ico“."""
     errors = []
     base = _table_columns(cfg, hid, plan.get("table", ""))
+    created = {s.get("name") for s in plan.get("steps") or [] if s.get("name")}
+    feats = []
+    for i, f in enumerate(plan.get("features") or []):  # 27B občas zadá výraz (TRY_CAST(...)) namiesto stĺpca
+        if f and f not in base and f not in created and re.search(r"[()+*/<>=]|\bcase\b", f, re.I):
+            name = f"priznak_{i + 1}"
+            plan.setdefault("steps", []).append({"op": "derive", "name": name, "expr": f,
+                                                 "why": "príznak z výrazu (doplnil kód)"})
+            created.add(name)
+            feats.append(name)
+        else:
+            feats.append(f)
+    if plan.get("features"):
+        plan["features"] = feats
     created = set()
     for i, s in enumerate(plan.get("steps") or []):
         op, name = s.get("op"), s.get("name", "")
@@ -191,6 +204,28 @@ def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
     if plan.get("task") == "ranking" and plan.get("primary_baseline") == "entity_rate" and not plan.get("entity_column"):
         errors.append('naivný odhad entity_rate potrebuje "entity_column"')
     return errors
+
+
+FUTURE_OPS = ("future_agg", "linked_agg", "link_records")
+
+
+def plan_signature(plan: dict[str, Any]) -> str:
+    """Čo experiment naozaj meria (bez názvov a textov): úloha + ako vzniká štítok alebo hodnota. Rovnaký podpis =
+    duplikát (reálny beh: E7 bol E6 s iným názvom)."""
+    task = plan.get("task")
+    def step_sig(s):
+        return (s.get("op"), s.get("table", ""), tuple(s.get("keys") or []), s.get("target_column", ""),
+                int(s.get("days") or 0), (s.get("expr") or "").strip().lower(), s.get("agg", ""))
+    if task in ("ranking", "anomaly", "comparison") and plan.get("label"):
+        future = sorted(step_sig(s) for s in plan.get("steps") or [] if s.get("op") in FUTURE_OPS or
+                        (s.get("op") == "lookup" and int(s.get("days") or 0) >= 0))
+        core = (task, tuple(future), plan.get("entity_column", "") if task == "ranking" else plan.get("category", ""))
+    elif task == "threshold":
+        core = (task, (plan.get("value") or "").lower(), tuple(sorted(plan.get("thresholds") or [])))
+    else:
+        core = (task, (plan.get("value") or "").lower(), plan.get("entity_column", ""), plan.get("period", ""),
+                plan.get("category", ""))
+    return json.dumps(core, ensure_ascii=False, default=str)
 
 
 def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: dict[int, str] | None = None,
@@ -380,6 +415,30 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
     return out
 
 
+def recheck_drafts(cfg: Config, db: DB, hid: int, quotes: dict[int, str]) -> Counter:
+    """Neuzamknuté návrhy s chybami znova cez kontrolu (opravy kódom: výraz ako príznak, jednoznačné IČO);
+    duplikát skoršieho experimentu dostane chybu."""
+    stats: Counter = Counter()
+    seen: dict[str, int] = {}
+    for e in db.experiments_for(hid):
+        if not e["task"]:
+            continue
+        plan = json.loads(e["spec_json"])
+        sig = plan_signature(plan)
+        flags = json.loads(e["flags_json"] or "{}")
+        if e["status"] == "draft" and not e["locked_at"] and (flags.get("chyby_návrhu") or sig in seen):
+            check = validate_plan(cfg, db, hid, plan, quotes)
+            if sig in seen:
+                check["chyby"].append(f"experiment meria to isté ako E{seen[sig]} – navrhni iný typ úlohy alebo štítok")
+            plan["skúšobný_beh"] = check["štatistiky"]
+            new_flags = {k: v for k, v in flags.items() if k not in ("chyby_návrhu", "upozornenia")}
+            new_flags |= {k: v for k, v in (("chyby_návrhu", check["chyby"]), ("upozornenia", check["upozornenia"])) if v}
+            db.update_experiment(e["id"], spec_json=plan, flags_json=new_flags)
+            stats["rechecked_ok" if not check["chyby"] else "rechecked_errors"] += 1
+        seen.setdefault(sig, e["id"])
+    return stats
+
+
 def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None) -> dict:
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
@@ -391,6 +450,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
         hid = hyp["id"]
         card = json.loads(card_row["card_json"])
         quotes = {c["id"]: c["quote"] for c in db.evidence_for(hid)}
+        stats.update(recheck_drafts(cfg, db, hid, quotes))  # staršie návrhy s chybami podľa aktuálnych kontrol
         data_text = _data_text(cfg, db, hid)
         todo = cfg.experiments.plans_per_hypothesis - len([e for e in db.experiments_for(hid) if e["task"]
                                                            and e["status"] != "failed"])
@@ -413,7 +473,16 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 break
             plan = res.value.experiments[0]
             data = plan.model_dump()
-            check = validate_plan(cfg, db, hid, data, quotes)
+            taken = {plan_signature(json.loads(e["spec_json"])): e["id"] for e in db.experiments_for(hid) if e["task"]}
+
+            def checked(d: dict[str, Any]) -> dict[str, Any]:
+                c = validate_plan(cfg, db, hid, d, quotes)
+                if plan_signature(d) in taken:
+                    c["chyby"].append(f"experiment meria to isté ako E{taken[plan_signature(d)]} (rovnaký štítok alebo "
+                                      "hodnota) – navrhni iný typ úlohy alebo iný štítok")
+                return c
+
+            check = checked(data)
             first_ok, attempts = not check["chyby"], 1
             for _ in range(cfg.experiments.max_plan_retries):
                 if not check["chyby"] or deadline.expired():
@@ -428,7 +497,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 if not fix.ok:
                     break
                 data = fix.value.model_dump()
-                check = validate_plan(cfg, db, hid, data, quotes)
+                check = checked(data)
                 attempts += 1
             data["skúšobný_beh"] = {k: v for k, v in check["štatistiky"].items()}
             data["návrh"] = {"pokusy": attempts, "bez_chýb_na_prvý_pokus": first_ok, "bez_chýb_po_oprave": not check["chyby"],

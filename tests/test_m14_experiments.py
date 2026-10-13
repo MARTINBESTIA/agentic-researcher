@@ -396,7 +396,8 @@ def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
     assert exp_plan.plan_quality(db)["uzamknuté_bez_úprav"] == 1  # človek plán nezmenil
     db.set_setting(exp_plan.AUTO_LOCK_KEY, {"enabled": True})
     cfg.experiments.plans_per_hypothesis = 2
-    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40}]}
+    other = [dict(st, days=200) if st["op"] == "linked_agg" else st for st in RANKING_PLAN["steps"]]  # iný štítok
+    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40, "steps": other}]}
     assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])["auto_locked"] == 1
     second = db.experiments_for(hid)[1]
     assert second["status"] == "locked" and json.loads(second["flags_json"])["uzamknuté_automaticky"]
@@ -438,4 +439,23 @@ def test_precheck_lists_all_missing_step_parameters_and_fills_unambiguous_ico(tm
     short = RANKING_PLAN | {"steps": [{"op": "lookup", "name": "x", "table": "ds2", "keys": ["ico_objednavatel"],
                                        "target_column": "ico", "other_time": "koniec_kontroly", "days": -1}]}
     assert any("-3650" in e for e in exp_plan.precheck_steps(cfg, hid, short))  # -1 = jeden deň, nie celá história
+
+
+def test_expression_feature_becomes_column_and_duplicate_plan_is_rejected(tmp_path):
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kontrola zmlúv", "", "obce")
+    header, rows = contracts_with_amendments()
+    dataset(cfg, db, hid, header, rows, "2024-01-01", "2025-12-31")
+    gate1.decide(db, hid, 1, "passed", "test")
+    db.add_card(hid, {"decision": {"text": "Výber zmlúv na kontrolu", "claims": []}})
+    plan = RANKING_PLAN | {"features": ["x", "TRY_CAST(amount AS DOUBLE) / 1000"], "steps": list(RANKING_PLAN["steps"])}
+    assert exp_plan.validate_plan(cfg, db, hid, plan)["chyby"] == []
+    assert plan["features"][1] == "priznak_2" and plan["steps"][-1]["expr"] == "TRY_CAST(amount AS DOUBLE) / 1000"
+    cfg.experiments.plans_per_hypothesis = 2
+    rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN]}
+    rec.responses["ExperimentPlan"] = RANKING_PLAN | {"title": "Rovnaké znova"}
+    stats = exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
+    assert stats["plans_ok"] == 1 and stats["plans_with_errors"] == 1  # druhý je duplikát aj po opravách
+    dup = db.experiments_for(hid)[1]
+    assert any("meria to isté ako E" in e for e in json.loads(dup["flags_json"])["chyby_návrhu"])
 

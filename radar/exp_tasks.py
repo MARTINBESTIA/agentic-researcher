@@ -167,6 +167,23 @@ def _ranking(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, Any]
             num_cols.append((f, arr))
         except (TypeError, ValueError):
             cat_cols.append((f, np.asarray([("∅" if v is None else str(v)) for v in np.ma.filled(col, None)], dtype=object)))
+    if ent:  # doterajšia miera entity ako príznak (naivný odhad entity_rate ho mal, modely nie – reálny beh E6)
+        ents_all = np.asarray([str(v) for v in np.ma.filled(data["_ent"], "")], dtype=object)
+        cut = int(n * (1 - cfg.experiments.test_share))
+        prior = float(y[:cut].mean()) if cut else 0.0
+        pos: dict[str, float] = {}
+        cnt: dict[str, int] = {}
+        for e_, yy in zip(ents_all[:cut], y[:cut]):
+            pos[e_] = pos.get(e_, 0.0) + yy
+            cnt[e_] = cnt.get(e_, 0) + 1
+        m = 5.0
+        rate = np.empty(n)
+        for i, e_ in enumerate(ents_all):
+            p_, c_ = pos.get(e_, 0.0), cnt.get(e_, 0)
+            if i < cut:  # bez vlastného riadku – inak by model videl vlastný štítok
+                p_, c_ = p_ - y[i], c_ - 1
+            rate[i] = (p_ + prior * m) / (c_ + m)
+        num_cols.append(("miera_entity", rate))
     num = np.column_stack([a for _, a in num_cols]) if num_cols else np.zeros((n, 0))
     cat = np.column_stack([a for _, a in cat_cols]) if cat_cols else np.zeros((n, 0), dtype=object)
     names = [f for f, _ in num_cols] + [f for f, _ in cat_cols]
