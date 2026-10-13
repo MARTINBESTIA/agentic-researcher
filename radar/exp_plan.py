@@ -453,6 +453,23 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
     return out
 
 
+def alternatives(plan: dict[str, Any]) -> str:
+    """Konkrétne iné experimenty pri duplikáte – aj z krokov, ktoré si model už pripravil (reálny beh E13: kategória
+    predmetu a pomer ceny k priemeru kategórie, ale opäť ten istý štítok)."""
+    steps = plan.get("steps") or []
+    cats = [s["name"] for s in steps if s.get("op") == "text_category" and s.get("name")]
+    ratios = [s["name"] for s in steps if s.get("op") == "derive" and re.search(r"ratio|pomer|podiel", s.get("name", ""), re.I)]
+    out = ['zmeň "task" na iný typ']
+    if cats:
+        out.append(f'napr. "task": "comparison" s "category": "{cats[0]}" a "value" = číselná hodnota (cenové anomálie '
+                   'v rámci kategórie; štítok nepovinný)')
+    if ratios or plan.get("value"):
+        out.append('"anomaly" s "value" za obdobie a entitu (neobvyklé mesiace)')
+    out.append('"threshold" s "value" a prahmi z citátov, alebo iný štítok (link_records + linked_agg: dodatky k zmluve; '
+               'future_agg: ďalšie zmluvy tej istej entity)')
+    return "; ".join(out)
+
+
 def recheck_drafts(cfg: Config, db: DB, hid: int, quotes: dict[int, str]) -> Counter:
     """Neuzamknuté návrhy s chybami znova cez kontrolu (opravy kódom: výraz ako príznak, jednoznačné IČO);
     duplikát skoršieho experimentu dostane chybu."""
@@ -467,7 +484,7 @@ def recheck_drafts(cfg: Config, db: DB, hid: int, quotes: dict[int, str]) -> Cou
         if e["status"] in ("draft", "invalid") and not e["locked_at"] and (flags.get("chyby_návrhu") or sig in seen):
             check = validate_plan(cfg, db, hid, plan, quotes)
             if sig in seen:
-                check["chyby"].append(f"experiment meria to isté ako E{seen[sig]} – navrhni iný typ úlohy alebo štítok")
+                check["chyby"].append(f"experiment meria to isté ako E{seen[sig]} – " + alternatives(plan))
             plan["skúšobný_beh"] = check["štatistiky"]
             new_flags = {k: v for k, v in flags.items() if k not in ("chyby_návrhu", "upozornenia")}
             new_flags |= {k: v for k, v in (("chyby_návrhu", check["chyby"]), ("upozornenia", check["upozornenia"])) if v}
@@ -519,7 +536,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 c = validate_plan(cfg, db, hid, d, quotes)
                 if plan_signature(d) in taken:
                     c["chyby"].append(f"experiment meria to isté ako E{taken[plan_signature(d)]} (rovnaký štítok alebo "
-                                      "hodnota) – navrhni iný typ úlohy alebo iný štítok")
+                                      "hodnota) – " + alternatives(d))
                 return c
 
             check = checked(data)

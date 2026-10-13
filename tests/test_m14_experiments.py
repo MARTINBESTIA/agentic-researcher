@@ -464,7 +464,9 @@ def test_expression_feature_becomes_column_and_duplicate_plan_is_rejected(tmp_pa
     stats = exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])
     assert stats["plans_ok"] == 1 and stats["plans_with_errors"] == 1  # druhý je duplikát aj po opravách
     dup = db.experiments_for(hid)[1]
-    assert any("meria to isté ako E" in e for e in json.loads(dup["flags_json"])["chyby_návrhu"])
+    assert any("meria to isté ako E" in e and '"task"' in e for e in json.loads(dup["flags_json"])["chyby_návrhu"])
+    with_cat = {"steps": [{"op": "text_category", "name": "predmet_cat"}, {"op": "derive", "name": "price_ratio"}]}
+    assert '"category": "predmet_cat"' in exp_plan.alternatives(with_cat) and "anomaly" in exp_plan.alternatives(with_cat)
 
 
 def test_hypothesis_without_any_valid_plan_is_marked_and_skipped(tmp_path):
