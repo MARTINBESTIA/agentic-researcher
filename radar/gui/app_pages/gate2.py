@@ -27,10 +27,21 @@ exps = d.experiments_for(hid)
 if not exps:
     st.caption("Návrhy predregistrácie vzniknú v akcii (pre organizácie, ktoré sú v nájdených dátach).")
     st.stop()
+drafts = [e for e in exps if e["status"] == "draft"]
+waiting = [e for e in exps if e["status"] == "locked"]
+if drafts and not waiting and not any(e["result_json"] for e in exps):
+    st.warning(f"Žiadna z {len(exps)} predregistrácií nie je uzamknutá, preto spätný test ani demo nebežali. Postup: "
+               "vyber experiment nižšie → skontroluj text, metriku a náhľad časového radu → „Uzamknúť predregistráciu“ "
+               "→ potom znova „Spustiť experimenty a demo“.", icon=":material/lock_open:")
+elif waiting:
+    st.info("Uzamknuté a čakajú na spätný test: " + ", ".join("E" + str(e["id"]) for e in waiting) + " – spusti akciu (alebo "
+            "autopilota).", icon=":material/science:")
 rows = []
 for e in exps:
     res, flags = json_or(e["result_json"], {}), json_or(e["flags_json"], {})
-    rows.append({"E": e["id"], "organizácia": e["org_name"] or "celý dataset", "stav": e["status"], "metrika": e["metric"],
+    rows.append({"E": e["id"], "organizácia": e["org_name"] or "celý dataset",
+                 "stav": {"draft": "návrh (neuzamknutý)", "locked": "uzamknutý, čaká na test", "done": "otestovaný",
+                          "failed": "test zlyhal"}.get(e["status"], e["status"]), "metrika": e["metric"],
                  "zlepšenie": res.get("improvement"), "príznaky": ", ".join(k for k, v in flags.items() if v),
                  "demo": bool(e["demo_path"])})
 st.dataframe(rows, hide_index=True, alt="Experimenty hypotéza × organizácia",

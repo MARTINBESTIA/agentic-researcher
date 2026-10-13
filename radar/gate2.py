@@ -443,6 +443,7 @@ def run_backtest(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None)
             if deadline.expired():
                 return dict(stats)
             if exp["status"] != "locked":  # bez predregistrácie sa spätný test nespúšťa
+                stats["not_locked"] += 1 if exp["status"] == "draft" else 0  # v súhrne úlohy: prečo nie sú výsledky
                 continue
             spec = json.loads(exp["spec_json"])
             flags = json.loads(exp["flags_json"] or "{}")

@@ -412,7 +412,7 @@ def test_gate2_prereg_lock_backtest_and_demo(tmp_path):
                                "success_rule": "MAE modelu < MAE naivného odhadu"}
     assert gate2.run_prereg(cfg, db, router, Deadline(1), [hid]) == {"drafts": 1}
     exp = db.experiments_for(hid)[0]
-    assert gate2.run_backtest(cfg, db, Deadline(1), [hid]) == {}  # bez uzamknutia sa netestuje
+    assert gate2.run_backtest(cfg, db, Deadline(1), [hid]) == {"not_locked": 1}  # bez uzamknutia sa netestuje
     digest = gate2.lock(cfg, db, exp["id"])
     assert len(digest) == 64 and db.get_experiment(exp["id"])["status"] == "locked"
     with pytest.raises(ValueError):
