@@ -4,8 +4,8 @@
 (každá so svojím časovým úsekom, v GUI viditeľná zvlášť); poslednou úlohou kola je ďalší `autopilot`, ktorý naplánuje
 ďalšie kolo. Akcie bez práce sa preskočia. Zastavenie: „Zastaviť všetko vrátane poradia“.
 
-Osobné údaje: zber ľudí, kontaktov a návrhov dostane presne hypotézy, ktoré si zapol na Bránu 0 (automatický výber
-top N sa nespustí); Brána 1 iba pre ne, postupne od najdlhšie nespracovaných. Tvoje vstupy k dátam (Brána 1 → Tvoje
+Osobné údaje: zber ľudí, kontaktov a návrhov dostane presne hypotézy zapnuté na Bránu 0 – ručne alebo automaticky
+po teste „podložená“ (people.auto_select_validated; automatický výber top N podľa sily sa nespustí); Brána 1 iba pre ne, postupne od najdlhšie nespracovaných. Tvoje vstupy k dátam (Brána 1 → Tvoje
 dáta) posúdi samostatná krátka úloha pred prieskumom dát; čo prejde Bránou 1, ide v ďalšom kole do Brány 2.
 """
 
@@ -79,8 +79,12 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
                        "AND status IN ('candidate', 'website_checked')", tuple(ids))["n"]
         unranked = sum(len(db.unranked_people(h)) for h in ids)
         no_map = sum(1 for h in ids if db.get_role_map(h) is None)
-        if orgs or unranked or no_map:
-            work["people"] = f"organizácie na spracovanie {orgs}, nezoradení ľudia {unranked}, bez mapy rolí {no_map}"
+        from .contact_scout import search_due
+
+        searches = sum(1 for h in ids if search_due(cfg, db, h)) if cfg.privacy.lia_completed else 0
+        if orgs or unranked or no_map or searches:
+            work["people"] = (f"organizácie na spracovanie {orgs}, nezoradení ľudia {unranked}, bez mapy rolí {no_map}, "
+                              f"hľadanie kontaktov podľa hypotézy {searches}")
         since = _since_last(db, ("contacts", "people"))
         fresh = db._one(f"SELECT COUNT(*) AS n FROM people WHERE collected_for_hypothesis_id IN ({marks}) "
                         "AND created_at > ?", (*ids, since))["n"]
@@ -90,6 +94,7 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
             f"""SELECT COUNT(DISTINCT l.person_id || '-' || l.hypothesis_id) AS n FROM person_problem_links l
                 JOIN people p ON p.id = l.person_id
                 WHERE l.hypothesis_id IN ({marks}) AND l.priority IS NOT NULL AND p.is_expert = 0
+                  AND l.link_type != 'data_holder'
                   AND NOT EXISTS (SELECT 1 FROM outreach o WHERE o.person_id = l.person_id AND o.hypothesis_id = l.hypothesis_id)
                   AND EXISTS (SELECT 1 FROM contact_points c WHERE c.person_id = l.person_id
                               OR (c.org_id = p.org_id AND c.is_generic = 1))""", tuple(ids))["n"]
@@ -140,6 +145,10 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
     """Zaradí úlohy kola (s prácou, kým sa zmestia do zvyšného času) a na koniec ďalší autopilot."""
     now = now or datetime.now(timezone.utc)
     left = (until - now).total_seconds() / 60
+    if cfg.privacy.lia_completed:  # hypotézy, ktorých test prešiel, idú na Bránu 0 (people.auto_select_validated)
+        from .orgs import auto_select_validated
+
+        auto_select_validated(cfg, db)
     work = pending_work(cfg, db)
     planned, skipped, budget = [], {}, left
     config = str(config_path)

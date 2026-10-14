@@ -13,9 +13,9 @@
 | | |
 |---|---|
 | Aké údaje | meno a tituly, funkcia, organizácia, pracovný e-mail a telefón, URL verejného profilu, zdrojová URL a úryvok (≤ 300 znakov), väzba na problém, stav komunikácie; z rozhovorov poznámky v pseudonymizovanej podobe |
-| Koho sa týkajú | pracovníci organizácií a verejní funkcionári, ktorých pracovný kontakt zverejnila organizácia alebo oni sami; osoby verejne citované k danému problému |
-| Odkiaľ | weby organizácií, úradné zverejnenia (napr. oznámenia o obstarávaní), Register právnických osôb (iba meno a funkcia štatutára), verejné články a programy podujatí, výsledky vyhľadávania |
-| Rozsah | najviac 15 osôb na hypotézu a 3 hypotézy naraz (rádovo desiatky osôb); najviac 10 oslovení denne |
+| Koho sa týkajú | pracovníci organizácií a verejní funkcionári, ktorých pracovný kontakt zverejnila organizácia alebo oni sami; osoby verejne citované k danému problému; kontaktné osoby datasetov, ktoré uviedol sám poskytovateľ; zástupcovia expertných organizácií (zväzy, výskum, watchdog) |
+| Odkiaľ | weby organizácií, úradné zverejnenia (napr. oznámenia o obstarávaní, kontaktný bod datasetu v metadátach Národného katalógu otvorených dát), Register právnických osôb (iba meno a funkcia štatutára), verejné články a programy podujatí, výsledky vyhľadávania; stránka organizácie zadaná ručne (meno a kontakt overí kód na stránke) |
+| Rozsah | na hypotézu najviac `people.max_people_per_hypothesis` zákazníkov, `max_data_holders_per_hypothesis` držiteľov dát a `max_experts_per_hypothesis` expertov (v config.yaml 30 / 5 / 6); hypotézy: ručne zvolené, top 3 podľa sily dôkazov a každá s testom „podložená“ (`people.auto_select_validated`) – rádovo stovky osôb; najviac 10 oslovení denne |
 | Kde | lokálne na šifrovanom disku, bez cloudu; GUI dostupné iba z tohto počítača (127.0.0.1) |
 | Ako dlho | neoslovení 90 dní; po poslednej komunikácii najviac 12 mesiacov; po odmietnutí 30 dní; po námietke okamžitý výmaz |
 | Komu sa poskytujú | nikomu |
@@ -25,7 +25,8 @@
 
 - **Záujem:** pred investovaním času a peňazí do produktu overiť rozhovormi s ľuďmi, ktorí za daný
   proces zodpovedajú, či problém naozaj existuje, ako ho dnes riešia a kto by za riešenie platil
-  (prieskum trhu, customer discovery).
+  (prieskum trhu, customer discovery), a od tých, ktorí vedú súvisiace dáta, získať schému alebo malú
+  anonymizovanú vzorku na overenie problému (držitelia dát); od expertov posúdenie a odporúčanie.
 - **Zákonnosť:** ide o prípravu podnikania, ktorú chráni sloboda podnikania (čl. 16 Charty
   základných práv EÚ). Odôvodnenie 47 GDPR uznáva ako možný oprávnený záujem dokonca priamy marketing;
   prosba o rozhovor bez ponuky je menej invazívna.

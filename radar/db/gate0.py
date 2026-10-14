@@ -27,8 +27,11 @@ OUTREACH_STATUSES = (
     "draft", "needs_edit", "approved", "sent", "replied", "no_reply", "bounced", "declined", "objected",
     "scheduled", "interviewed", "no_show", "blocked",
 )
-# Poradie dôvodov zaradenia organizácie (R-ORG-5): nižšie číslo = vyššia priorita.
-RELATION_RANK = {"mentioned_with_problem": 0, "quoted_person": 1, "procured_related": 2, "segment_match": 3, "manual": 4}
+# Poradie dôvodov zaradenia organizácie (R-ORG-5): nižšie číslo = vyššia priorita. data_holder (drží dáta k hypotéze),
+# contact_search (zákazník z hľadania podľa hypotézy) a expert_org (zväz, výskum, watchdog) pribudli v schéme v10.
+RELATION_RANK = {"mentioned_with_problem": 0, "quoted_person": 1, "procured_related": 2, "data_holder": 3,
+                 "contact_search": 4, "segment_match": 5, "expert_org": 6, "manual": 7}
+CONTACT_TARGET_KINDS = ("customer", "data_holder", "expert")
 
 
 def _dumps(value: Any) -> str | None:
@@ -97,20 +100,23 @@ class Gate0Mixin:
         evidence_claim_id: int | None = None,
         evidence_url: str | None = None,
         fit: dict[str, Any] | None = None,
+        target_id: int | None = None,
     ) -> bool:
         """Zaradí organizáciu k hypotéze; pri opakovaní ponechá silnejší dôvod (R-ORG-5). Vráti True, ak je nová."""
         row = self._one("SELECT * FROM org_hypotheses WHERE org_id = ? AND hypothesis_id = ?", (org_id, hid))
         if row is None:
             self._exec(
-                """INSERT INTO org_hypotheses (org_id, hypothesis_id, relation, evidence_claim_id, evidence_url, fit_json, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (org_id, hid, relation, evidence_claim_id, evidence_url, _dumps(fit), utcnow()),
+                """INSERT INTO org_hypotheses (org_id, hypothesis_id, relation, evidence_claim_id, evidence_url, fit_json,
+                                               target_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (org_id, hid, relation, evidence_claim_id, evidence_url, _dumps(fit), target_id, utcnow()),
             )
             return True
         if RELATION_RANK.get(relation, 9) < RELATION_RANK.get(row["relation"], 9):
             self._exec(
-                "UPDATE org_hypotheses SET relation = ?, evidence_claim_id = ?, evidence_url = ? WHERE org_id = ? AND hypothesis_id = ?",
-                (relation, evidence_claim_id, evidence_url, org_id, hid),
+                """UPDATE org_hypotheses SET relation = ?, evidence_claim_id = ?, evidence_url = ?,
+                          target_id = COALESCE(?, target_id) WHERE org_id = ? AND hypothesis_id = ?""",
+                (relation, evidence_claim_id, evidence_url, target_id, org_id, hid),
             )
         if fit is not None:
             self._exec("UPDATE org_hypotheses SET fit_json = ? WHERE org_id = ? AND hypothesis_id = ?", (_dumps(fit), org_id, hid))
@@ -132,7 +138,7 @@ class Gate0Mixin:
         rank = " ".join(f"WHEN '{k}' THEN {v}" for k, v in RELATION_RANK.items())
         return self._all(
             f"""SELECT o.*, oh.relation, oh.evidence_claim_id, oh.evidence_url, oh.fit_json, oh.status AS oh_status,
-                       oh.procurement_active, oh.procurement_note, oh.hypothesis_id
+                       oh.procurement_active, oh.procurement_note, oh.hypothesis_id, oh.target_id
                 FROM org_hypotheses oh JOIN organizations o ON o.id = oh.org_id
                 WHERE oh.hypothesis_id = ? {excl}
                 ORDER BY CASE oh.relation {rank} ELSE 9 END, o.website_verified DESC, o.id""",
@@ -364,6 +370,57 @@ class Gate0Mixin:
 
     def delete_org_contacts_before(self, cutoff: str) -> int:
         return self._exec("DELETE FROM contact_points WHERE person_id IS NULL AND created_at < ?", (cutoff,)).rowcount
+
+    # ------------------------------------------------------- plán kontaktov (v10)
+    def add_contact_target(self, hid: int, kind: str, who: str, roles: list[str], queries: list[str], ask: str,
+                           why: str, round_: int = 1) -> int:
+        if kind not in CONTACT_TARGET_KINDS:
+            raise ValueError(f"Neznámy typ cieľa {kind!r}")
+        now = utcnow()
+        cur = self._exec(
+            """INSERT INTO contact_targets (hypothesis_id, kind, who, roles_json, queries_json, ask, why, round,
+                                            created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (hid, kind, who, _dumps(roles), _dumps([{"q": q, "done_at": None} for q in queries]), ask, why, round_, now, now),
+        )
+        return int(cur.lastrowid)
+
+    def contact_targets_for(self, hid: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM contact_targets WHERE hypothesis_id = ? ORDER BY id", (hid,))
+
+    def get_contact_target(self, target_id: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM contact_targets WHERE id = ?", (target_id,))
+
+    def update_contact_target(self, target_id: int, **fields: Any) -> None:
+        allowed = {"kind", "who", "roles_json", "queries_json", "ask", "why", "edited_by_human"}
+        bad = set(fields) - allowed
+        if bad:
+            raise ValueError(f"Neznáme polia cieľa: {bad}")
+        for key in ("roles_json", "queries_json"):
+            if key in fields and not isinstance(fields[key], str):
+                fields[key] = _dumps(fields[key])
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            self._exec(f"UPDATE contact_targets SET {sets}, updated_at = ? WHERE id = ?", (*fields.values(), utcnow(), target_id))
+
+    def delete_contact_targets(self, hid: int) -> None:
+        """Plán kontaktov znova (GUI): organizácie nájdené cez starý plán ostanú, iba bez odkazu na cieľ."""
+        self._exec("UPDATE org_hypotheses SET target_id = NULL WHERE hypothesis_id = ?", (hid,))
+        self._exec("DELETE FROM contact_targets WHERE hypothesis_id = ?", (hid,))
+
+    def set_contacts_searched(self, hid: int, summary: dict[str, Any]) -> None:
+        self._exec("UPDATE hypotheses SET contacts_searched_at = ?, contact_search_json = ? WHERE id = ?",
+                   (utcnow(), _dumps(summary), hid))
+
+    def orgs_waiting_for_people(self, hid: int) -> int:
+        """Organizácie hypotézy, z ktorých krok people ešte nezbieral ľudí."""
+        row = self._one("""SELECT COUNT(*) AS n FROM org_hypotheses oh JOIN organizations o ON o.id = oh.org_id
+                           WHERE oh.hypothesis_id = ? AND oh.status IN ('candidate', 'website_checked') AND o.excluded = 0""",
+                        (hid,))
+        return int(row["n"]) if row else 0
+
+    def org_hypotheses_by_relation(self, hid: int) -> dict[str, int]:
+        rows = self._all("SELECT relation, COUNT(*) AS n FROM org_hypotheses WHERE hypothesis_id = ? GROUP BY relation", (hid,))
+        return {r["relation"]: int(r["n"]) for r in rows}
 
     # ------------------------------------------------------------- mapy rolí
     def get_role_map(self, hid: int) -> dict[str, Any] | None:

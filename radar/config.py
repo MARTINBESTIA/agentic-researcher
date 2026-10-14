@@ -90,6 +90,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "person_mentions": _route("fast"),
     "segment_filter": _route("accurate"),
     "contact_assoc": _route("fast"),
+    "contact_plan": _route("fast"),  # koho osloviť k hypotéze a ako ho nájsť (dopyty overuje a vykonáva kód)
     "role_map": _route("accurate", True, 3),
     "role_fit": _route("accurate"),
     "draft": _route("accurate"),
@@ -433,6 +434,24 @@ class PeopleConfig(BaseModel):
     # Kontakty ku konkrétnej osobe (krok contacts): stránky iba z overeného webu jej organizácie alebo z týchto domén.
     official_domains: list[str] = Field(default_factory=lambda: ["gov.sk", "nrsr.sk"])
     max_contact_pages_per_person: int = 3
+    # Brána 0 automaticky aj pre hypotézy, ktorých test (validate) skončil jedným z týchto verdiktov; ručná voľba
+    # (vypnutie v GUI alebo `select --people off`) má prednosť a automatický výber ju neprepíše.
+    auto_select_validated: bool = True
+    auto_select_verdicts: list[str] = Field(default_factory=lambda: ["podložená"])
+    max_data_holders_per_hypothesis: int = 5  # ľudia, ktorí držia dáta k hypotéze (vzorka, schéma); zvlášť od zákazníkov
+    # Hľadanie kontaktov podľa hypotézy (krok contact-search): rýchly model navrhne ciele (zákazník, držiteľ dát,
+    # expert) a dopyty; vyhľadávanie, overenie webu cez IČO a kontakty robí kód.
+    contact_search: bool = True
+    contact_search_rounds: int = 2  # ďalšie kolo plánu, kým je kontaktovateľných menej ako contact_goal_per_hypothesis
+    contact_queries_per_run: int = 12  # najviac dopytov na hypotézu a beh
+    contact_goal_per_hypothesis: int = 15  # ľudia alebo organizácie s e-mailom
+    contact_research_days: int = 14  # hypotéza sa prehľadá znova najskôr po tomto čase
+    # Domény, ktoré sú v aggregator_domains (nie web zákazníka), no sú webom organizácie, ktorá drží dáta alebo je
+    # expertom (kontrolór, watchdog, štatistický úrad) – pri cieľoch „držiteľ dát“ a „expert“ sa nepreskakujú.
+    expert_org_domains: list[str] = Field(
+        default_factory=lambda: ["nku.gov.sk", "slovensko.digital", "transparency.sk", "statistics.sk", "uvo.gov.sk",
+                                 "rpvs.gov.sk"]
+    )
     blocked_domains: list[str] = Field(default_factory=lambda: list(DEFAULT_BLOCKED_DOMAINS))
     priority_weights: PriorityWeights = Field(default_factory=PriorityWeights)
     # Domény, ktoré nie sú webom organizácie (katalógy firiem, registre, médiá).

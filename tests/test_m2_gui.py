@@ -359,3 +359,15 @@ def test_theme_view_shows_gate0_summary_and_selects_whole_theme(gui):
     at.button(key="th_sel_1").click().run()
     d = DB(cfg.db_path)
     assert d.get_hypothesis(second)["people_enabled"] == 1
+
+
+def test_gate0_shows_whom_to_contact_with_email_reason_and_ask(gui):
+    """Brána 0 → Koho osloviť: e-mail, odporúčanie s dôvodmi a čo žiadať (pravidlo kódu, nie skóre)."""
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/gate0.py").run()
+    assert not at.exception, at.exception
+    table = at.dataframe[0].value
+    row = table[table["osoba"] == "Jana Starostová"].iloc[0]
+    assert row["e-mail"] == "starostka@obec-fikt.sk" and row["odporúčanie"] == "oslov"
+    assert "vedenie dotknutej org." in row["dôvody"] and row["čo_žiadať"].startswith("Rozhovor")
+    assert at.metric[1].value == "1"  # „Oslov“

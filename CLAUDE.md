@@ -14,7 +14,8 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 
 **Stav:** verzia 0.2 „Brána 0 agregátor“ podľa `docs/SPEC_brana0.md` je implementovaná (M1–M8,
 11. 10. 2026), rozšírená o Správcu akcií a výber modelov v GUI, LinkedIn a kontakty k osobe, Brány 1 a 2
-(DuckDB; schéma v9 – vstupy človeka pre Bránu 1, problémové karty, podhypotézy, experimenty podľa úlohy, index katalógu) – M9–M13 v `docs/ACCEPTANCE.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+(DuckDB; schéma v9 – vstupy človeka pre Bránu 1, problémové karty, podhypotézy, experimenty podľa úlohy, index katalógu) – M9–M13 v `docs/ACCEPTANCE.md`;
+hľadanie kontaktov podľa hypotézy a „Koho osloviť“ v Bráne 0 (schéma v10, M18). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -37,7 +38,7 @@ docker compose up -d                     # SearXNG
 | Súbor | Úloha |
 |---|---|
 | `radar/config.py` | pydantic konfigurácia; `config.yaml` obsahuje len zmeny voči predvoleným hodnotám; `models` (roly, routing úloh, profily), `discovery`, `people`, `outreach`, `privacy`, `gui` |
-| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
+| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia; plán kontaktov je v `gate0.py`), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
 | `radar/models.py` | `ModelRouter`: úloha → rola (fast/accurate), uvažovanie, k hlasov; `run_task` (undecided, kontrola, provenance), `run_samples`; pri výmene modelu uvoľní predošlý z GPU |
 | `radar/llm.py` | klient OpenAI-kompatibilného servera (Ollama); JSON podľa schémy; `LLMTruncated` pri orezaní; `make_exclusive` |
 | `radar/prompts.py` | všetky prompty s verziou (`TASK_PROMPTS`, `prompt_version`); inštrukcie po anglicky, výstup v jazyku `{lang}` |
@@ -56,6 +57,8 @@ docker compose up -d                     # SearXNG
 | `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií; lokálny index (schéma v9, vektor na sériu datasetov) a hľadanie podľa významu |
 | `radar/themes.py` | témy: zhluky podobných hypotéz (average linkage nad embeddingmi), názov z rýchleho modelu, stabilné ID medzi behmi; hypotézy sa nezlučujú |
 | `radar/publishers.py` | typ vydavateľa zdroja (pravidlá podľa domény, model raz na doménu); dodávatelia sa nepočítajú do sily dôkazov |
+| `radar/contact_scout.py` | hľadanie kontaktov podľa hypotézy (krok `contact-search`): plán cieľov rýchlym modelom (zákazník, držiteľ dát, expert – funkcie, dopyty, čo žiadať; tabuľka `contact_targets`), dopyty a overenie webu cez IČO kódom, ďalšie kolo so spätnou väzbou; držitelia dát z Brány 1 a kontaktný bod datasetu z katalógu; ručné pridanie kontaktu zo stránky (`contacts-add`) |
+| `radar/shortlist.py` | Koho osloviť (GUI Brána 0): odporúčanie pravidlom kódu s dôvodmi (oslov najprv / oslov / doplň kontakt / neoslovovať), e-mail, prečo, čo žiadať |
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
 | `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita |

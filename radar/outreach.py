@@ -435,7 +435,8 @@ def run_drafts(cfg: Config, db: DB, llm: Any, deadline: Deadline, hypothesis_ids
     for hid in ids:
         seen: set[int] = set()
         for link in db.links_for_hypothesis(hid):
-            if link["priority"] is None or link["person_id"] in seen or link["is_expert"]:
+            # Experti a držitelia dát nedostanú návrh rozhovoru o probléme (pre nich je v Bráne 0 „čo žiadať“).
+            if link["priority"] is None or link["person_id"] in seen or link["is_expert"] or link["link_type"] == "data_holder":
                 continue
             seen.add(link["person_id"])
             queue.append((link["priority"], hid, link))

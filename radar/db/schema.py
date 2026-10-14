@@ -601,3 +601,31 @@ CREATE TABLE IF NOT EXISTS catalog_datasets (  -- lokálny index Národného kat
 );
 """
 
+
+# ---------------------------------------------------------------- v10: hľadanie kontaktov podľa hypotézy
+V10_COLUMNS = {
+    "hypotheses": {
+        "contacts_searched_at": "TEXT",          # posledné dokončené hľadanie kontaktov podľa hypotézy (contact-search)
+        "contact_search_json": "TEXT",           # súhrn: kolá, dopyty, nájdené organizácie podľa typu cieľa
+    },
+    "org_hypotheses": {
+        "target_id": "INTEGER",                  # cieľ plánu kontaktov, cez ktorý sa organizácia našla
+    },
+}
+
+SCHEMA_V10 = """
+CREATE TABLE IF NOT EXISTS contact_targets (  -- koho osloviť k hypotéze: zákazník, držiteľ dát, expert (plán modelu, upraviteľný)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id),
+  kind TEXT NOT NULL,                       -- customer | data_holder | expert
+  who TEXT NOT NULL,                        -- typ organizácie a rola
+  roles_json TEXT,                          -- funkcie, ako bývajú na weboch
+  queries_json TEXT,                        -- [{q, done_at, results, orgs}]
+  ask TEXT,                                 -- čo od nich žiadať (rozhovor, vzorka dát, posúdenie)
+  why TEXT,
+  round INTEGER NOT NULL DEFAULT 1,
+  edited_by_human INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contact_targets_h ON contact_targets(hypothesis_id, id);
+"""

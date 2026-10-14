@@ -175,3 +175,14 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M17 | 8 eval iba pri dosť labeloch | `test_m3_accuracy.py::test_eval_all_runs_only_tasks_with_enough_gold_labels` |
 | M17 | 9 čas výmeny modelu | `test_features.py::test_model_swap_load_time_is_measured_and_kept` |
 | M17 | 10 lokálny index webu organizácie | `test_m10_gates.py::test_domain_index_follows_nested_sitemaps_and_is_cached` |
+| M18 | 1 plán kontaktov (rýchly model): ciele zákazník / držiteľ dát / expert, dopyty bez e-mailov a telefónov; web overený cez IČO; katalóg firiem preskočený; expertná doména (NKÚ) pri cieli „expert“ | `test_m18_contacts.py::test_plan_queries_are_cleaned_and_orgs_verified_by_ico` |
+| M18 | 2 zákazník s nezhodou segmentu sa nezaradí | `test_customer_with_segment_mismatch_is_not_linked` |
+| M18 | 3 ďalšie kolo dopytov až po kroku people, so spätnou väzbou (čo sa už hľadalo a našlo) | `test_next_round_only_after_people_step_and_with_feedback` |
+| M18 | 4 držiteľ dát z Brány 1 a kontaktný bod datasetu z katalógu (meno a e-mail doslova v úryvku, dátum metadát, cache) | `test_data_holder_from_gate1_source_and_catalog_contact_point` |
+| M18 | 5 poradie: zákazníci, držitelia dát a experti zvlášť; ručne pridaný ostáva; nevybraný sa vymaže | `test_rank_keeps_groups_separate_and_manual_person` |
+| M18 | 6 ručné pridanie zo stránky: meno a kontakt v tom istom bloku, cudzí e-mail sa neuloží, LinkedIn a bez LIA odmietnuté | `test_add_contact_from_url_verifies_name_and_contact_on_page` |
+| M18 | 7 Koho osloviť: odporúčanie pravidlom s dôvodmi, obstarávanie blokuje, riadok organizácie s generickým e-mailom | `test_shortlist_tiers_reasons_and_org_rows` |
+| M18 | 8 test „podložená“ zapne Bránu 0; ručné vypnutie má prednosť | `test_validation_pass_selects_hypothesis_for_gate0_unless_manually_off` |
+| M18 | 9 krok people navštívi aj stránku výsledku hľadania | `test_website_people_visits_result_page_first` |
+| M18 | 10 bez LIA sa nehľadá; funkcia „práca s dátami“ podľa celých slov; držitelia dát bez návrhu rozhovoru | `test_contact_search_needs_lia`, `test_data_role_fit_uses_whole_words`, `test_drafts_skip_data_holders` |
+| M18 | 11 GUI Brána 0 → Koho osloviť: e-mail, odporúčanie, dôvody, čo žiadať | `test_m2_gui.py::test_gate0_shows_whom_to_contact_with_email_reason_and_ask` |

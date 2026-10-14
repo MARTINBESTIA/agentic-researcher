@@ -3,18 +3,21 @@ import streamlit as st
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh, safe_url
 from radar.people import add_manual_profile
 from radar.privacy import forget
+from radar.shortlist import contact_shortlist
 
 d, c = db(), cfg()
 if not c.privacy.lia_completed:
     st.warning("Hľadanie ľudí je zablokované, kým nepotvrdíš LIA (privacy.lia_completed).", icon=":material/lock:")
 
 LINK = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlastník procesu", "org_affected": "vedenie dotknutej org.",
-        "procurement_contact": "kontakt v obstarávaní", "expert": "expert"}
+        "procurement_contact": "kontakt v obstarávaní", "expert": "expert", "data_holder": "drží dáta"}
 RELATION = {"mentioned_with_problem": "v dôkaze", "quoted_person": "citovaná osoba", "procured_related": "obstarávanie",
-            "segment_match": "segment", "manual": "ručne"}
+            "segment_match": "segment", "manual": "ručne", "contact_search": "hľadanie podľa hypotézy",
+            "data_holder": "drží dáta", "expert_org": "expertná org."}
 KIND = {"email": "e-mail", "phone": "telefón", "profile_url": "LinkedIn (over ručne, nesťahuje sa)",
         "hidden_contact": "skrytý e-mail – otvor stránku ručne", "contact_form": "formulár"}
-SOURCE = {"page_link": "odkaz na webe organizácie", "search_result": "výsledok vyhľadávania", "manual": "zadané ručne"}
+SOURCE = {"page_link": "odkaz na webe organizácie", "search_result": "výsledok vyhľadávania", "manual": "zadané ručne",
+          "catalog_contact_point": "kontaktný bod datasetu (Národný katalóg)", "manual_page": "stránka zadaná ručne"}
 
 
 def person_rows(hids: list[int]) -> list[dict]:
@@ -23,6 +26,7 @@ def person_rows(hids: list[int]) -> list[dict]:
     rows = []
     for hid in hids:
         org_links = {o["id"]: o for o in d.orgs_for_hypothesis(hid)}
+        advice = {r["person_id"]: r for r in contact_shortlist(c, d, hid) if r["person_id"]}
         # Aj ľudia bez priority (poradie pre hypotézu ešte nebežalo): inak by zozbieraní ľudia v GUI chýbali
         # (akcia #20: 39 osôb bez väzby, kým nebeží people-rank s mapou rolí ~10 min na hypotézu).
         pending = [{"person_id": p["id"], "org_id": p["org_id"], "priority": None, "priority_json": None,
@@ -61,14 +65,16 @@ def person_rows(hids: list[int]) -> list[dict]:
                 marks.append("expert")
             if org_link is not None and org_link["procurement_active"]:
                 marks.append("⚠ obstarávanie")
+            adv = advice.get(l["person_id"]) or {}
             rows.append({
-                "problém": f"H{hid}", "osoba": f"{l['titles'] + ' ' if l['titles'] else ''}{l['full_name']}",
+                "problém": f"H{hid}", "odporúčanie": adv.get("odporúčanie", ""), "typ": adv.get("typ", ""),
+                "osoba": f"{l['titles'] + ' ' if l['titles'] else ''}{l['full_name']}",
                 "funkcia": l["role_title"] or "", "organizácia": l["org_name"] or "", "IČO": (org["ico"] if org else "") or "",
                 "väzba": "ešte nezoradený" if l["link_type"] == "pending" else LINK.get(l["link_type"], l["link_type"]),
                 "priorita": l["priority"], "značky": ", ".join(marks),
                 "e-mail": "; ".join(emails) or (f"org.: {generic[0]}" if generic else ""), "telefón": "; ".join(phones),
                 "LinkedIn": safe_url(profiles[0]) if profiles else None, "zdroj": safe_url(l["person_source_url"]),
-                "stav": l["person_status"], "id": l["person_id"],
+                "čo žiadať": adv.get("čo_žiadať", ""), "stav": l["person_status"], "id": l["person_id"],
             })
     rows.sort(key=lambda r: -(r["priorita"] or 0))
     return rows

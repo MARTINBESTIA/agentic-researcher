@@ -48,6 +48,16 @@ class OpsMixin:
         )
         return int(cur.lastrowid)
 
+    def cached_output(self, task: str, object_type: str, object_id: int) -> str | None:
+        """Výstup posledného úspešného volania úlohy pre objekt (JSON) – opakovaný beh nevolá model znova."""
+        row = self._one(
+            """SELECT output_json FROM model_judgments WHERE task = ? AND object_type = ? AND object_id = ?
+                 AND output_json IS NOT NULL AND output_json != 'null' AND verdict NOT IN ('undecided', 'timeout')
+               ORDER BY id DESC LIMIT 1""",
+            (task, object_type, object_id),
+        )
+        return row["output_json"] if row else None
+
     def judgments_for(self, task: str, object_type: str, object_id: int) -> list[sqlite3.Row]:
         return self._all(
             "SELECT * FROM model_judgments WHERE task = ? AND object_type = ? AND object_id = ? ORDER BY id",

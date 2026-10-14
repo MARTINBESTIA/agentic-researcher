@@ -39,11 +39,11 @@ from .contacts import (
 from .db import DB
 from .models import ModelRouter, as_router
 from .names import fold, gender_hint, looks_like_person_name, name_in_text, org_name_key, person_name_key, split_titles, title_key
-from .orgs import OrgFinder, name_in, select_people_hypotheses
+from .orgs import OrgFinder, least_recently_searched, name_in, select_people_hypotheses
 from .privacy import Suppression, require_lia
 from .prompts import CONTACT_ASSOC_SYSTEM, PERSON_MENTIONS_SYSTEM, ROLE_FIT_SYSTEM, ROLE_MAP_SYSTEM
 from .registers import RPO_ATTRIBUTION, RPOClient, RUZClient
-from .util import Deadline
+from .util import Deadline, domain_of
 from .verify import quote_window
 
 log = logging.getLogger(__name__)
@@ -51,8 +51,14 @@ log = logging.getLogger(__name__)
 ROLE_FIT_CALLS_PER_HYPOTHESIS = 15  # posúdenia funkcie presným modelom na hypotézu a beh (~20 s)
 WINDOW = 400  # meno a kontakt musia byť v tom istom bloku alebo v okne ≤ 400 znakov (R-PPL-10)
 MAX_GENERIC_PER_KIND = 2  # generické kontakty organizácie (e-mail, telefón)
-LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "org_affected": 0.5, "procurement_contact": 0.4, "expert": 0.3}
+LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "data_holder": 0.6, "org_affected": 0.5,
+                 "procurement_contact": 0.4, "expert": 0.3}
 COLLECTED_LINKS = ("quoted_about_problem", "procurement_contact")
+# Funkcie ľudí, ktorí v organizácii, ktorá drží dáta, vedia poslať vzorku alebo schému: začiatky slov bez diakritiky
+# (dátový, databáza, údaje, štatistik, analytik, informatik, informačný, otvorené dáta, metodik, register, evidencia,
+# hovorca – vybavuje žiadosti podľa 211/2000). Celé slovo, nie časť („podateľňa“ nie je „dát…“).
+DATA_ROLE_PREFIXES = ("dat", "udaj", "statist", "analyt", "informatik", "informacn", "otvoren", "opendata", "cdo",
+                      "metodik", "registr", "evidenc", "hovorc")
 CHANNEL_VALUE = {"email": 1.0, "phone": 0.7, "hidden_contact": 0.6, "generic_email": 0.4, "profile_url": 0.3}
 GENERAL_MANAGEMENT = ("konatel", "riaditel", "generalny riaditel", "ceo", "majitel", "starosta", "primator", "prednosta",
                       "predseda predstavenstva", "statutar", "rektor", "managing director", "general manager",
@@ -284,7 +290,7 @@ class PeopleCollector:
         return pid
 
     def save_contact(self, person_id: int | None, org_id: int | None, kind: str, value: str, source_url: str,
-                     snippet: str, extraction: str, generic: bool = False) -> None:
+                     snippet: str, extraction: str, generic: bool = False, extra_checks: dict[str, Any] | None = None) -> None:
         if kind == "email" and self.sup.is_suppressed(email=value):
             self.stats["suppressed"] += 1
             return
@@ -297,6 +303,7 @@ class PeopleCollector:
         checks = {"v_úryvku": True, "over_ručne": kind in ("hidden_contact", "profile_url")}
         if kind == "profile_url":
             checks["stiahnuté"] = False  # LinkedIn sa nesťahuje
+        checks.update(extra_checks or {})
         if self.db.add_contact_point(person_id, org_id, kind, value, source_url, snippet, extraction, generic, checks):
             self.stats[f"contacts_{kind}"] += 1
 
@@ -308,22 +315,28 @@ class PeopleCollector:
                 return
             doc = self.db.get_document(claim["document_id"])
             window = quote_window(claim["quote"], doc["text"], radius=600) if doc else claim["quote"]
-            res = self.router.run_task(
-                "person_mentions",
-                [
-                    {"role": "system", "content": PERSON_MENTIONS_SYSTEM},
-                    {"role": "user", "content": f"PROBLEM: {hyp['title']}\nQUOTE: {claim['quote']}\n\n"
-                                                f"<untrusted_document>\n{window}\n</untrusted_document>"},
-                ],
-                PersonMentions,
-                object_type="claim",
-                object_id=claim["id"],
-                max_tokens=600,
-            )
-            if not res.ok:
-                self.stats["llm_failures"] += 1
-                continue
-            for m in res.value.persons[:4]:
+            cached = self.db.cached_output("person_mentions", "claim", claim["id"])
+            if cached is not None:  # tvrdenie už model prečítal: osoby a väzby iba z kódu (overenie mena v okne ostáva)
+                mentions = PersonMentions.model_validate_json(cached)
+                self.stats["person_mentions_cached"] += 1
+            else:
+                res = self.router.run_task(
+                    "person_mentions",
+                    [
+                        {"role": "system", "content": PERSON_MENTIONS_SYSTEM},
+                        {"role": "user", "content": f"PROBLEM: {hyp['title']}\nQUOTE: {claim['quote']}\n\n"
+                                                    f"<untrusted_document>\n{window}\n</untrusted_document>"},
+                    ],
+                    PersonMentions,
+                    object_type="claim",
+                    object_id=claim["id"],
+                    max_tokens=600,
+                )
+                if not res.ok:
+                    self.stats["llm_failures"] += 1
+                    continue
+                mentions = res.value
+            for m in mentions.persons[:4]:
                 if not m.about_problem:
                     continue
                 name, _ = split_titles(m.full_name)
@@ -371,6 +384,11 @@ class PeopleCollector:
             return
         home_contacts = extract_contacts(page.html, home)
         links = contact_page_links(home_contacts, home, limit=limit)
+        # Stránka, cez ktorú sa organizácia našla (hľadanie podľa hypotézy, zdroj dát), ak je na jej webe: často je to
+        # práve stránka tímu alebo odboru s ľuďmi, ktorých treba.
+        hint = org["evidence_url"] if "evidence_url" in org.keys() else None
+        if hint and domain_of(hint) == domain_of(home) and hint.rstrip("/") != home.rstrip("/") and hint not in links:
+            links.insert(0, hint)
         if len(links) < 2:
             sm = self.fetcher.fetch_html(home.rstrip("/") + "/sitemap.xml")
             if sm.status == "ok":
@@ -466,7 +484,8 @@ class PeopleCollector:
             if org["oh_status"] == "people_done":
                 continue
             try:
-                self.statutory_people(hyp, org)  # bez overeného webu iba meno a funkcia z RPO
+                if org["relation"] != "data_holder":  # pri úrade, ktorý drží dáta, by to bol minister alebo prednosta
+                    self.statutory_people(hyp, org)  # bez overeného webu iba meno a funkcia z RPO
                 if org["website_verified"] and org["website"]:
                     self.website_people(hyp, org)
                     processed += 1
@@ -503,7 +522,7 @@ def run_people_collect(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: 
     router = as_router(llm, cfg, db)
     if rpo is None:
         rpo = RPOClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
-    ids = hypothesis_ids or select_people_hypotheses(cfg, db)
+    ids = least_recently_searched(db, hypothesis_ids or select_people_hypotheses(cfg, db))
     collector = PeopleCollector(cfg, db, router, searx, fetcher, deadline, rpo, ruz)
     for hid in ids:
         if deadline.expired():
@@ -647,17 +666,22 @@ def org_fit_of(org_row) -> tuple[float, str]:
     relation = org_row["relation"]
     if relation in ("mentioned_with_problem", "quoted_person"):
         return 1.0, "organizácia v dôkaze"
+    if relation == "data_holder":
+        return 1.0, "drží dáta k hypotéze"
     if relation == "procured_related":
         return 0.7, "obstarávanie"
-    if relation == "segment_match":
+    if relation == "expert_org":
+        return 0.7, "expertná organizácia (hľadanie podľa hypotézy)"
+    if relation in ("segment_match", "contact_search"):
         import json as _json
 
         fit = _json.loads(org_row["fit_json"] or "{}")
-        parts = [v for k, v in fit.items() if k != "dôkaz o probléme" and v != "bez filtra"]
+        parts = [v for k, v in fit.items() if k in ("odvetvie", "veľkosť", "región", "typ") and v != "bez filtra"]
+        label = "segment" if relation == "segment_match" else "hľadanie podľa hypotézy"
         if not parts:
-            return 0.5, "segment"
+            return (0.5, label) if relation == "segment_match" else (0.6, label)
         score = sum(1.0 if v == "zhoda" else 0.5 if v == "neznáme" else 0.0 for v in parts) / len(parts)
-        return round(score, 2), "segment: " + ", ".join(f"{k} {v}" for k, v in fit.items() if k != "dôkaz o probléme")
+        return round(score, 2), label + ": " + ", ".join(f"{k} {v}" for k, v in fit.items() if k in ("odvetvie", "veľkosť", "región", "typ"))
     return 0.5, relation
 
 
@@ -666,17 +690,45 @@ def is_expert(person, org) -> bool:
     if any(w in role for w in EXPERT_ROLES):
         return True
     if org is not None:
+        if org["relation"] == "expert_org":
+            return True
         name = fold(org["name"])
         return org["sector_kind"] == "nonprofit" or any(w in name for w in EXPERT_ORG_WORDS)
     return False
 
 
+def data_role_fit(role: str | None, target_roles: list[str]) -> float:
+    """Funkcia osoby v organizácii, ktorá drží dáta: 1,0 pri práci s dátami alebo s funkciou z cieľa plánu,
+    0,5 pri príbuznej funkcii z cieľa, inak 0 (kód, bez modelu)."""
+    key = fold(role)
+    if not key:
+        return 0.0
+    if "kontaktny bod" in key or any(t.startswith(DATA_ROLE_PREFIXES) for t in re.findall(r"\w+", key)):
+        return 1.0
+    score, _ = deterministic_fit(role, [{"category": r, "examples": []} for r in target_roles])
+    return score if score in (1.0, 0.5) else 0.0
+
+
+def _target_roles(target) -> list[str]:
+    import json as _json
+
+    if target is None:
+        return []
+    try:
+        return [str(r) for r in _json.loads(target["roles_json"] or "[]")]
+    except ValueError:
+        return []
+
+
 def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Counter) -> dict:
-    """Väzby, priorita a výber najviac 15 osôb (2 na organizáciu, experti zvlášť)."""
+    """Väzby, priorita a výber: zákazníci (people.max_people_per_hypothesis, najviac max_people_per_org na
+    organizáciu), držitelia dát (max_data_holders_per_hypothesis) a experti (max_experts_per_hypothesis) zvlášť.
+    Ručne pridaní ľudia (source_kind „manual“) ostávajú vždy a do limitov sa nepočítajú."""
     stats: Counter = Counter()
     hid = hyp["id"]
     roles = role_map_for(cfg, db, router, hyp)
     orgs = {o["id"]: o for o in db.orgs_for_hypothesis(hid)}
+    targets = {t["id"]: t for t in db.contact_targets_for(hid)}
     people = {}
     for org_id in orgs:
         for p in db.people_of_org(org_id):
@@ -689,64 +741,89 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
         if person is None or person["status"] == "excluded":
             continue
         org = orgs.get(person["org_id"])
-        fit, cat, fit_src = role_fit_for(cfg, db, router, hyp, roles, person["role_title"], budget)
-        if fit == FIT_SCORE["general"] and org is not None and org["size_category"] in ("micro", "small"):
-            # V malej organizácii vedenie zvyčajne samo rozhoduje o procese s problémom (R-PPL-14, príklad „konateľ malej firmy“).
-            fit, cat, fit_src = FIT_SCORE["related"], "vedenie malej organizácie", fit_src + " + veľkosť"
+        relation = org["relation"] if org is not None else None
+        target = targets.get(org["target_id"]) if org is not None and org["target_id"] else None
+        existing = {l["link_type"]: l for l in db.links_for_person(pid) if l["hypothesis_id"] == hid}
+        manual = person["source_kind"] == "manual"
+        if manual:
+            # Ručne pridaný človek (GUI, people-add): väzbu zadal človek, fit sa iba zobrazí.
+            types = set(existing) or {"role_owner"}
+            group = "data_holder" if "data_holder" in types else "expert" if "expert" in types else "customer"
+            fit, cat, fit_src = role_fit_for(cfg, db, router, hyp, roles, person["role_title"], budget)
+            fit_src = "ručne pridaný; " + fit_src
+        elif (relation == "data_holder" or person["source_kind"] == "catalog") and "quoted_about_problem" not in existing:
+            fit = data_role_fit(person["role_title"], _target_roles(target))
+            cat, fit_src = "práca s dátami", "kód (dáta)"
+            if person["source_kind"] == "catalog":
+                fit, cat, fit_src = 1.0, "kontaktný bod datasetu", "úradné zverejnenie"
+            if fit < 0.5:
+                stats["data_holder_role_mismatch"] += 1
+                stats["no_link"] += 1
+                continue
+            types, group = {"data_holder"}, "data_holder"
+        else:
+            fit, cat, fit_src = role_fit_for(cfg, db, router, hyp, roles, person["role_title"], budget)
+            if fit == FIT_SCORE["general"] and org is not None and org["size_category"] in ("micro", "small"):
+                # V malej organizácii vedenie zvyčajne samo rozhoduje o procese s problémom (R-PPL-14, príklad „konateľ malej firmy“).
+                fit, cat, fit_src = FIT_SCORE["related"], "vedenie malej organizácie", fit_src + " + veľkosť"
+            expert = is_expert(person, org) and relation != "mentioned_with_problem"
+            if expert and relation == "expert_org" and target is not None:
+                tfit, tcat = deterministic_fit(person["role_title"], [{"category": r, "examples": []} for r in _target_roles(target)])
+                if tfit is not None and tfit > fit:
+                    fit, cat, fit_src = tfit, tcat or cat, "kód (cieľ plánu)"
+            # Väzby zo zberu (citácia, obstarávanie) ostávajú; ostatné sa pri každom poradí počítajú znova.
+            types = {t for t in existing if t in COLLECTED_LINKS}
+            if expert:
+                types.add("expert")
+            else:
+                if fit >= 0.5:
+                    types.add("role_owner")
+                if relation in ("mentioned_with_problem", "quoted_person") and (fit >= 0.3 or person["source_kind"] == "rpo"):
+                    types.add("org_affected")
+                if relation == "procured_related" and person["source_kind"] == "procurement":
+                    types.add("procurement_contact")
+            group = "expert" if expert else "customer"
         if cat and cat != (person["role_category"] or ""):
             db.update_person(pid, role_category=cat)
-        expert = is_expert(person, org) and not (org is not None and org["relation"] == "mentioned_with_problem")
-        existing = {l["link_type"]: l for l in db.links_for_person(pid) if l["hypothesis_id"] == hid}
-        # Väzby zo zberu (citácia, obstarávanie) ostávajú; ostatné sa pri každom poradí počítajú znova.
-        types = {t for t in existing if t in COLLECTED_LINKS}
-        if expert:
-            types.add("expert")
-        else:
-            if fit >= 0.5:
-                types.add("role_owner")
-            if org is not None and org["relation"] in ("mentioned_with_problem", "quoted_person") and (
-                fit >= 0.3 or person["source_kind"] == "rpo"
-            ):
-                types.add("org_affected")
-            if org is not None and org["relation"] == "procured_related" and person["source_kind"] == "procurement":
-                types.add("procurement_contact")
         if not types:
             stats["no_link"] += 1
             continue
-        link_type = max(types, key=lambda t: LINK_STRENGTH[t])
+        link_type = max(types, key=lambda t: LINK_STRENGTH.get(t, 0.0))
         channel, channel_label = channel_of(db, pid, person["org_id"])
         org_fit, org_label = org_fit_of(org)
         components = {
             "role_fit": fit, "role_fit_zdroj": fit_src, "kategória": cat,
-            "väzba": LINK_STRENGTH[link_type], "väzba_typ": link_type,
+            "väzba": LINK_STRENGTH.get(link_type, 0.0), "väzba_typ": link_type,
             "kanál": channel, "kanál_popis": channel_label,
             "zhoda_org": org_fit, "zhoda_org_popis": org_label,
-            "váhy": w.model_dump(),
+            "skupina": group, "váhy": w.model_dump(),
         }
-        priority = round(w.role_fit * fit + w.link * LINK_STRENGTH[link_type] + w.channel * channel + w.org_fit * org_fit, 3)
-        scored.append((priority, pid, person, org, types, link_type, components, expert))
+        if target is not None:
+            components["cieľ"] = target["who"]
+        priority = round(w.role_fit * fit + w.link * LINK_STRENGTH.get(link_type, 0.0) + w.channel * channel
+                         + w.org_fit * org_fit, 3)
+        scored.append((priority, pid, person, org, types, link_type, components, group, manual))
 
     scored.sort(key=lambda x: (-x[0], x[1]))
-    per_org: Counter = Counter()
-    chosen, experts = [], []
-    # Prednosť majú rôzne organizácie: najprv najlepší z každej organizácie, potom druhí.
-    for round_ in (1, 2):
+    limits = {"customer": cfg.people.max_people_per_hypothesis, "expert": cfg.people.max_experts_per_hypothesis,
+              "data_holder": cfg.people.max_data_holders_per_hypothesis}
+    per_org: dict[str, Counter] = {g: Counter() for g in limits}
+    chosen: list = [item for item in scored if item[8]]  # ručne pridaní vždy
+    count: Counter = Counter()
+    # Prednosť majú rôzne organizácie: najprv najlepší z každej organizácie, potom druhí, tretí…
+    for round_ in range(1, max(1, cfg.people.max_people_per_org) + 1):
         for item in scored:
-            priority, pid, person, org, types, link_type, comp, expert = item
-            if item in chosen or item in experts:
+            priority, pid, person, org, types, link_type, comp, group, manual = item
+            if manual or item in chosen:
                 continue
             key = person["org_id"] or -pid
-            if expert:
-                if len(experts) < cfg.people.max_experts_per_hypothesis and round_ == 1:
-                    experts.append(item)
+            if per_org[group][key] >= round_ or count[group] >= limits[group]:
                 continue
-            if per_org[key] >= round_ or per_org[key] >= cfg.people.max_people_per_org:
-                continue
-            if len(chosen) < cfg.people.max_people_per_hypothesis:
-                chosen.append(item)
-                per_org[key] += 1
-    keep = {item[1] for item in chosen + experts}
-    for priority, pid, person, org, types, link_type, comp, expert in chosen + experts:
+            chosen.append(item)
+            per_org[group][key] += 1
+            count[group] += 1
+    keep = {item[1] for item in chosen}
+    for priority, pid, person, org, types, link_type, comp, group, manual in chosen:
         if db.get_person(pid) is None:  # medzitým vymazaná (výmaz v GUI počas behu)
             stats["removed_meanwhile"] += 1
             continue
@@ -754,20 +831,26 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
         for t in types:
             evidence_url = None
             evidence_claim = None
-            if t in ("org_affected",) and org is not None:
+            if t == "org_affected" and org is not None:
                 evidence_claim, evidence_url = org["evidence_claim_id"], org["evidence_url"]
+            if t == "data_holder" and org is not None:
+                evidence_url = org["evidence_url"]
+            # Ručne pridaný človek si nechá odôvodnenie a „čo žiadať“ zo zadania (COALESCE v DB).
             link_id = db.upsert_link(pid, hid, t, evidence_claim, evidence_url,
-                                     rationale=_rationale(t, comp, org), verdict="supported" if t != "role_owner" or comp["role_fit"] >= 0.5 else "weak")
+                                     rationale=None if manual else _rationale(t, comp, org),
+                                     verdict="supported" if manual or t != "role_owner" or comp["role_fit"] >= 0.5 else "weak")
             if t == link_type:
                 db.set_link_priority(link_id, priority, comp)
-        db.update_person(pid, is_expert=int(expert))
-        stats["experts" if expert else "selected"] += 1
+        db.update_person(pid, is_expert=int(group == "expert"))
+        stats[{"expert": "experts", "data_holder": "data_holders"}.get(group, "selected")] += 1
+        if manual:
+            stats["manual_kept"] += 1
     # Nevybraní kandidáti sa vymažú (minimalizácia); osoby s ďalšou komunikáciou alebo inou hypotézou ostanú.
     for pid, person in people.items():
         if person is None or pid in keep:
             continue
         others = [l for l in db.links_for_person(pid) if l["hypothesis_id"] != hid]
-        if person["status"] == "candidate" and not others and not db.outreach_for_person(pid):
+        if person["status"] == "candidate" and person["source_kind"] != "manual" and not others and not db.outreach_for_person(pid):
             db.delete_person(pid)
             stats["dropped"] += 1
         else:
@@ -785,6 +868,9 @@ def _rationale(link_type: str, comp: dict[str, Any], org) -> str:
         return "Kontaktná osoba v oznámení o obstarávaní."
     if link_type == "expert":
         return "Rozumie problému (výskum, zväz, poradenstvo), nie je zákazník."
+    if link_type == "data_holder":
+        source = f" ({comp.get('kategória')})" if comp.get("kategória") else ""
+        return f"{org_name} drží dáta k hypotéze; osoba s nimi pracuje{source}."
     return "Verejne sa vyjadril(a) k problému."
 
 

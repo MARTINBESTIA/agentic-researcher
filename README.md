@@ -23,9 +23,12 @@ v `data/LIA.md`).
  [rýchly]      screen → extract            → claims (neoverené)
  [kód]         verify: citát a čísla sú v zdroji?
  [rýchly+kód]  orgs: menované v dôkazoch, obstarávanie, segment → web overený cez IČO
+ [rýchly+kód]  contact-search: plán koho osloviť (zákazník, držiteľ dát, expert) → dopyty → web cez IČO;
+               držitelia dát z Brány 1 a kontaktný bod datasetu z Národného katalógu
  [rýchly+kód]  people: citované osoby, štatutári (RPO), kontaktné stránky → ľudia, kontakty
  [embed]       embeddingy tvrdení a hypotéz (CPU)
- [presný]      people-rank: mapa rolí (3 hlasy), väzby osoba–problém, priorita, výber ≤ 15
+ [presný]      people-rank: mapa rolí (3 hlasy), väzby osoba–problém, priorita, výber (zákazníci, držitelia dát,
+               experti zvlášť; limity v config.yaml) → GUI Brána 0 → Koho osloviť
  [presný]      drafts: fakty prejdú entail_gate (3 hlasy) → návrh → kontroly kódom + draft_check
  [presný]      verify: vyplýva tvrdenie z citátu?  → cluster: zaradenie, nové problémy ako „candidate“
  [presný]      critique, market  →  report + purge
@@ -92,7 +95,9 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
 | `select --hypothesis 3 --people on` / `select --auto` | zapne hľadanie ľudí pre hypotézu / automaticky top 3 |
 | `people --hypothesis 3` | organizácie → ľudia a kontakty → väzby a priorita |
 | `.venv\Scripts\python scripts\gate0_run.py --minutes 300` | celá Brána 0 pre vybrané hypotézy (mapy rolí → organizácie → ľudia → poradie → návrhy); `--skip-orgs`, `--recollect`, `--refresh-drafts` |
-| `drafts --hypothesis 3` | návrhy oslovení (najprv najvyššia priorita, max. 24 za beh) |
+| `drafts --hypothesis 3` | návrhy oslovení (najprv najvyššia priorita, max. 24 za beh; nie pre držiteľov dát a expertov) |
+| `contacts-add --hypothesis 3 --url URL [--name "Meno"] [--kind zakaznik\|data\|expert] [--ask "…"]` | kontakt z verejnej stránky organizácie (meno a e-mail overí kód na stránke; bez mena generické kontakty organizácie) |
+| `contact-search` | hľadanie kontaktov podľa hypotézy: plán (zákazník, držiteľ dát, expert), dopyty, overenie webu cez IČO, držitelia dát z Brány 1 a katalógu |
 | `orgs --hypothesis 3 [--import zoznam.csv]` | iba organizácie (aj z verejného zoznamu CSV: name;ico;website) |
 | `discover`, `sources --check` | objavovanie nových problémov; kontrola katalógu zdrojov |
 | `eval --task entail --sample 30` / `--synthetic 20` / `--profile all` | labely do Kontroly, syntetické prípady, porovnanie profilov |
@@ -108,22 +113,33 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
 ### Brána 0 krok za krokom
 
 1. **Vyber hypotézy** (GUI → Problémy → „Hľadať ľudí“, alebo `select`). Automaticky sa berú top 3
-   podľa sily dôkazov; ručná voľba má prednosť.
+   podľa sily dôkazov a **každá hypotéza, ktorej test skončil „podložená“** (`people.auto_select_validated`);
+   ručná voľba (aj vypnutie) má prednosť.
 2. **`people`** nájde organizácie (menované v dôkazoch, obstarávanie, segment cez register a web
-   s IČO), ľudí (citovaných v dôkazoch, štatutárov z RPO, z kontaktných stránok) a ich zverejnené
-   pracovné kontakty. Ku každej osobe uloží zdroj a úryvok, v ktorom kontakt doslova je.
-3. **GUI → Ľudia a kontakty:** karta „Všetky problémy“ = ľudia a firmy ku všetkým vybraným problémom
+   s IČO), potom **hľadá kontakty podľa hypotézy** (`contact-search`): rýchly model navrhne, koho osloviť –
+   **zákazník** (vlastník procesu, rozhovor), **držiteľ dát** (schéma a vzorka), **expert** (zväz, výskum,
+   watchdog) – s funkciami, dopytmi a tým, čo žiadať; weby overí kód cez IČO. Držitelia dát pribudnú aj
+   z Brány 1 (vydavatelia zdrojov, kontaktný bod datasetu v Národnom katalógu). Potom ľudia (citovaní
+   v dôkazoch, štatutári z RPO, z kontaktných stránok a zo stránky, kde sa organizácia našla) a ich
+   zverejnené pracovné kontakty. Ku každej osobe uloží zdroj a úryvok, v ktorom kontakt doslova je.
+   Ďalšie kolo dopytov príde, kým je kontaktovateľných menej ako `people.contact_goal_per_hypothesis`.
+3. **GUI → Brána 0 → Koho osloviť:** ľudia a organizácie k hypotéze s e-mailom, odporúčaním („oslov
+   najprv“, „oslov“, „doplň kontakt“, „neoslovovať“) a jeho dôvodmi, prečo a čo od nich žiadať; filter
+   podľa typu (zákazník, držiteľ dát, expert), „Chcem osloviť“, odkaz `mailto:`. Tu je aj plán kontaktov
+   (dá sa navrhnúť znova) a **pridanie kontaktu zo stránky** (URL + meno; meno aj kontakt overí kód na
+   stránke) – rovnako `python -m radar contacts-add --hypothesis 1 --url … --name "…" --kind data`.
+4. **GUI → Ľudia a kontakty:** karta „Všetky problémy“ = ľudia a firmy ku všetkým vybraným problémom
    so značkami (citovaný v dôkaze, rola sedí, web overený, IČO v RPO, zdroj zaradenia firmy,
    zverejnený kontakt, LinkedIn, expert, obstarávanie), e-mailom, telefónom a odkazom na LinkedIn.
    Karta „Detail problému“: priorita so zložkami (role_fit, väzba, kanál, zhoda organizácie),
    kontakty s úryvkom, ručné pridanie alebo odstránenie LinkedIn, akcie „chcem osloviť“, „vylúčiť“,
    „vymazať (forget)“. Skrytý e-mail („meno(at)firma.sk“) systém nedekóduje – otvor stránku ručne.
-4. **`drafts`** → **GUI → Oslovenia:** e-mail (varianty A podľa dôkazu a B podľa funkcie), poznámka
+5. **`drafts`** → **GUI → Oslovenia:** e-mail (varianty A podľa dôkazu a B podľa funkcie), poznámka
    pre LinkedIn (≤ 200 znakov), skript na telefón. Výsledky kontrol (dĺžky, zakázané frázy, čísla
    mimo faktov, pätička) a viet, ktoré model považuje za nepodložené. Uprav, „Uložiť a skontrolovať“,
    „Schváliť“ (max. 10 denne), „Kopírovať“ / „Otvoriť v pošte“, pošli sám a označ „odoslané“.
    Follow-up pripadne na 5. pracovný deň. Námietka = okamžitý výmaz a potlačenie.
-5. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
+6. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.
 
@@ -264,8 +280,12 @@ Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v sprá
 
 ## Súkromie a bezpečnosť
 
-- Iba pracovné kontakty zverejnené organizáciou alebo osobou, vždy so zdrojovou URL a úryvkom.
-  E-maily sa nehádajú, schránky sa neoverujú (SMTP), obfuskované adresy sa nedekódujú.
+- Iba pracovné kontakty zverejnené organizáciou alebo osobou (alebo v úradnom zverejnení – napr. kontaktný bod
+  datasetu v Národnom katalógu), vždy so zdrojovou URL a úryvkom. E-maily sa nehádajú, schránky sa neoverujú
+  (SMTP), obfuskované adresy sa nedekódujú. Ručne zadaný kontakt sa uloží, iba ak ho kód nájde na zadanej stránke.
+- Osobné údaje iba k hypotézam na Bráne 0: ručne zvolené, top 3 podľa sily a každá s testom „podložená“
+  (`people.auto_select_validated: false` to vypne). Pri tejto zmene treba revidovať `data/LIA.md`
+  (šablóna `docs/LIA_template.md`: nový zdroj, účel „vzorka dát“, vyšší objem).
 - Sociálne siete sa nesťahujú ani po presmerovaní. Z RPO sa ukladá iba meno a funkcia štatutára
   (adresa sa odstráni ešte pred uložením do cache).
 - Surové HTML kontaktných stránok sa neukladá; nevybraní kandidáti sa vymažú v tom istom behu.
@@ -297,6 +317,7 @@ Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v sprá
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |
 | `radar/extract.py`, `verify.py`, `cluster.py`, `critic.py`, `market.py`, `report.py` | pipeline dôkazov |
 | `radar/registers.py`, `orgs.py`, `contacts.py`, `names.py`, `people.py` | RPO/RÚZ, organizácie, kontakty, ľudia a priorita |
+| `radar/contact_scout.py`, `radar/shortlist.py` | hľadanie kontaktov podľa hypotézy (plán, dopyty, držitelia dát, ručné pridanie zo stránky); Koho osloviť (odporúčanie s dôvodmi, čo žiadať) |
 | `radar/outreach.py`, `crm.py`, `privacy.py`, `review.py`, `evals.py`, `bench.py` | oslovenia, Brána 0, súkromie, kontrola, eval, benchmark |
 | `radar/pipeline.py`, `cli.py`, `commands.py` | run-all, príkazový riadok |
 | `radar/gui/` | Streamlit (`app.py`, `app_pages/`) |

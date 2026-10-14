@@ -78,7 +78,7 @@ def gate0_metrics(db: DB, hypothesis_id: int) -> dict[str, Any]:
     unprompted = sum(1 for i in customers if i["mentioned_unprompted"] == 1)
     share = unprompted / len(customers) if customers else 0.0
     commitments = Counter(i["commitment"] for i in customers if i["commitment"] and i["commitment"] != "none")
-    links = [l for l in db.links_for_hypothesis(hypothesis_id) if not l["is_expert"]]
+    links = [l for l in db.links_for_hypothesis(hypothesis_id) if not l["is_expert"] and l["link_type"] != "data_holder"]
     outreach = db.outreach_list(hypothesis_id)
     people_with = lambda statuses: len({o["person_id"] for o in outreach if o["status"] in statuses})  # noqa: E731
     sent_people = len({o["person_id"] for o in outreach if o["sent_at"]})

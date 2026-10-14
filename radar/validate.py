@@ -7,7 +7,8 @@
 3. validate-finish (bez modelu): keď už nič z testu nečaká, kód určí verdikt zo zložiek
    (počty overených tvrdení, domény, protidôkazy) a hypotéza prejde do stavu „tested“.
 
-Verdikt je o podloženosti problému verejnými zdrojmi, nie o záujme zákazníkov (to rieši Brána 0).
+Verdikt je o podloženosti problému verejnými zdrojmi, nie o záujme zákazníkov (to rieši Brána 0). Hypotéza
+s verdiktom „podložená“ sa automaticky zapne na Bránu 0 (people.auto_select_validated) – hľadanie ľudí a kontaktov.
 """
 
 from __future__ import annotations
@@ -192,4 +193,9 @@ def run_validate_finish(cfg: Config, db: DB, deadline: Deadline) -> dict:
         db.set_validation_result(hyp["id"], result)
         stats["tested"] += 1
         stats[f"verdict:{result['verdikt']}"] += 1
+        if cfg.people.auto_select_validated and result["verdikt"] in cfg.people.auto_select_verdicts:
+            from .orgs import auto_select_validated
+
+            # Test prešiel → hypotéza ide na Bránu 0 (hľadanie ľudí a kontaktov); ručné vypnutie má prednosť.
+            stats["gate0_selected"] += len(auto_select_validated(cfg, db, [hyp["id"]]))
     return dict(stats)

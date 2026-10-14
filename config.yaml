@@ -279,17 +279,31 @@ gate2:
   min_history: 5
 
 # ---------------------------------------------------------------- ľudia a kontakty (R-ORG, R-PPL)
-# Beží iba pre hypotézy vybrané na Bránu 0 (automaticky top 3 podľa sily dôkazov + ručne cez
-# "select" alebo v GUI) a iba po potvrdení LIA (privacy.lia_completed). Iba pracovné kontakty
-# zverejnené organizáciou alebo osobou, vždy so zdrojom a úryvkom; e-maily sa nehádajú,
-# obfuskované adresy sa nedekódujú, LinkedIn sa nesťahuje.
+# Beží iba pre hypotézy vybrané na Bránu 0 (automaticky top 3 podľa sily dôkazov a každá hypotéza, ktorej test
+# skončil „podložená“; ručne cez "select" alebo v GUI) a iba po potvrdení LIA (privacy.lia_completed). Iba pracovné
+# kontakty zverejnené organizáciou alebo osobou (alebo v úradnom zverejnení, napr. kontaktný bod datasetu v Národnom
+# katalógu), vždy so zdrojom a úryvkom; e-maily sa nehádajú, obfuskované adresy sa nedekódujú, LinkedIn sa nesťahuje.
 people:
   auto_select_top: 3
+  auto_select_validated: true      # Brána 0 aj pre každú hypotézu s testom „podložená“ (ručné vypnutie má prednosť)
+  auto_select_verdicts: [podložená]
   min_strength: stredná
-  max_orgs_per_hypothesis: 30
-  max_people_per_hypothesis: 15
-  max_people_per_org: 2
-  max_experts_per_hypothesis: 3
+  # Limity zvýšené 14. 10. 2026 (požiadavka: čo najviac relevantných kontaktov); predvolené v kóde 30/15/2/3.
+  max_orgs_per_hypothesis: 50
+  max_people_per_hypothesis: 30    # zákazníci (vlastníci problému); nevybraní kandidáti sa vymažú (minimalizácia)
+  max_people_per_org: 3
+  max_experts_per_hypothesis: 6    # zväzy, výskum, watchdog – nepočítajú sa do metrík Brány 0
+  max_data_holders_per_hypothesis: 5   # kto drží dáta k hypotéze (vzorka, schéma) – zvlášť od zákazníkov
+  # Hľadanie kontaktov podľa hypotézy (krok contact-search): rýchly model navrhne ciele – zákazník, držiteľ dát,
+  # expert – s funkciami, dopytmi a tým, čo od nich žiadať; vyhľadávanie, overenie webu cez IČO a kontakty robí kód.
+  contact_search: true
+  contact_search_rounds: 2         # ďalšie kolo dopytov, kým je kontaktovateľných menej ako cieľ
+  contact_queries_per_run: 12      # najviac dopytov na hypotézu a beh
+  contact_goal_per_hypothesis: 15  # ľudia alebo organizácie s e-mailom
+  contact_research_days: 14        # hypotéza sa prehľadá znova najskôr po tomto čase
+  # Weby organizácií, ktoré inak nie sú webom zákazníka (aggregator_domains), no pri cieľoch „držiteľ dát“ a „expert“
+  # sú webom organizácie (kontrolór, watchdog, štatistický úrad).
+  expert_org_domains: [nku.gov.sk, slovensko.digital, transparency.sk, statistics.sk, uvo.gov.sk, rpvs.gov.sk]
   max_contact_pages_per_org: 5
   registry_delay_s: 1.0            # pauza medzi volaniami RPO a RÚZ
   registry_cache_days: 30

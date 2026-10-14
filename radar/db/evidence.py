@@ -338,6 +338,22 @@ class EvidenceMixin:
                 (int(enabled), utcnow(), hid),
             )
 
+    def validated_hypotheses(self, verdicts: tuple[str, ...]) -> list[sqlite3.Row]:
+        """Aktívne hypotézy, ktorých test (validate) skončil jedným z verdiktov (napr. „podložená“)."""
+        rows = self._all(
+            """SELECT * FROM hypotheses WHERE validation_state = 'tested' AND validation_json IS NOT NULL
+                 AND status NOT IN ('rejected', 'candidate') ORDER BY id"""
+        )
+        out = []
+        for r in rows:
+            try:
+                verdict = json.loads(r["validation_json"] or "{}").get("verdikt")
+            except ValueError:
+                continue
+            if verdict in verdicts:
+                out.append(r)
+        return out
+
     def people_enabled_hypotheses(self) -> list[sqlite3.Row]:
         return self._all(
             "SELECT * FROM hypotheses WHERE people_enabled = 1 AND status NOT IN ('rejected', 'candidate') ORDER BY id"

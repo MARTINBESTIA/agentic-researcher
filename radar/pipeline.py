@@ -1,7 +1,7 @@
 """Celý beh (run-all) v poradí podľa modelov, aby sa veľký model menil čo najmenej (spec kap. 4):
 
 1. rýchly model a práca bez modelu: objavovanie (aj agent scout), zber, screen, extrakcia, kontrola
-   citátov kódom, témy hypotéz (z minulého behu), organizácie a ľudia (zber kontaktov), agent testuje
+   citátov kódom, témy hypotéz (z minulého behu), organizácie, hľadanie kontaktov podľa hypotézy a ľudia, agent testuje
    ďalšie hypotézy z fronty,
 2. embeddingy (malý model na CPU),
 3. presný model v poradí priority (R-ACC-6): väzby a priorita ľudí, návrhy oslovení, posúdenie
@@ -24,7 +24,7 @@ from .util import Deadline
 log = logging.getLogger("radar")
 
 FAST_STAGES = ["discover", "scout", "collect", "screen", "extract", "verify-code", "source-types", "themes", "orgs",
-               "people", "gate1-sources",
+               "contact-search", "people", "gate1-sources",
                "gate1-check", "gate1-datasets", "gate2-backtest", "validate-search"]
 ACCURATE_STAGES = ["people-rank", "contacts", "drafts", "verify", "cluster", "validate-finish", "gate1-fields",
                    "gate1-repro", "gate1-user", "gate1-finish", "gate2-cards", "gate2-plan", "gate2-conclusion",

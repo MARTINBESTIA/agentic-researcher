@@ -196,6 +196,13 @@ def stage_orgs(app, deadline: Deadline, hypothesis_ids: list[int] | None = None,
                     model_filters=model_filters)
 
 
+def stage_contact_search(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
+    """Plán kontaktov (rýchly model) a hľadanie podľa neho: zákazníci, držitelia dát, experti (kód overí web cez IČO)."""
+    from .contact_scout import run_contact_search
+
+    return run_contact_search(app.cfg, app.db, app.router, app.searx, app.fetcher, deadline, _ids(app, hypothesis_ids))
+
+
 def stage_people(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     from .people import run_people_collect
 
@@ -289,6 +296,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "gate2-demo": stage_gate2("demo"),
     "bench": stage_bench,
     "orgs": stage_orgs,
+    "contact-search": stage_contact_search,
     "people": stage_people,
     "people-rank": stage_people_rank,
     "drafts": stage_drafts,
@@ -304,6 +312,8 @@ STAGE_HELP = {
     "validate-cluster": "Zaradenie iba tvrdení z testu hypotéz (presný model, bez zlučovania).",
     "profiles": "URL profilov LinkedIn z výsledkov vyhľadávania pre vybraných ľudí (nesťahuje sa).",
     "contacts": "E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu).",
+    "contact-search": "Hľadanie kontaktov podľa hypotézy: plán (zákazník, držiteľ dát, expert) a dopyty – rýchly model; "
+                      "weby overí kód cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu.",
     "gate1-fields": "Brána 1: polia potrebné na riešenie problému (presný model).",
     "gate1-sources": "Brána 1: agent hľadá zdroje dát k poliam (licencia, frekvencia z prečítanej stránky).",
     "gate1-check": "Brána 1: dostupnosť zdrojov, odkazy na súbory a kvalita (kód).",
@@ -408,12 +418,33 @@ def cmd_people(app, args) -> int:
     ids = _hyp_ids(app, args)
     try:
         code = _run(app, "orgs", args.minutes, lambda: stage_orgs(app, _deadline(app, args), ids, True))
+        code |= _run(app, "contact-search", args.minutes, lambda: stage_contact_search(app, _deadline(app, args), ids))
         code |= _run(app, "people", args.minutes, lambda: stage_people(app, _deadline(app, args), ids))
         code |= _run(app, "people-rank", args.minutes, lambda: stage_people_rank(app, _deadline(app, args), ids))
     except PrivacyGateError as exc:
         print(exc)
         return 1
     return code
+
+
+def cmd_contacts_add(app, args) -> int:
+    """Kontakt z verejnej stránky organizácie (napr. odporúčaný mimo systému): stránka sa stiahne a meno aj kontakt
+    sa overia v tom istom bloku – čo na stránke nie je, sa neuloží."""
+    from .contact_scout import add_contact_from_url
+    from .privacy import PrivacyGateError
+    from .registers import RPOClient
+
+    rpo = RPOClient(app.db, app.cfg.people.registry_delay_s, app.cfg.people.registry_cache_days, app.cfg.fetch.user_agent)
+    kind = {"zakaznik": "customer", "data": "data_holder", "expert": "expert"}[args.kind]
+    try:
+        out = add_contact_from_url(app.cfg, app.db, app.fetcher, args.hypothesis, args.url, args.name, kind, args.role,
+                                   args.org, args.ask, rpo)
+    except (ValueError, PrivacyGateError) as exc:
+        print(exc)
+        return 1
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    print("Poradie a väzby: python -m radar people-rank (alebo akcia „Zbierať ľudí“); zoznam v GUI Brána 0 → Koho osloviť.")
+    return 0
 
 
 def cmd_drafts(app, args) -> int:
@@ -611,6 +642,16 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("contacts-add", help="Kontakt z verejnej stránky organizácie k hypotéze (meno a kontakt overí kód).")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--url", required=True, help="stránka organizácie s menom a kontaktom (nie LinkedIn)")
+    p.add_argument("--name", default="", help="meno osoby; bez mena sa uložia generické kontakty organizácie")
+    p.add_argument("--kind", choices=["zakaznik", "data", "expert"], default="zakaznik",
+                   help="zákazník (rozhovor), držiteľ dát (vzorka), expert (posúdenie)")
+    p.add_argument("--role", default="", help="funkcia (uloží sa, iba ak je na stránke)")
+    p.add_argument("--org", default="", help="názov organizácie, ak na stránke nie je IČO")
+    p.add_argument("--ask", default="", help="čo od kontaktu žiadať")
+
     p = sub.add_parser("drafts", help="Návrhy oslovení (nič sa neodosiela).")
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
@@ -685,6 +726,7 @@ HANDLERS = {
     "orgs": cmd_orgs,
     "people": cmd_people,
     "drafts": cmd_drafts,
+    "contacts-add": cmd_contacts_add,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

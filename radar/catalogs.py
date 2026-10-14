@@ -207,6 +207,25 @@ class NKODClient:
         ds.more_distributions = max(0, len(dists) - self.max_distributions)
         return ds
 
+    def contact_points(self, uri: str) -> list[dict[str, str]]:
+        """Kontaktný bod datasetu (dcat:contactPoint – meno a e-mail, ktoré zverejnil sám poskytovateľ v metadátach).
+        Vráti [{fn, email, title, publisher, modified}]; e-mail bez „mailto:“."""
+        if not NKOD_DATASET_RE.match(uri or ""):
+            return []
+        rows = self._select(f"""PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+            SELECT ?fn ?email (SAMPLE(?t) AS ?title) (SAMPLE(?pn) AS ?publisher) (MAX(?m) AS ?modified) WHERE {{
+              <{uri}> dcat:contactPoint ?cp . OPTIONAL {{ ?cp vcard:fn ?fn }} OPTIONAL {{ ?cp vcard:hasEmail ?email }}
+              OPTIONAL {{ <{uri}> dct:title ?t }} OPTIONAL {{ <{uri}> dct:publisher ?p . ?p foaf:name ?pn }}
+              OPTIONAL {{ <{uri}> dct:modified ?m }}
+            }} GROUP BY ?fn ?email""")
+        out = []
+        for r in rows:
+            email = re.sub(r"^mailto:", "", (r.get("email") or "").strip(), flags=re.I)
+            if email or r.get("fn"):
+                out.append({"fn": (r.get("fn") or "").strip(), "email": email, "title": r.get("title", ""),
+                            "publisher": r.get("publisher", ""), "modified": r.get("modified", "")})
+        return out
+
     def dataset(self, uri: str) -> CatalogDataset | None:
         """Dataset podľa identifikátora v katalógu (pri kontrole zdroja)."""
         if not NKOD_DATASET_RE.match(uri or ""):

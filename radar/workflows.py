@@ -58,10 +58,13 @@ ACTIONS: dict[str, Action] = {
         "nové citáty k hypotézam, verdikt testu", "rýchly + presný", 480),
     "people": Action(
         "Zbierať ľudí ku overeným hypotézam",
-        "Pre zvolené overené hypotézy: organizácie (dôkazy, obstarávanie, segment + RPO/RÚZ) → ľudia a zverejnené "
-        "pracovné kontakty z webov → mapa rolí, priorita, výber ≤ 15 na problém → e-mail a telefón ku každej osobe "
-        "(stránky s jej menom) → LinkedIn. Nič sa neodosiela.",
-        "organizácie, ľudia, e-maily, telefóny, LinkedIn", "rýchly + presný", 120, "verified", needs_lia=True),
+        "Pre zvolené overené hypotézy (a automaticky pre každú s testom „podložená“): organizácie (dôkazy, obstarávanie, "
+        "segment + RPO/RÚZ) → hľadanie kontaktov podľa hypotézy (plán: zákazník, držiteľ dát, expert – s dopytmi a tým, "
+        "čo žiadať; weby overené cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu) → ľudia a "
+        "zverejnené pracovné kontakty z webov → mapa rolí, priorita, výber (limity v config.yaml) → e-mail a telefón ku "
+        "každej osobe → LinkedIn. Výsledok: Brána 0 → Koho osloviť. Nič sa neodosiela.",
+        "organizácie, ľudia, e-maily, telefóny, LinkedIn, zoznam Koho osloviť", "rýchly + presný", 120, "verified",
+        needs_lia=True),
     "drafts": Action(
         "Pripraviť návrhy oslovení",
         "Pre vybraných ľudí napíše presný model návrh e-mailu, poznámky na LinkedIn a telefonický úvod iba z overených "
@@ -317,7 +320,9 @@ def _people(app, deadline: Deadline, run, ids: list[int] | None, report_progress
     fast = deadline.sub(fast_min)
     # orgs najviac polovicu rýchlej fázy: akcia #19 minula celý čas na orgs a krok people (ľudia z webov
     # organizácií) sa preskočil – akcia potom nepridala nikoho nového.
-    run("orgs", fast.sub(fast_min * 0.5))
+    run("orgs", fast.sub(fast_min * 0.35))
+    # Hľadanie kontaktov podľa hypotézy (plán rýchleho modelu, dopyty, držitelia dát) pred zberom ľudí z webov.
+    run("contact-search", fast.sub(fast_min * 0.3))
     run("people", fast)
     run("people-rank", deadline.sub(deadline.remaining_minutes() * 0.7))
     run("contacts", deadline)  # e-mail a telefón ku každej vybranej osobe (bez modelu)

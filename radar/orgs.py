@@ -115,20 +115,51 @@ def root_url(url: str) -> str:
     return f"{p.scheme or 'https'}://{p.netloc}/"
 
 
+def validated_for_people(cfg: Config, db: DB) -> set[int]:
+    """Hypotézy, ktorých test skončil verdiktom z people.auto_select_verdicts (napr. „podložená“)."""
+    if not cfg.people.auto_select_validated:
+        return set()
+    return {h["id"] for h in db.validated_hypotheses(tuple(cfg.people.auto_select_verdicts))}
+
+
+def auto_select_validated(cfg: Config, db: DB, ids: list[int] | None = None) -> list[int]:
+    """Zapne Bránu 0 hypotézam, ktorých test prešiel (people.auto_select_validated). Ručné vypnutie má prednosť
+    (people_manual = 0 sa nemení). Vráti novo zapnuté hypotézy."""
+    enabled = []
+    for hid in sorted(validated_for_people(cfg, db)):
+        if ids is not None and hid not in ids:
+            continue
+        h = db.get_hypothesis(hid)
+        if h is not None and h["people_manual"] is None and not h["people_enabled"]:
+            db.set_people_selection(hid, True, manual=False)
+            enabled.append(hid)
+    if enabled:
+        log.info("Brána 0 zapnutá po teste hypotézy: %s", ", ".join(f"H{h}" for h in enabled))
+    return enabled
+
+
 def select_people_hypotheses(cfg: Config, db: DB) -> list[int]:
     """Automatický výber: top N hypotéz podľa sily dôkazov (aspoň people.min_strength, nie zamietnuté
-    ani kandidáti). Ručná voľba (select, GUI) má prednosť a výber ju neprepíše."""
+    ani kandidáti) a hypotézy, ktorých test prešiel (people.auto_select_validated). Ručná voľba (select, GUI)
+    má prednosť a výber ju neprepíše."""
     ranked = []
     for h in db.active_hypotheses():
         label, n_ver, _, n_dom = evidence_strength(db.evidence_for(h["id"]))
         if strength_at_least(label, cfg.people.min_strength):
             ranked.append((STRENGTH_ORDER[label], n_ver, n_dom, -h["id"], h))
     ranked.sort(reverse=True)
-    top = {r[4]["id"] for r in ranked[: cfg.people.auto_select_top]}
+    top = {r[4]["id"] for r in ranked[: cfg.people.auto_select_top]} | validated_for_people(cfg, db)
     for h in db.active_hypotheses():
         if h["people_manual"] is None:
             db.set_people_selection(h["id"], h["id"] in top, manual=False)
     return [h["id"] for h in db.people_enabled_hypotheses()]
+
+
+def least_recently_searched(db: DB, ids: list[int]) -> list[int]:
+    """Najprv hypotézy bez hľadania kontaktov, potom najdlhšie neprehľadané – pri mnohých hypotézach (automatický
+    výber po teste) by inak každý beh začínal tými istými a nové by sa nedostali na rad."""
+    rows = [(db.get_hypothesis(h), h) for h in ids]
+    return [h for row, h in sorted(rows, key=lambda x: ((x[0]["contacts_searched_at"] or "") if x[0] else "", x[1]))]
 
 
 class OrgFinder:
@@ -281,22 +312,28 @@ class OrgFinder:
                 return
             doc = self.db.get_document(claim["document_id"])
             window = quote_window(claim["quote"], doc["text"], radius=500) if doc else claim["quote"]
-            res = self.router.run_task(
-                "org_mentions",
-                [
-                    {"role": "system", "content": ORG_MENTIONS_SYSTEM},
-                    {"role": "user", "content": f"PROBLEM: {hyp['title']}\nQUOTE: {claim['quote']}\n\n"
-                                                f"<untrusted_document>\n{window}\n</untrusted_document>"},
-                ],
-                OrgMentions,
-                object_type="claim",
-                object_id=claim["id"],
-                max_tokens=500,
-            )
-            if not res.ok:
-                self.stats["llm_failures"] += 1
-                continue
-            for mention in res.value.organizations[:5]:
+            cached = self.db.cached_output("org_mentions", "claim", claim["id"])
+            if cached is not None:  # tvrdenie už model prečítal (iný beh alebo iná hypotéza): väzby iba z kódu
+                mentions = OrgMentions.model_validate_json(cached)
+                self.stats["org_mentions_cached"] += 1
+            else:
+                res = self.router.run_task(
+                    "org_mentions",
+                    [
+                        {"role": "system", "content": ORG_MENTIONS_SYSTEM},
+                        {"role": "user", "content": f"PROBLEM: {hyp['title']}\nQUOTE: {claim['quote']}\n\n"
+                                                    f"<untrusted_document>\n{window}\n</untrusted_document>"},
+                    ],
+                    OrgMentions,
+                    object_type="claim",
+                    object_id=claim["id"],
+                    max_tokens=500,
+                )
+                if not res.ok:
+                    self.stats["llm_failures"] += 1
+                    continue
+                mentions = res.value
+            for mention in mentions.organizations[:5]:
                 if mention.relation not in ("affected", "quoted"):
                     continue
                 if not (name_in(mention.name, claim["quote"]) or name_in(mention.name, window)):
@@ -421,25 +458,33 @@ class OrgFinder:
                     self.stats["errors"] += 1
 
     def _segment_result(self, hyp, flt: SegmentFilter, r) -> None:
-        host = domain_of(r.url)
-        if not host or domain_blocked(r.url, self.cfg.blocked_domains()):
-            return
-        if any(host == a or host.endswith("." + a) for a in self.cfg.people.aggregator_domains):
-            return
         if DIRECTORY_TITLE.search(r.title or ""):
             self.stats["segment_directory"] += 1  # katalóg firiem, nie web organizácie
             return
-        url = root_url(r.url)
+        org_id = self.org_from_result(r.url, "search")
+        if org_id is not None:
+            self._link_segment(hyp, flt, org_id, r.url)
+
+    def org_from_result(self, result_url: str, source: str, allow_domains: list[str] | None = None) -> int | None:
+        """Výsledok vyhľadávania → web organizácie → IČO na stránke → RPO → overená organizácia (R-ORG-1 bod 3,
+        R-ORG-4). Bez IČO na webe, pri inej firme s týmto IČO alebo na webe katalógu či médií vráti None.
+        allow_domains: domény z aggregator_domains, ktoré sú pri tomto hľadaní webom organizácie (napr. NKÚ)."""
+        host = domain_of(result_url)
+        if not host or domain_blocked(result_url, self.cfg.blocked_domains()):
+            return None
+        allowed = any(host == a or host.endswith("." + a) for a in (allow_domains or []))
+        if not allowed and any(host == a or host.endswith("." + a) for a in self.cfg.people.aggregator_domains):
+            return None
+        url = root_url(result_url)
         if is_excluded(self.cfg, None, url):
             self.stats["excluded"] += 1
-            return
-        if self.db.find_organization_by_website(url) is not None:
-            org = self.db.find_organization_by_website(url)
-            self._link_segment(hyp, flt, org["id"], r.url)
-            return
+            return None
+        known = self.db.find_organization_by_website(url)
+        if known is not None:
+            return None if known["excluded"] else int(known["id"])
         page = self.fetcher.fetch_html(url)
         if page.status != "ok":
-            return
+            return None
         contacts = extract_contacts(page.html, url)
         icos = icos_in(visible_text(page.html))
         if not icos:
@@ -454,18 +499,16 @@ class OrgFinder:
                         break
         if not icos:
             self.stats["segment_no_ico"] += 1
-            log.info("Segment: bez IČO na webe %s – kandidát vynechaný", domain_of(url))
-            return
+            log.info("Web bez IČO %s – kandidát vynechaný", domain_of(url))
+            return None
         info = self.lookup_ico(icos[0])
         if info is None or info.terminated:
-            return
+            return None
         if not name_on_page(info.name, visible_text(page.html)):
             self.stats["segment_name_mismatch"] += 1  # IČO patrí inej firme (napr. české IČO na .cz webe)
-            return
-        org_id = self.store(info.name, "search", info, source_url=r.url, website=url,
-                            verified_evidence=f"IČO {icos[0]} na {url}")
-        if org_id is not None:
-            self._link_segment(hyp, flt, org_id, r.url)
+            return None
+        return self.store(info.name, source, info, source_url=result_url, website=url,
+                          verified_evidence=f"IČO {icos[0]} na {url}")
 
     def _link_segment(self, hyp, flt: SegmentFilter, org_id: int, url: str) -> None:
         org = self.db.get_organization(org_id)
@@ -527,7 +570,7 @@ def run_orgs(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, 
         rpo = RPOClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
     if ruz is None:
         ruz = RUZClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
-    ids = hypothesis_ids or select_people_hypotheses(cfg, db)
+    ids = least_recently_searched(db, hypothesis_ids or select_people_hypotheses(cfg, db))
     finder = OrgFinder(cfg, db, router, searx, fetcher, rpo, ruz, deadline, model_filters=model_filters)
     for hid in ids:
         if deadline.expired():

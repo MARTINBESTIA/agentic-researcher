@@ -229,7 +229,8 @@ def test_people_workflow_selects_only_given_hypotheses(tmp_path):
     app = SimpleNamespace(cfg=cfg, db=db, router=router)
     calls = []
     run_workflow(app, "people", 5, hypothesis_ids=[hid], run_stage=lambda a, s, dl: calls.append(s) or {})
-    assert calls == ["prepare-next", "orgs", "people", "people-rank", "contacts"]  # návrhy sú samostatná akcia
+    # návrhy sú samostatná akcia; hľadanie kontaktov podľa hypotézy (v10) je pred zberom ľudí z webov
+    assert calls == ["prepare-next", "orgs", "contact-search", "people", "people-rank", "contacts"]
     assert db.get_hypothesis(hid)["people_enabled"] == 1 and app.people_ids == [hid]
 
 
@@ -620,8 +621,9 @@ def test_people_workflow_leaves_time_for_people_after_orgs(tmp_path):
     budgets = {}
     _people(SimpleNamespace(db=db), Deadline(100), lambda stage, dl: budgets.setdefault(stage, dl.remaining_minutes()),
             None, lambda **kw: None)
-    assert list(budgets) == ["prepare-next", "orgs", "people", "people-rank", "contacts"]
-    assert 32 <= budgets["orgs"] <= 33 and 64 <= budgets["people"] <= 65.1
+    assert list(budgets) == ["prepare-next", "orgs", "contact-search", "people", "people-rank", "contacts"]
+    # v10: orgs 35 % a hľadanie kontaktov podľa hypotézy 30 % rýchlej fázy; people dostane zvyšok (najmenej 35 %)
+    assert 22 <= budgets["orgs"] <= 23 and 19 <= budgets["contact-search"] <= 20 and 64 <= budgets["people"] <= 65.1
 
 
 def test_autopilot_plans_round_by_work_and_time_and_continues(tmp_path):
