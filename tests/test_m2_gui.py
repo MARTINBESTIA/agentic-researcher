@@ -332,3 +332,12 @@ def test_documents_page_lists_documents_with_claims(gui):
     rows = at.dataframe[0].value
     assert list(rows["doména"]) == ["obce.sk"] and list(rows["overené"]) == [1]
     assert any("Malé obce nemajú kapacitu" in str(v) for v in at.dataframe[1].value["citát"])
+
+
+def test_problems_page_creates_pseudonymized_dossier(gui):
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    at.switch_page("app_pages/problems.py").run()
+    at.button(key="dos_go_1").click().run()
+    assert not at.exception, at.exception
+    made = list((gui / "exports").glob("H1_*_pseudonym.zip"))
+    assert len(made) == 1 and any("Dosiér je hotový" in s.label for s in at.status)

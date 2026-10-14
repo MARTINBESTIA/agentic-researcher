@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import streamlit as st
 
+from radar import dossier
 from radar.db import HYPOTHESIS_STATUSES
 from radar.gui.common import (
     cfg, db, esc, highlighted_window, hypothesis_table, jobs_panel, json_or, refresh, safe_url, start_job_button,
@@ -147,7 +150,7 @@ with st.container(border=True):
                                   "LinkedIn (nič sa neodosiela; návrhy oslovení sú samostatná akcia).")
     jobs_panel(show_last=False)
 
-tab_ev, tab_crit, tab_notes = st.tabs(["Dôkazy", "Kritika a trh", "Poznámky"])
+tab_ev, tab_crit, tab_notes, tab_export = st.tabs(["Dôkazy", "Kritika a trh", "Poznámky", "Export všetkého"])
 with tab_ev:
     for e in evidence[:40]:
         vyd = TYPE_LABELS.get(e["source_type"], "") if "source_type" in e.keys() else ""
@@ -179,3 +182,40 @@ with tab_crit:
 with tab_notes:
     for n in d.notes_for(hid)[-20:]:
         st.text(f"{n['created_at'][:10]} ({n['source']}): {n['text'][:2000]}")
+with tab_export:
+    st.caption("Dosiér: všetko, čo systém k hypotéze zozbieral, v jednom ZIP – súhrn (README), tabuľky (CSV a Excel), "
+               "dôkazy s textami zdrojov, organizácie, ľudia a kontakty, Brány 1 a 2, volania modelov a dáta. "
+               "Ukladá sa do exports/ (mimo gitu, po 30 dňoch ho zmaže purge).")
+    scope = dossier.scope_of(d, hid, True)
+    related = False
+    if len(scope) > 1:
+        related = st.toggle("Aj súvisiace hypotézy: " + ", ".join(f"H{h} ({r})" for h, r in scope[1:]), value=True,
+                            key=f"dos_rel_{hid}", help="Ľudia a organizácie rozdelenej hypotézy ostávajú pri rodičovi.")
+    hids = [h for h, _ in (scope if related else scope[:1])]
+    sets = [ds for h in hids for ds in d.datasets_for(h, only_ok=True)]
+    rows_total = sum(ds["rows"] or 0 for ds in {ds["table_name"] + str(ds["url"]): ds for ds in sets}.values())
+    data_mode = st.segmented_control("Dáta Brány 1", list(dossier.DATA_MODES), default="full", key=f"dos_data_{hid}",
+                                     format_func=dossier.DATA_LABELS.get) or "full"
+    st.caption(f"Tabuľky: {len(sets)}, spolu ~{rows_total:,} riadkov".replace(",", " ") if sets
+               else "K hypotéze nie sú stiahnuté dáta.")
+    personal = st.checkbox("S menami a osobnými kontaktmi (e-mail, telefón, LinkedIn, zdroj s úryvkom)", value=False,
+                           key=f"dos_pers_{hid}",
+                           help="Predvolene je dosiér pseudonymizovaný: osoby ako „Osoba P<id>“, bez osobných kontaktov.")
+    if personal:
+        st.warning("Dosiér bude obsahovať osobné údaje. Neposielaj ho ďalej a po použití ho zmaž; export sa zapíše do "
+                   "poznámok hypotézy.", icon=":material/shield_person:")
+    if st.button("Vytvoriť dosiér", icon=":material/folder_zip:", key=f"dos_go_{hid}"):
+        with st.status("Vytváram dosiér…", expanded=True) as box:
+            try:
+                path = dossier.write(c, d, hid, personal=personal, data_mode=data_mode, include_related=related,
+                                     progress=box.write)
+                st.session_state[f"dos_path_{hid}"] = str(path)
+                box.update(label="Dosiér je hotový", state="complete")
+            except Exception as exc:  # noqa: BLE001 – chyba exportu nesmie zhodiť stránku
+                box.update(label=f"Dosiér sa nepodarilo vytvoriť: {exc}", state="error")
+    done = st.session_state.get(f"dos_path_{hid}")
+    if done and Path(done).exists():
+        size = Path(done).stat().st_size
+        st.success(f"`{done}` · {size / 1e6:.1f} MB", icon=":material/check_circle:")
+        st.download_button("Stiahnuť ZIP", data=lambda: Path(done).read_bytes(), file_name=Path(done).name,
+                           mime="application/zip", icon=":material/download:", key=f"dos_dl_{hid}", on_click="ignore")

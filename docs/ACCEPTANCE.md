@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 13. 10. 2026: 231 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
+Stav 14. 10. 2026: 235 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -158,3 +158,7 @@ Stav 13. 10. 2026: 231 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M14 | 14 reprodukcia bez cieľa a pripravenosť bez tejto zložky | `test_m10_gates.py::test_repro_target_skips_years_and_dates_and_readiness_ignores_missing_target` |
 | M14 | 15 kandidáti z katalógu podľa významu poľa | `test_m10_gates.py::test_catalog_candidates_ranked_by_meaning_of_field` |
 | M14 | 16 odhady časov z histórie a poradia | `test_m9_agentic.py::test_dashboard_eta_from_history_and_queue` |
+| M15 | 1 dosiér pseudonymizovaný: všetky časti, ľudia rodiča, dáta Parquet, SHA-256, žiadne meno ani osobný kontakt | `test_m15_dossier.py::test_pseudonymized_dossier_has_everything_but_no_personal_data` |
+| M15 | 2 dosiér s menami a kontaktmi, záznam do poznámok | `test_personal_dossier_includes_contacts_and_is_recorded` |
+| M15 | 3 dáta celé / vzorka / bez dát, bez súvisiacich hypotéz | `test_data_modes_and_related_switch` |
+| M15 | 4 GUI: Problémy → Export všetkého vytvorí ZIP | `test_m2_gui.py::test_problems_page_creates_pseudonymized_dossier` |

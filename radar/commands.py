@@ -486,6 +486,17 @@ def cmd_export(app, args) -> int:
     return 0
 
 
+def cmd_dossier(app, args) -> int:
+    from .dossier import write
+
+    if args.personal:
+        print("POZOR: dosiér obsahuje mená a osobné kontakty. Neposielaj ho ďalej; po 30 dňoch ho zmaže purge.")
+    path = write(app.cfg, app.db, args.hypothesis, personal=args.personal, data_mode=args.data,
+                 include_related=not args.no_related, progress=lambda m: print(m, flush=True))
+    print(f"Dosiér: {path} ({path.stat().st_size / 1e6:.1f} MB)")
+    return 0
+
+
 def _id_list(value: str) -> list[int]:
     try:
         return [int(x.strip().lstrip("Hh")) for x in value.split(",") if x.strip()]
@@ -603,6 +614,13 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("privacy", help="Stav súkromia, alebo 'reapply' (potlačenie po obnove zo zálohy).")
     p.add_argument("action", nargs="?", default="status", choices=["status", "reapply"])
 
+    p = sub.add_parser("dossier", help="Dosiér hypotézy: všetko k hypotéze v jednom ZIP (predvolene pseudonymizovaný).")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--personal", action="store_true", help="S menami a osobnými kontaktmi (zapíše sa do poznámok).")
+    p.add_argument("--data", default="full", choices=["full", "sample", "none"],
+                   help="full = celé tabuľky (Parquet), sample = 1 000 riadkov, none = bez dát.")
+    p.add_argument("--no-related", action="store_true", help="Bez rodičovskej hypotézy a podhypotéz.")
+
     p = sub.add_parser("export", help="Export do exports/ (predvolene pseudonymizovaný).")
     p.add_argument("--what", choices=["hypotheses", "people", "outreach", "interviews"])
     p.add_argument("--format", default="csv", choices=["csv", "xlsx"])
@@ -643,4 +661,5 @@ HANDLERS = {
     "forget": cmd_forget,
     "privacy": cmd_privacy,
     "export": cmd_export,
+    "dossier": cmd_dossier,
 }

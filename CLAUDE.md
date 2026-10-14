@@ -37,7 +37,7 @@ docker compose up -d                     # SearXNG
 | Súbor | Úloha |
 |---|---|
 | `radar/config.py` | pydantic konfigurácia; `config.yaml` obsahuje len zmeny voči predvoleným hodnotám; `models` (roly, routing úloh, profily), `discovery`, `people`, `outreach`, `privacy`, `gui` |
-| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
+| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
 | `radar/models.py` | `ModelRouter`: úloha → rola (fast/accurate), uvažovanie, k hlasov; `run_task` (undecided, kontrola, provenance), `run_samples`; pri výmene modelu uvoľní predošlý z GPU |
 | `radar/llm.py` | klient OpenAI-kompatibilného servera (Ollama); JSON podľa schémy; `LLMTruncated` pri orezaní; `make_exclusive` |
 | `radar/prompts.py` | všetky prompty s verziou (`TASK_PROMPTS`, `prompt_version`); inštrukcie po anglicky, výstup v jazyku `{lang}` |
@@ -51,6 +51,7 @@ docker compose up -d                     # SearXNG
 | `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
 | `radar/nku.py` | NKÚ: otvorené dáta kontrolných zistení + zoznam subjektov (IČO), bez adries – štítky pre experimenty |
 | `radar/eta.py` | odhady časov pre dashboard (história akcií, poradie, miestny čas) |
+| `radar/dossier.py` | dosiér hypotézy: všetko k hypotéze (aj rodič a podhypotézy) v ZIP; predvolene pseudonymizovaný (`Scrubber`), s menami a kontaktmi iba na voľbu so záznamom do poznámok |
 | `radar/crz.py` | Centrálny register zmlúv: denné dávky, vybrané stĺpce bez mien a adries, zlúčenie podľa ID |
 | `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií |
 | `radar/themes.py` | témy: zhluky podobných hypotéz (average linkage nad embeddingmi), názov z rýchleho modelu, stabilné ID medzi behmi; hypotézy sa nezlučujú |
