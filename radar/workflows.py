@@ -86,6 +86,12 @@ ACTIONS: dict[str, Action] = {
         "Podobné hypotézy (podľa embeddingov) zoskupí do tém, napr. všetky o e-faktúrach; názov témy navrhne rýchly "
         "model zo zoznamu hypotéz. Hypotézy sa nezlučujú ani nemenia; ručne premenované témy ostanú.",
         "témy a ich súhrn dôkazov (Problémy → Témy)", "embeddingy + rýchly", 15),
+    "catalog": Action(
+        "Aktualizovať index národného katalógu",
+        "Stiahne metadáta všetkých datasetov z data.slovensko.sk (názov, popis, vydavateľ – bez súborov) a vypočíta ich "
+        "vektory. Brána 1 potom hľadá kandidátov na zdroje aj podľa významu poľa, nielen podľa slov. Prvý beh "
+        "~22 tis. datasetov, ďalšie iba nové a zmenené; dá sa prerušiť.",
+        "index katalógu (Zdroje → Národný katalóg)", "embeddingy (CPU), bez GPU", 40, gpu=False),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "
@@ -425,6 +431,10 @@ def _bench(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("bench", deadline)
 
 
+def _catalog(app, deadline: Deadline, run, ids, report_progress) -> None:
+    run("catalog-sync", deadline)
+
+
 def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str, Any]) -> None:
     from .pipeline import run_all
 
@@ -446,5 +456,5 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
-    "themes": _themes, "autopilot": _autopilot,
+    "themes": _themes, "autopilot": _autopilot, "catalog": _catalog,
 }

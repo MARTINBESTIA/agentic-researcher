@@ -76,6 +76,15 @@ def stage_themes(app, deadline: Deadline) -> dict:
     return run_themes(app.cfg, app.db, app.router, app.embedder, deadline)
 
 
+def stage_catalog_sync(app, deadline: Deadline) -> dict:
+    """Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU)."""
+    from .catalogs import NKODClient, sync_catalog
+
+    embedder = app.embedder if app.cfg.embeddings.enabled else None
+    return sync_catalog(app.db, NKODClient(app.cfg.gate1.nkod_sparql), embedder, deadline,
+                        progress=lambda m: log.info(m))
+
+
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu)."""
     from .person_contacts import run_person_contacts
@@ -256,6 +265,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "contacts": stage_contacts,
     "source-types": stage_source_types,
     "themes": stage_themes,
+    "catalog-sync": stage_catalog_sync,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
     "gate1-check": stage_gate1("check"),
@@ -303,6 +313,7 @@ STAGE_HELP = {
     "source-types": "Typ vydavateľa zdrojov: úrad, médiá, výskum, združenie, dodávateľ (dodávatelia sa nepočítajú do sily).",
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
     "themes": "Témy: zhluky podobných hypotéz podľa embeddingov (kód), názvy tém (rýchly model); hypotézy sa nezlučujú.",
+    "catalog-sync": "Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU).",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",
     "purge": "Retencia: zmaže osobné údaje po lehotách z config.yaml a staré exporty.",

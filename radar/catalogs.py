@@ -10,12 +10,14 @@ bez vyhľadávača (SearXNG pri automatických dopytoch často blokuje).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import httpx
+import numpy as np
 
 from .util import tls_context
 
@@ -217,3 +219,100 @@ class NKODClient:
         ds = CatalogDataset(uri=uri, title=rows[0]["title"], publisher=rows[0].get("publisher", ""),
                             periodicity=periodicity_label(rows[0].get("periodicity", "")))
         return self.fill_distributions(ds)
+
+
+# ======================================================================= lokálny index (v9)
+INDEX_KIND = "catalog"
+
+
+def index_text(row) -> str:
+    """Text na embedding: názov, začiatok popisu a vydavateľ."""
+    return f"{row['title'] or ''}. {(row['description'] or '')[:300]} ({row['publisher'] or ''})"
+
+
+def fetch_all(client: NKODClient, page: int = 1000, max_pages: int = 100,
+              progress: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
+    """Metadáta všetkých datasetov katalógu po stranách (bez distribúcií – tie sa doplnia až pri výbere)."""
+    out: list[dict[str, Any]] = []
+    for i in range(max_pages):
+        rows = client._select(f"""SELECT ?d (SAMPLE(?t) AS ?title) (SAMPLE(?ds) AS ?desc) (SAMPLE(?pn) AS ?publisher)
+            (MAX(?m) AS ?modified) (SAMPLE(?per) AS ?periodicity) (SAMPLE(?lp) AS ?landing) WHERE {{
+              ?d a dcat:Dataset ; dct:title ?t .
+              OPTIONAL {{ ?d dct:description ?ds }} OPTIONAL {{ ?d dct:publisher ?p . ?p foaf:name ?pn }}
+              OPTIONAL {{ ?d dct:modified ?m }} OPTIONAL {{ ?d dct:accrualPeriodicity ?per }}
+              OPTIONAL {{ ?d dcat:landingPage ?lp }}
+            }} GROUP BY ?d ORDER BY ?d LIMIT {int(page)} OFFSET {int(i * page)}""")
+        out += [{"uri": r["d"], "title": r.get("title", ""), "description": r.get("desc", ""),
+                 "publisher": r.get("publisher", ""), "modified": r.get("modified", ""),
+                 "periodicity": periodicity_label(r.get("periodicity", "")), "landing": r.get("landing", "")}
+                for r in rows if r.get("d")]
+        if progress:
+            progress(f"katalóg: {len(out)} datasetov")
+        if len(rows) < page or client.failed:
+            break
+    return out
+
+
+def sync_catalog(db, client: NKODClient, embedder, deadline, progress: Callable[[str], None] | None = None,
+                 batch: int = 256) -> dict[str, Any]:
+    """Metadáta katalógu do SQLite a vektory (embeddingy na CPU, iba nové alebo zmenené texty – cache podľa hashu).
+    Dá sa prerušiť: ďalší beh dopočíta zvyšok."""
+    stats: dict[str, Any] = {}
+    rows = fetch_all(client, progress=progress)
+    if rows:
+        db.upsert_catalog_datasets(rows)
+    stats["stiahnuté"] = len(rows)
+    if client.failed:
+        stats["chyba"] = "katalóg nedostupný"
+    if embedder is None:
+        return stats
+    items = [(r["id"], index_text(r)) for r in db.catalog_index()]
+    have = {(e["ref_id"], e["text_hash"]) for e in db.embeddings_of_kind(INDEX_KIND, embedder.model)}
+    todo = [it for it in items if (it[0], hashlib.sha1(it[1].encode("utf-8")).hexdigest()) not in have]
+    done = 0
+    for start in range(0, len(todo), batch):
+        if deadline.expired():
+            stats["nedokončené"] = len(todo) - done
+            break
+        embedder.vectors(INDEX_KIND, todo[start:start + batch])
+        done += len(todo[start:start + batch])
+        if progress:
+            progress(f"vektory katalógu: {done} / {len(todo)}")
+    stats["nové_vektory"] = done
+    return stats
+
+
+class LocalCatalog:
+    """Hľadanie v lokálnom indexe podľa významu (kosínusová podobnosť embeddingov) – dopĺňa hľadanie podľa kmeňov
+    slov v SPARQL, ktoré pri poliach ako „Rozpočet projektu“ vracia nesúvisiace datasety alebo nič."""
+
+    def __init__(self, rows: list, matrix: np.ndarray, embedder):
+        self.rows, self.matrix, self.embedder = rows, matrix, embedder
+
+    @classmethod
+    def load(cls, db, embedder) -> "LocalCatalog | None":
+        if embedder is None:
+            return None
+        rows = db.catalog_index()
+        if not rows:
+            return None
+        vecs = {e["ref_id"]: (e["text_hash"], e["vector"]) for e in db.embeddings_of_kind(INDEX_KIND, embedder.model)}
+        keep, mats = [], []
+        for r in rows:
+            hit = vecs.get(r["id"])
+            if hit and hit[0] == hashlib.sha1(index_text(r).encode("utf-8")).hexdigest():
+                keep.append(r)
+                mats.append(np.frombuffer(hit[1], dtype=np.float32))
+        if not keep:
+            return None
+        return cls(keep, np.vstack(mats), embedder)
+
+    def search(self, text: str, k: int = 8) -> list[CatalogDataset]:
+        q = self.embedder.embed_texts([text])[0]
+        sims = self.matrix @ q
+        top = np.argsort(-sims)[:k]
+        return [CatalogDataset(uri=self.rows[i]["uri"], title=self.rows[i]["title"] or "",
+                               description=self.rows[i]["description"] or "", publisher=self.rows[i]["publisher"] or "",
+                               modified=self.rows[i]["modified"] or "", periodicity=self.rows[i]["periodicity"] or "",
+                               landing_page=self.rows[i]["landing"] or "") for i in top]
+

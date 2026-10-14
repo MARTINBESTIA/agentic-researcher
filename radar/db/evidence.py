@@ -689,6 +689,10 @@ class EvidenceMixin:
         )
         return None if row is None else bytes(row["vector"])
 
+    def embeddings_of_kind(self, kind: str, model: str) -> list[sqlite3.Row]:
+        """Všetky vektory jedného druhu naraz (index katalógu: desaťtisíce riadkov – po jednom by to trvalo)."""
+        return self._all("SELECT ref_id, text_hash, vector FROM embeddings WHERE kind = ? AND model = ?", (kind, model))
+
     def put_embeddings(self, rows: list[tuple[str, int, str, str, bytes]]) -> None:
         """Dávka vektorov v jednej transakcii (zatriedenie desiatok tisíc textov – zápis po jednom trval minúty)."""
         self.conn.executemany(

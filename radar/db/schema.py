@@ -586,3 +586,18 @@ CREATE TABLE IF NOT EXISTS problem_cards (  -- problém, kto ho má, aké rozhod
 CREATE INDEX IF NOT EXISTS idx_problem_cards_h ON problem_cards(hypothesis_id, id);
 """
 
+
+SCHEMA_V9 = """
+CREATE TABLE IF NOT EXISTS catalog_datasets (  -- lokálny index Národného katalógu otvorených dát (metadáta, bez súborov)
+  id INTEGER PRIMARY KEY,
+  uri TEXT NOT NULL UNIQUE,
+  title TEXT,
+  description TEXT,
+  publisher TEXT,
+  modified TEXT,
+  periodicity TEXT,
+  landing TEXT,
+  synced_at TEXT NOT NULL
+);
+"""
+

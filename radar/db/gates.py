@@ -267,6 +267,25 @@ class GatesMixin:
             (hid,),
         )
 
+    # ------------------------------------------------------------ lokálny index národného katalógu (v9)
+    def upsert_catalog_datasets(self, rows: list[dict[str, Any]]) -> None:
+        now = utcnow()
+        self.conn.executemany(
+            """INSERT INTO catalog_datasets (uri, title, description, publisher, modified, periodicity, landing, synced_at)
+               VALUES (:uri, :title, :description, :publisher, :modified, :periodicity, :landing, :synced_at)
+               ON CONFLICT (uri) DO UPDATE SET title = excluded.title, description = excluded.description,
+                   publisher = excluded.publisher, modified = excluded.modified, periodicity = excluded.periodicity,
+                   landing = excluded.landing, synced_at = excluded.synced_at""",
+            [r | {"synced_at": now} for r in rows])
+        self.conn.commit()
+
+    def catalog_index(self) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM catalog_datasets ORDER BY id")
+
+    def catalog_stats(self) -> dict[str, Any]:
+        row = self._one("SELECT COUNT(*) AS n, MAX(synced_at) AS last FROM catalog_datasets")
+        return {"datasety": row["n"], "aktualizované": row["last"]}
+
     def organizations_with_ico(self) -> list[sqlite3.Row]:
         return self._all("SELECT id, name, ico FROM organizations WHERE ico IS NOT NULL AND ico != '' ORDER BY id")
 

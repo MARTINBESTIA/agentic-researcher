@@ -439,6 +439,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "cards": ["gate2-cards"],
         "bench": ["bench"],
         "themes": ["embed", "themes"],
+        "catalog": ["catalog-sync"],
     }
     for kind, stages in expected.items():
         calls = []

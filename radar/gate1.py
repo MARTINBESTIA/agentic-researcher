@@ -277,6 +277,7 @@ class SourceAgent(ResearchAgent):
         self.saved: list[int] = []
         self.catalog = NKODClient(cfg.gate1.nkod_sparql) if cfg.gate1.nkod_enabled else None
         self.catalog_hits: list[str] = []  # URI datasetov z katalógu, ktoré agent „prečítal“
+        self.local_catalog = None  # lokálny index katalógu (hľadanie podľa významu), nastaví run_sources
 
     def add_catalog_page(self, ds: CatalogDataset) -> None:
         """Metadáta z katalógu ako prečítaná stránka (dokument Brány 1, do extrakcie dôkazov nejde)."""
@@ -294,6 +295,11 @@ class SourceAgent(ResearchAgent):
         found = self.catalog.search(query, limit=limit)
         if self.catalog.failed:
             return "The catalogue is not available now; use web_search."
+        if self.local_catalog is not None and len(found) < limit:  # doplniť podľa významu
+            seen = {d.uri for d in found}
+            for ds in self.local_catalog.search(query, limit):
+                if ds.uri not in seen and len(found) < limit:
+                    found.append(self.catalog.fill_distributions(ds))
         for ds in found:
             self.add_catalog_page(ds)
         if not found:
@@ -308,7 +314,14 @@ class SourceAgent(ResearchAgent):
         if self.catalog is None:
             return lines
         for f in fields:
-            for ds in self.rank_candidates(f, self.catalog.search(f["name"], limit=self.cfg.gate1.nkod_rerank_pool)):
+            found = self.catalog.search(f["name"], limit=self.cfg.gate1.nkod_rerank_pool)
+            if self.local_catalog is not None:  # podľa významu: pole + hypotéza (SPARQL hľadá iba kmene slov)
+                seen = {d.uri for d in found}
+                query = f"{f['name']}: {f['description'] or ''} – {self.hyp['title']}"
+                found += [d for d in self.local_catalog.search(query, self.cfg.gate1.nkod_rerank_pool) if d.uri not in seen]
+            for ds in self.rank_candidates(f, found):
+                if not ds.distributions:
+                    self.catalog.fill_distributions(ds)
                 self.add_catalog_page(ds)
                 lines.append(f"- for \"{f['name']}\": {ds.title} ({ds.publisher or '?'}; {', '.join(ds.formats) or '?'}) "
                              f"page_url {ds.uri}")
@@ -457,6 +470,13 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
                 embedder=None) -> dict:
     stats: Counter = Counter()
     done: list[tuple[Any, SourceAgent, list]] = []  # extrakcia (presný model) až po všetkých agentoch: menej výmen modelu
+    from .catalogs import LocalCatalog
+
+    try:
+        local = LocalCatalog.load(db, embedder) if cfg.gate1.nkod_enabled else None
+    except Exception as exc:  # noqa: BLE001 – bez lokálneho indexu ostáva hľadanie v SPARQL
+        log.warning("Lokálny index katalógu sa nenačítal: %s", exc)
+        local = None
     for hyp in _hypotheses(cfg, db, ids):
         if deadline.expired():
             break
@@ -472,6 +492,7 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
         task = (f"Problem: {hyp['title']} (segment: {hyp['segment'] or '?'}).\nFind sources for these fields:\n{listing}\n"
                 "Start with the known portals; search in Slovak first.")
         agent = SourceAgent(cfg, db, llm, searx, fetcher, hyp, todo, embedder=embedder)
+        agent.local_catalog = local
         candidates = agent.prefetch_catalog(todo)
         if candidates:
             task += ("\nCatalogue candidates already read (verify they fit the field; record_source with this page_url):\n"

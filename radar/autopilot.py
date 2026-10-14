@@ -20,14 +20,14 @@ from typing import Any
 from .config import Config
 from .db import DB
 from .strength import evidence_strength
-from .util import utcnow
+from .util import utc_days_ago, utcnow
 
 log = logging.getLogger(__name__)
 
 # (akcia, minúty) v poradí závislostí: nové hypotézy → test → posúdenie → témy → ľudia → kontakty → návrhy → brány → kritika
 ROUND: list[tuple[str, int]] = [
     ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("cards", 30), ("people", 60),
-    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("gate1", 60), ("gate2", 60), ("critique", 30),
+    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("catalog", 30), ("gate1", 60), ("gate2", 60), ("critique", 30),
 ]
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
 GATE1_PER_JOB = 3
@@ -65,6 +65,9 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     pending, unassigned = db.pending_entailment_count(), db.unassigned_count()
     if pending or unassigned:
         work["evidence"] = f"na posúdenie {pending}, na zaradenie {unassigned}"
+    cat = db.catalog_stats()  # index katalógu raz za týždeň (nové datasety pribúdajú)
+    if cfg.gate1.nkod_enabled and (not cat["datasety"] or (cat["aktualizované"] or "") < utc_days_ago(7)):
+        work["catalog"] = f"index katalógu: {cat['datasety']} datasetov, aktualizovaný {(cat['aktualizované'] or 'nikdy')[:10]}"
     last_themes = db._one("SELECT MAX(updated_at) AS t FROM themes")["t"] or ""
     new_h = db._one("SELECT COUNT(*) AS n FROM hypotheses WHERE status != 'rejected' AND created_at > ?", (last_themes,))["n"]
     if new_h:

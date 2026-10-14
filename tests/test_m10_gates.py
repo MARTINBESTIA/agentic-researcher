@@ -1251,3 +1251,41 @@ def test_search_skips_blocking_engines_for_a_while_and_counts_empty_searches(mon
     client.suspended.clear()
     assert "temporarily blocking" in agent.web_search("prvý")
 
+
+def test_local_catalog_index_syncs_incrementally_and_finds_by_meaning(tmp_path):
+    """Hľadanie podľa kmeňov slov v SPARQL je zašumené – lokálny index nájde dataset podľa významu poľa."""
+    from radar.catalogs import LocalCatalog, NKODClient, sync_catalog
+
+    cfg, db, rec, router = setup(tmp_path)
+    titles = ["Rozpočty obcí 2025", "Adresy v obci Fiktívna", "Zmluvy ministerstiev"]
+    pages = []
+
+    def handler(request):
+        q = request.url.params["query"]
+        pages.append(q)
+        rows = [{"d": {"value": f"https://data.slovensko.sk/datasety/{i}"}, "title": {"value": t},
+                 "publisher": {"value": "Úrad"}} for i, t in enumerate(titles)] if "OFFSET 0" in q else []
+        return httpx.Response(200, json={"head": {}, "results": {"bindings": rows}})
+
+    class Emb:
+        model = "test-embed"
+        calls = 0
+
+        def embed_texts(self, texts):
+            Emb.calls += len(texts)
+            return np.array([[1.0, 0.0] if "rozpo" in t.lower() else [0.0, 1.0] for t in texts], dtype=np.float32)
+
+        def vectors(self, kind, items):
+            from radar.embed import Embedder
+            return Embedder.vectors(self, kind, items)
+
+    emb = Emb()
+    emb.db = db
+    client = NKODClient(http=httpx.Client(transport=httpx.MockTransport(handler)))
+    stats = sync_catalog(db, client, emb, Deadline(1))
+    assert stats == {"stiahnuté": 3, "nové_vektory": 3} and db.catalog_stats()["datasety"] == 3
+    assert sync_catalog(db, client, emb, Deadline(1))["nové_vektory"] == 0  # iba nové a zmenené texty
+    local = LocalCatalog.load(db, emb)
+    hits = local.search("Rozpočet projektu – financie obcí", 1)
+    assert [h.title for h in hits] == ["Rozpočty obcí 2025"] and hits[0].uri.endswith("/0")
+

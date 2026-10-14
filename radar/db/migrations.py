@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from .schema import (
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, V1_COLUMNS, V1_INDEXES,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, V1_COLUMNS, V1_INDEXES,
     V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS,
 )
 
@@ -93,8 +93,13 @@ def migrate_v8(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_V8)
 
 
+def migrate_v9(conn: sqlite3.Connection) -> None:
+    """Lokálny index Národného katalógu otvorených dát (hľadanie podľa významu, nielen podľa slov)."""
+    conn.executescript(SCHEMA_V9)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
-                                                          migrate_v6, migrate_v7, migrate_v8]
+                                                          migrate_v6, migrate_v7, migrate_v8, migrate_v9]
 LATEST = len(MIGRATIONS)
 
 
