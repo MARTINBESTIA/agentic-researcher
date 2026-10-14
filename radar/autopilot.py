@@ -126,6 +126,15 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     return work
 
 
+def in_hours(window: list[int] | None, when: datetime) -> bool:
+    """Je čas `when` (miestny) v okne [od, do)? Okno cez polnoc: od > do. Bez okna vždy áno."""
+    if not window or len(window) != 2:
+        return True
+    start, end = int(window[0]) % 24, int(window[1]) % 24
+    h = when.astimezone().hour
+    return start <= h < end if start < end else (h >= start or h < end) if start > end else True
+
+
 def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, round_no: int,
                now: datetime | None = None) -> dict[str, Any]:
     """Zaradí úlohy kola (s prácou, kým sa zmestia do zvyšného času) a na koniec ďalší autopilot."""
@@ -141,6 +150,11 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
         slice_min = min(minutes, budget)
         if slice_min < MIN_SLICE:
             skipped[kind] = "nezmestí sa do času"
+            continue
+        window = cfg.workflows.autopilot_hours.get(kind)
+        start = now + timedelta(minutes=left - budget)  # odhad: úlohy pred ňou minú celý svoj úsek
+        if not in_hours(window, start):
+            skipped[kind] = f"mimo času ({window[0]}–{window[1]} h)"
             continue
         ids = (gate1_ids(db) if kind == "gate1"
                else selected_ids(db) if kind in ("people", "contacts", "drafts") else [])

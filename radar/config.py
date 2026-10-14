@@ -277,6 +277,9 @@ class WorkflowsConfig(BaseModel):
     Agent má iba nástroje na čítanie a uloženie dôkazu; dôkazy overí kód a presný model ako ostatné."""
 
     scout_sessions_per_run: int = 2  # sedenia agenta v run-all (bunky matice vzor bolesti × odvetvie)
+    # Autopilot: akcia sa zaradí iba v týchto hodinách miestneho času [od, do) – napr. {"people": [6, 22]};
+    # od > do = cez polnoc ([22, 6]). Prázdne = bez obmedzenia (predvolené).
+    autopilot_hours: dict[str, list[int]] = Field(default_factory=dict)
     # 13. 10. 2026: viac dokumentov z katalógu (146 zdrojov, 15 kategórií – pri 15 dokumentoch ~1 na kategóriu),
     # menej sedení agenta (v noci 17–22 min na ~18 stránok a 3–4 citáty).
     scout_sessions_per_job: int = 3  # tlačidlo v GUI: najviac toľko sedení (obmedzuje aj čas)

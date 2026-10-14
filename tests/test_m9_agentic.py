@@ -764,3 +764,19 @@ def test_read_page_offers_candidate_quotes_for_reading_only_models():
     agent.tools = [t for t in TOOLS if t["function"]["name"] != "record_evidence"]  # agent bez ukladania citátov
     assert "Candidate quotes" not in agent.read_page("https://x.sk", 0)
 
+
+def test_autopilot_action_hours_window(tmp_path):
+    """Nápad z improvements_logs: poradie akcií podľa času (napr. zber ľudí iba cez deň)."""
+    from datetime import datetime, timedelta, timezone
+
+    from radar.autopilot import in_hours, plan_round
+
+    when = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
+    h = when.astimezone().hour
+    assert in_hours(None, when) and in_hours([h, h + 1], when) and not in_hours([h + 1, h + 2], when)
+    assert in_hours([h + 2, h + 1], when) and not in_hours([h + 1, h], when)  # okno cez polnoc (všetko okrem hodiny)
+    cfg, db, rec, router = setup(tmp_path)
+    cfg.workflows.autopilot_hours = {"scout": [(h + 2) % 24, (h + 3) % 24]}
+    plan = plan_round(cfg, db, "config.yaml", when + timedelta(minutes=120), 1, now=when)
+    assert plan["preskočené"]["scout"].startswith("mimo času") and plan["naplánované"][0]["akcia"] == "topics"
+
