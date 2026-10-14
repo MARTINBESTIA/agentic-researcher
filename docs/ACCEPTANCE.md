@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 14. 10. 2026: 235 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
+Stav 14. 10. 2026: 237 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -162,3 +162,5 @@ Stav 14. 10. 2026: 235 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M15 | 2 dosiér s menami a kontaktmi, záznam do poznámok | `test_personal_dossier_includes_contacts_and_is_recorded` |
 | M15 | 3 dáta celé / vzorka / bez dát, bez súvisiacich hypotéz | `test_data_modes_and_related_switch` |
 | M15 | 4 GUI: Problémy → Export všetkého vytvorí ZIP | `test_m2_gui.py::test_problems_page_creates_pseudonymized_dossier` |
+| M16 | 1 Brána 1: beh vezme s modelmi toľko hypotéz, koľko stihne (rozpracované, nové, opakované, prešlé) | `test_m10_gates.py::test_gate1_plan_prefers_new_hypotheses_and_fits_the_limit` |
+| M16 | 2 kontrola a sťahovanie dostanú čas, aj keď agent minie celý svoj úsek | `test_m10_gates.py::test_gate1_check_and_downloads_keep_their_time_when_agent_uses_all` |

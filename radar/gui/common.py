@@ -365,6 +365,15 @@ def action_card(kind: str, key_prefix: str = "act", extra: str | None = None) ->
             st.caption(f"Zvyčajne trvá ~{typical:g} min (medián posledných behov; skončí aj pred limitom, keď nemá prácu).")
         ids = _hypothesis_choices(kind, a.hypotheses, f"{key_prefix}_{kind}_h") if a.hypotheses else None
         minutes = st.number_input("Limit (min)", 5, 1440, a.minutes, step=15, key=f"{key_prefix}_{kind}_min")
+        if kind == "gate1" and ids:
+            from radar.gate1 import plan_run
+
+            plan = plan_run(c, db(), ids, minutes)
+            names = ", ".join(f"H{h}" for h in plan["s_modelom"]) or "žiadna (všetky polia sú hľadané nedávno)"
+            st.caption(f"**V tomto behu s modelmi:** {names} (odhad ~{plan['odhad_min']} min)"
+                       + (f" · na ďalší beh: {len(plan['nabudúce'])}" if plan["nabudúce"] else "")
+                       + f". Kontrola zdrojov a sťahovanie dát (vyhradených {c.gate1.download_reserve_minutes:g} min) "
+                       "prebehnú pre všetky zvolené.")
         start_job_button(kind, a.label, minutes, ids, key=f"{key_prefix}_{kind}_go",
                          disabled=blocked or (a.hypotheses is not None and not ids))
 

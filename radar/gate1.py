@@ -125,6 +125,65 @@ def _hypotheses(cfg: Config, db: DB, ids: list[int] | None):
     return db.gate1_hypotheses()[: cfg.gate1.max_hypotheses_per_run]
 
 
+# ======================================================================= plán behu (čas)
+GATE1_TAIL_MIN = 6.0  # reprodukcia, vstupy človeka a pripravenosť na konci akcie
+EXTRACT_MIN = 2.0  # extrakcia zdrojov z prečítaných stránok presným modelom na hypotézu (~8 × 12 s)
+
+
+def retry_cutoff(cfg: Config, now: datetime | None = None) -> str:
+    return ((now or datetime.now(timezone.utc)) - timedelta(days=cfg.gate1.research_retry_days)).isoformat(
+        timespec="seconds")
+
+
+def field_needs_search(f, cutoff: str) -> bool:
+    """Pole bez zdroja: „otvorené“, alebo „chýba“ (agent nenašiel) najskôr po research_retry_days – inak by každý beh
+    znova prehľadával tie isté polia (úloha #75: H2, H3, H4, H14, H15 namiesto 6 nových hypotéz)."""
+    return f["status"] == "open" or (f["status"] == "missing" and (f["updated_at"] or "") < cutoff)
+
+
+def model_work(cfg: Config, db: DB, hyp, cutoff: str) -> tuple[int, float] | None:
+    """(priorita, odhad minút) práce s modelmi (polia, agent zdrojov); None = s modelmi nie je čo robiť.
+    Priorita: 0 rozpracovaná (polia ešte nehľadané) – dokončiť skôr, než sa začne nová; 1 nová (bez polí);
+    2 polia, ktoré agent hľadal pred viac ako research_retry_days; +3 hypotéza, ktorá už prešla."""
+    status = hyp["gate1_status"] or "not_started"
+    if status in ("paused", "stopped"):  # ručné rozhodnutie
+        return None
+    later = 3 if status == "passed" else 0
+    fields = db.fields_for(hyp["id"])
+    if not fields:
+        return later + 1, cfg.gate1.fields_minutes + cfg.gate1.sources_minutes_per_hypothesis
+    have = {s["field_id"] for s in db.sources_for(hyp["id"]) if s["status"] != "rejected"}
+    todo = [f for f in fields if f["id"] not in have and field_needs_search(f, cutoff)]
+    if not todo:
+        return None
+    return later + (0 if any(f["status"] == "open" for f in todo) else 2), cfg.gate1.sources_minutes_per_hypothesis
+
+
+def plan_run(cfg: Config, db: DB, ids: list[int] | None, minutes: float, now: datetime | None = None) -> dict[str, Any]:
+    """Ktoré hypotézy beh Brány 1 stihne s modelmi: najprv rozpracované, potom nové, potom polia na opakované hľadanie,
+    nakoniec tie, čo už prešli; toľko, koľko sa zmestí do limitu po odrátaní vyhradeného času na kontrolu a sťahovanie (aspoň jedna).
+    Kontrola, sťahovanie a pripravenosť (bez modelu) bežia pre všetky zadané hypotézy."""
+    cutoff = retry_cutoff(cfg, now)
+    hyps = _hypotheses(cfg, db, ids)
+    work = []
+    for i, h in enumerate(hyps):
+        w = model_work(cfg, db, h, cutoff)
+        if w is not None:
+            work.append((w[0], i, h["id"], w[1]))
+    work.sort()
+    budget = max(0.0, minutes - cfg.gate1.download_reserve_minutes - GATE1_TAIL_MIN)
+    batch, used = [], 0.0
+    for _prio, _i, hid, est in work:
+        if batch and used + est > budget:
+            break
+        batch.append(hid)
+        used += est
+    later = [hid for _p, _i, hid, _e in work if hid not in batch]
+    return {"s_modelom": batch, "odhad_min": round(used), "nabudúce": later,
+            "bez_práce_s_modelom": [h["id"] for h in hyps if h["id"] not in batch and h["id"] not in later],
+            "všetky": [h["id"] for h in hyps]}
+
+
 # ======================================================================= 2. zdroje (agent)
 SOURCE_TOOLS: list[dict[str, Any]] = [
     {"type": "function", "function": {
@@ -352,12 +411,13 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
                 embedder=None) -> dict:
     stats: Counter = Counter()
     done: list[tuple[Any, SourceAgent, list]] = []  # extrakcia (presný model) až po všetkých agentoch: menej výmen modelu
+    cutoff = retry_cutoff(cfg)
     for hyp in _hypotheses(cfg, db, ids):
         if deadline.expired():
             break
         fields = db.fields_for(hyp["id"])
         have = Counter(s["field_id"] for s in db.sources_for(hyp["id"]) if s["status"] != "rejected")
-        todo = [f for f in fields if have[f["id"]] < 1 and f["status"] in ("open", "missing")]
+        todo = [f for f in fields if have[f["id"]] < 1 and field_needs_search(f, cutoff)]
         if not todo:
             continue
         steps = min(24, cfg.gate1.source_agent_steps + 2 * len(todo))
@@ -372,8 +432,14 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
             task += ("\nCatalogue candidates already read (verify they fit the field; record_source with this page_url):\n"
                      + "\n".join(candidates))
             stats["catalog_candidates"] += len(candidates)
+        # strop na hypotézu a rezerva na extrakciu z prečítaných stránok (aj pre doterajšie hypotézy)
+        left = deadline.remaining_minutes()
+        agent_dl = deadline.sub(min(cfg.gate1.sources_minutes_per_hypothesis,
+                                    left - min(EXTRACT_MIN * (len(done) + 1), left * 0.3)))
+        if agent_dl.expired():
+            break
         try:
-            agent.run(task, steps, system=system, deadline=deadline)
+            agent.run(task, steps, system=system, deadline=agent_dl)
         except Exception as exc:  # noqa: BLE001 – zlyhanie modelu nezastaví beh (invariant 5)
             from openai import APIConnectionError
 
@@ -384,6 +450,9 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
         done.append((hyp, agent, todo))
     for hyp, agent, todo in done:
         if not agent.saved and agent.pages:
+            if deadline.expired():  # polia ostanú „otvorené“ – ďalší beh ich skúsi znova
+                stats["extraction_skipped"] += 1
+                continue
             stats["sources_from_pages"] += sources_from_read_pages(cfg, db, llm, agent)
         stats["sources"] += len(agent.saved)
         stats["hypotheses"] += 1

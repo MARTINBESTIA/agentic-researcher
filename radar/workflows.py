@@ -351,12 +351,27 @@ def _critique(app, deadline: Deadline, run, ids, report_progress) -> None:
 
 
 def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
-    app.gate_ids = ids
-    run("gate1-fields", deadline.sub(deadline.remaining_minutes() * 0.15))
-    fast = deadline.sub(deadline.remaining_minutes() * 0.6)
-    for stage in ("gate1-sources", "gate1-check", "gate1-datasets"):
-        run(stage, fast)
-    run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 1)))
+    """Polia a agent zdrojov (modely) iba pre hypotézy, ktoré beh stihne (plan_run); kontrola a sťahovanie majú
+    vyhradený čas a bežia pre všetky zadané – úloha #75 (58 hypotéz, 120 min): agent minul spoločný úsek, kontrola
+    aj sťahovanie sa preskočili a žiadna hypotéza nedostala dáta."""
+    from .gate1 import GATE1_TAIL_MIN, plan_run
+
+    g1 = app.cfg.gate1
+    plan = plan_run(app.cfg, app.db, ids, deadline.remaining_minutes())
+    log.info("Brána 1: s modelmi %s (odhad %s min), na ďalší beh %s, bez práce s modelmi %s",
+             ", ".join(f"H{h}" for h in plan["s_modelom"]) or "nič", plan["odhad_min"], len(plan["nabudúce"]),
+             len(plan["bez_práce_s_modelom"]))
+    report_progress(s_modelom=plan["s_modelom"], nabudúce=len(plan["nabudúce"]))
+    if plan["s_modelom"]:
+        app.gate_ids = plan["s_modelom"]
+        model_dl = deadline.sub(deadline.remaining_minutes() - g1.download_reserve_minutes - GATE1_TAIL_MIN)
+        run("gate1-fields", model_dl.sub(model_dl.remaining_minutes() * 0.3))
+        run("gate1-sources", model_dl)
+    app.gate_ids = plan["s_modelom"] + [h for h in plan["všetky"] if h not in plan["s_modelom"]] or ids
+    downloads = max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)
+    run("gate1-check", deadline.sub(min(downloads, max(3.0, downloads * 0.3))))
+    run("gate1-datasets", deadline.sub(max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)))
+    run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 3)))
     run("gate1-user", Deadline(8))  # čakajúce vstupy človeka (bez nich bez modelu)
     run("gate1-finish", Deadline(2))
 

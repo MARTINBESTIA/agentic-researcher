@@ -501,7 +501,8 @@ def test_sources_from_read_pages_when_agent_only_reads(tmp_path):
     cfg, db, rec, router = setup(tmp_path)
     hid = gate1_hyp(db)
     fid = db.upsert_field(hid, "Výdavky obce na obstarávanie", "", True, "")
-    db.update_field(fid, status="missing")
+    db.update_field(fid, status="missing")  # agent ho hľadal pred týždňom – znova až po research_retry_days
+    db.conn.execute("UPDATE data_fields SET updated_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (fid,))
     db.add_info_request(hid, fid, "{POVINNÁ_OSOBA}", "Žiadosť", "text")
     page = "https://data.obce.sk/dataset/vydavky"
     rec.responses["tools"] = [step(call("read_page", {"url": page})), step(call("finish", {"summary": "našiel som portál"}))]
@@ -1164,3 +1165,57 @@ def test_catalog_candidates_ranked_by_meaning_of_field():
     ranked = gate1.SourceAgent.rank_candidates(me, {"name": "Rozpočet projektu", "description": ""}, found)
     assert [d.title for d in ranked][0] == "Rozpočty projektov obcí" and len(ranked) == cfg.gate1.nkod_hits_per_field
     assert gate1.SourceAgent.rank_candidates(SimpleNamespace(embedder=None, cfg=cfg, hyp={}), {}, found) == found[:2]
+
+
+# ======================================================================= Brána 1: rozdelenie času (úloha #75)
+def test_gate1_plan_prefers_new_hypotheses_and_fits_the_limit(tmp_path):
+    """58 hypotéz za 120 min sa nedá – beh vezme s modelmi toľko, koľko stihne; nedávno hľadané polia sa preskočia."""
+    cfg, db, rec, router = setup(tmp_path)
+    now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
+    old_searched = db.create_hypothesis("Hľadané pred týždňom", "", "x")
+    recent = db.create_hypothesis("Hľadané dnes", "", "x")
+    new_a = db.create_hypothesis("Nová A", "", "x")
+    new_b = db.create_hypothesis("Nová B", "", "x")
+    passed = db.create_hypothesis("Prešla", "", "x")
+    started = db.create_hypothesis("Rozpracovaná (polia bez hľadania)", "", "x")
+    for hid, status, when in ((old_searched, "missing", "2026-10-07T10:00:00+00:00"),
+                              (recent, "missing", "2026-10-14T09:00:00+00:00"), (passed, "open", None),
+                              (started, "open", None)):
+        fid = db.upsert_field(hid, "Suma", "", True, "")
+        db.update_field(fid, status=status)
+        if when:
+            db.conn.execute("UPDATE data_fields SET updated_at = ? WHERE id = ?", (when, fid))
+    db.set_gate_status(passed, 1, "passed")
+    ids = [old_searched, recent, new_a, new_b, passed, started]
+    plan = gate1.plan_run(cfg, db, ids, 120, now=now)
+    # rozpočet 120 − 15 (kontrola a sťahovanie) − 6 = 99 min: nové po 19 min, ostatné po 15 min; rozpracovaná prvá
+    assert plan["s_modelom"] == [started, new_a, new_b, old_searched, passed] and plan["odhad_min"] == 83
+    assert plan["bez_práce_s_modelom"] == [recent] and plan["všetky"] == ids
+    plan = gate1.plan_run(cfg, db, ids, 45, now=now)
+    assert plan["s_modelom"] == [started] and plan["nabudúce"] == [new_a, new_b, old_searched, passed]
+    assert gate1.plan_run(cfg, db, ids, 5, now=now)["s_modelom"] == [started]  # aspoň jedna
+
+
+def test_gate1_check_and_downloads_keep_their_time_when_agent_uses_all(tmp_path, monkeypatch):
+    from radar.workflows import run_workflow
+
+    clock = [1000.0]
+    monkeypatch.setattr("radar.util.awake_clock", lambda: clock[0])
+    monkeypatch.setattr("radar.workflows.awake_clock", lambda: clock[0])
+    cfg, db, rec, router = setup(tmp_path)
+    hids = [db.create_hypothesis(f"H{i}", "", "x") for i in range(10)]
+    seen = {}
+
+    def run_stage(app, stage, dl):
+        seen[stage] = (dl.remaining_minutes(), list(app.gate_ids))
+        if stage == "gate1-sources":
+            clock[0] = dl.end + 120  # agent minie celý úsek a ešte 2 min navyše
+        return {}
+
+    result = run_workflow(SimpleNamespace(cfg=cfg, db=db, router=router), "gate1", 120, hypothesis_ids=hids,
+                          run_stage=run_stage)
+    assert not [s for s in result["stages"] if s.get("preskočené")]
+    assert seen["gate1-check"][0] >= 3 and seen["gate1-datasets"][0] >= 10
+    batch = seen["gate1-sources"][1]
+    assert 0 < len(batch) < len(hids) and seen["gate1-fields"][1] == batch  # s modelmi iba toľko, koľko sa zmestí
+    assert seen["gate1-check"][1][: len(batch)] == batch and sorted(seen["gate1-check"][1]) == sorted(hids)
