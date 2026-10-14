@@ -175,6 +175,9 @@ def run_workflow(app, kind: str, minutes: float, hypothesis_ids: list[int] | Non
         t0 = awake_clock()
         try:
             stats = run_stage(app, stage, dl)
+            searx = getattr(app, "_searx", None)
+            if searx is not None and searx.stats:
+                results["vyhľadávanie"] = dict(searx.stats)
         except PrivacyGateError as exc:
             log.warning("Krok %s preskočený: %s", stage, exc)
             results["stages"].append({"krok": stage, "preskočené": str(exc)})

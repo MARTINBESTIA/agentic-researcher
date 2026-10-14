@@ -160,6 +160,11 @@ class ResearchAgent:
         self.searches[key] = json.dumps(
             [{"title": r.title, "url": r.url, "snippet": r.snippet[:300]} for r in results], ensure_ascii=False
         )
+        if not results and getattr(self.searx, "last_blocked", None):
+            # úloha #75: agent pri zablokovaných vyhľadávačoch skúšal ďalšie dopyty a čítal nesúvisiace stránky
+            return ("[] – no results because web search engines are temporarily blocking automated queries. Do not "
+                    "repeat similar searches now: read a known portal or official page directly (read_page), use "
+                    "another available tool, or finish if you have nothing to record.")
         return self.searches[key]
 
     def read_page(self, url: str, part: int = 0) -> str:

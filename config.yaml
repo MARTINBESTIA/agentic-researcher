@@ -76,6 +76,7 @@ search:
   language: sk
   results_per_query: 8
   delay_s: 2
+  engine_suspend_minutes: 10           # vyhľadávač, ktorý blokuje (CAPTCHA, limit, výpadok), sa 10 min vynechá
 
 fetch:
   # Kontakt doplň sám (posiela sa každej stiahnutej stránke); len ASCII znaky.

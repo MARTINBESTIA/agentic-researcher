@@ -1219,3 +1219,35 @@ def test_gate1_check_and_downloads_keep_their_time_when_agent_uses_all(tmp_path,
     batch = seen["gate1-sources"][1]
     assert 0 < len(batch) < len(hids) and seen["gate1-fields"][1] == batch  # s modelmi iba toľko, koľko sa zmestí
     assert seen["gate1-check"][1][: len(batch)] == batch and sorted(seen["gate1-check"][1]) == sorted(hids)
+
+
+def test_search_skips_blocking_engines_for_a_while_and_counts_empty_searches(monkeypatch):
+    """Úloha #75: vyhľadávač s CAPTCHA alebo limitom sa vynechá, dopyt ide iba funkčným; prázdne hľadania sa počítajú."""
+    from radar.agent import ResearchAgent
+    from radar.config import SearchConfig
+    from radar.search import SearxClient
+
+    monkeypatch.setattr("radar.search.time.sleep", lambda s: None)
+    sent = []
+    config = {"engines": [{"name": n, "enabled": True, "categories": ["general", "web"]}
+                          for n in ("bing", "duckduckgo", "google cse", "yahoo")]}
+
+    def handler(request):
+        if request.url.path.endswith("/config"):
+            return httpx.Response(200, json=config)
+        sent.append(request.url.params.get("engines"))
+        if request.url.params["q"] == "prvý":
+            return httpx.Response(200, json={"results": [], "unresponsive_engines": [["duckduckgo", "CAPTCHA"]]})
+        return httpx.Response(200, json={"results": [{"url": "https://x.sk/a", "title": "A", "content": ""}]})
+
+    client = SearxClient(SearchConfig(delay_s=0, retry_on_empty=False), "test")
+    client.http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert client.search("prvý") == [] and client.last_blocked == ["duckduckgo: CAPTCHA"]
+    assert len(client.search("druhý")) == 1
+    assert sent == [None, "bing,google cse,yahoo"]  # DuckDuckGo vynechaný
+    assert client.stats == {"hľadania": 2, "prázdne": 1, "prázdne_pri_blokovaní": 1, "s_vynechanými_vyhľadávačmi": 1}
+    agent = ResearchAgent.__new__(ResearchAgent)
+    agent.searx, agent.searches, agent.repeats, agent.pages, agent.failed = client, {}, 0, {}, set()
+    client.suspended.clear()
+    assert "temporarily blocking" in agent.web_search("prvý")
+

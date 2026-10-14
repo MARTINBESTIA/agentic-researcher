@@ -183,6 +183,7 @@ class SearchConfig(BaseModel):
     retry_on_empty: bool = True
     max_backoff_s: float = 30.0
     cache_minutes: float = 60.0  # rovnaký dopyt v jednom behu sa neposiela znova
+    engine_suspend_minutes: float = 10.0  # vyhľadávač s CAPTCHA, limitom alebo výpadkom sa toľko minút vynechá
 
 
 DEFAULT_BLOCKED_DOMAINS = ["linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "tiktok.com"]
