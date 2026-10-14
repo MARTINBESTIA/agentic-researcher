@@ -51,6 +51,33 @@ if view == "Témy":
                              help="Zapne na Bránu 0 najviac 3 najsilnejšie hypotézy témy (" +
                                   ", ".join(f"H{i}" for i in strongest) + ") a spustí organizácie → ľudia a kontakty "
                                   "→ priorita → LinkedIn. Nič sa neodosiela.")
+    with st.container(border=True):  # Brána 0 a 1 za celú tému (hypotézy sa nezlučujú, súčty sú bez duplicít)
+        st.markdown("**Brána 0 a 1 pre celú tému**")
+        live = [r["id"] for r in members if r["stav"] != "rejected"]
+        selected = {h["id"] for h in d.people_enabled_hypotheses()} & set(live)
+        people = {l["person_id"] for h in live for l in d.links_for_hypothesis(h)}
+        outreach = [o for h in live for o in d.outreach_list(h)]
+        interviews = [i for h in live for i in d.interviews_for(h)]
+        with st.container(horizontal=True):
+            st.metric("Vybrané na Bránu 0", f"{len(selected)} / {len(live)}", border=True)
+            st.metric("Ľudia s väzbou", len(people), border=True)
+            st.metric("Oslovenia odoslané", sum(1 for o in outreach if o["status"] in ("sent", "replied", "scheduled")),
+                      border=True)
+            st.metric("Rozhovory", len(interviews), border=True)
+        g1 = [h["id"] for h in d.theme_members(tid) if h["id"] in selected and (h["gate1_status"] or "not_started")
+              in ("not_started", "running")]
+        with st.container(horizontal=True):
+            if c.privacy.lia_completed and len(selected) < len(live):
+                if st.button(f"Vybrať celú tému na Bránu 0 ({len(live) - len(selected)} ďalších hypotéz)",
+                             icon=":material/playlist_add_check:", key=f"th_sel_{tid}",
+                             help="Zapne hľadanie ľudí pre všetky nezamietnuté hypotézy témy (osobné údaje sa zbierajú "
+                                  "iba k vybraným hypotézam). Zber spustíš akciou „Zbierať ľudí“."):
+                    for h in live:
+                        if h not in selected:
+                            d.set_people_selection(h, True)
+                    refresh()
+            start_job_button("gate1", f"Prieskum dát pre tému ({len(g1)} nezačatých/rozpracovaných)", 120, g1,
+                             key=f"th_g1_{tid}", icon=":material/database:", disabled=not g1)
     jobs_panel(show_last=False)
     with st.form(f"pr_theme_rename_{tid}"):
         name = st.text_input("Názov témy", theme["name"])

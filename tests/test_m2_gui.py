@@ -341,3 +341,21 @@ def test_problems_page_creates_pseudonymized_dossier(gui):
     assert not at.exception, at.exception
     made = list((gui / "exports").glob("H1_*_pseudonym.zip"))
     assert len(made) == 1 and any("Dosiér je hotový" in s.label for s in at.status)
+
+
+def test_theme_view_shows_gate0_summary_and_selects_whole_theme(gui):
+    from radar.config import load_config
+
+    cfg = load_config(gui / "config.yaml")
+    d = DB(cfg.db_path)
+    second = d.create_hypothesis("Obce nestíhajú kontrolovať zmluvy", "", "malé obce")
+    d.save_themes([{"name": "Kapacity obcí", "name_method": "manual", "members": [1, second]}])
+    d.close()
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    at.switch_page("app_pages/problems.py").run()
+    at.segmented_control(key="pr_view").set_value("Témy").run()
+    assert not at.exception, at.exception
+    assert [m.value for m in at.metric][:2] == ["1 / 2", "1"]  # vybraná 1 z 2, jedna osoba s väzbou
+    at.button(key="th_sel_1").click().run()
+    d = DB(cfg.db_path)
+    assert d.get_hypothesis(second)["people_enabled"] == 1
