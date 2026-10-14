@@ -167,6 +167,24 @@ def interrupted_jobs(db: DB, limit: int = 25) -> list:
     return out
 
 
+def resume_after_restart(cfg: Config, db: DB, config_path: str | Path, skip_kind: str | None = None,
+                         hours: float = 12.0, popen: Callable[..., Any] = subprocess.Popen,
+                         alive: Callable[[int | None], bool] = pid_alive) -> dict[str, Any]:
+    """Pred plánovaným behom: zastavené poradie sa rozbehne a prerušené úlohy z posledných `hours` hodín sa zaradia
+    znova (pokračujú tam, kde prestali – stav je v databáze). Reálne 13. 10. 2026: aktualizácia aplikácie o 23:02
+    ukončila beh, Docker aj GUI; ďalší deň by plánovač začal nové kolo a prerušené úlohy by ostali visieť.
+    Úloha rovnakej akcie ako nový beh (`skip_kind`, napr. autopilot) sa neopakuje – nový beh ju nahradí."""
+    out: dict[str, Any] = {"poradie": None, "znova": []}
+    if queue_stalled(db, alive):
+        out["poradie"] = start_next(cfg, db, popen=popen, alive=alive)
+    cutoff = _minutes_ago(hours * 60)
+    for job in interrupted_jobs(db):
+        if job["kind"] == skip_kind or (job["finished_at"] or "") < cutoff:
+            continue
+        out["znova"].append(restart_job(cfg, db, config_path, job["id"], popen=popen, alive=alive))
+    return out
+
+
 def restart_job(cfg: Config, db: DB, config_path: str | Path, job_id: int, popen: Callable[..., Any] = subprocess.Popen,
                 alive: Callable[[int | None], bool] = pid_alive) -> int:
     """Rovnaká akcia s rovnakým limitom a hypotézami ako prerušená úloha (ak niečo beží, zaradí sa do poradia).

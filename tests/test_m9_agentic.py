@@ -721,3 +721,28 @@ def test_dashboard_eta_from_history_and_queue(tmp_path):
     assert plan[1]["začiatok"] == plan[0]["koniec_odhad"] and plan[1]["koniec_odhad"] == plan[1]["začiatok"] + timedelta(minutes=45)
     assert ":" in local(now.isoformat(), now)
 
+
+def test_scheduled_start_resumes_stalled_queue_and_interrupted_jobs(tmp_path):
+    """Reálne 13. 10. 2026: aktualizácia aplikácie o 23:02 ukončila beh; ďalší štart má najprv pokračovať."""
+    from radar.jobs import resume_after_restart
+
+    cfg, db, rec, router = setup(tmp_path)
+    spawned, alive = [], {}
+
+    def popen(cmd, **kw):
+        spawned.append(cmd)
+        pid = 2000 + len(spawned)
+        alive[pid] = True
+        return SimpleNamespace(pid=pid)
+
+    is_alive = lambda pid: alive.get(pid, False)  # noqa: E731
+    crashed = start_job(cfg, db, "config.yaml", "validate", 60, popen=popen, alive=is_alive)
+    waiting = start_job(cfg, db, "config.yaml", "people", 60, popen=popen, alive=is_alive, mode="queue")
+    old_pilot = db.create_job("autopilot", {"minutes": 480}, status="interrupted")
+    alive[2001] = False  # počítač sa reštartoval
+    out = resume_after_restart(cfg, db, "config.yaml", skip_kind="autopilot", popen=popen, alive=is_alive)
+    assert out["poradie"] == waiting and db.get_job(waiting)["status"] == "running"
+    assert db.get_job(crashed)["status"] == "interrupted" and len(out["znova"]) == 1  # validate znova do poradia
+    assert db.get_job(out["znova"][0])["kind"] == "validate" and db.get_job(out["znova"][0])["status"] == "queued"
+    assert db.get_job(old_pilot)["status"] == "interrupted"  # nový autopilot ho nahradí
+

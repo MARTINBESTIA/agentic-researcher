@@ -516,6 +516,13 @@ def cmd_job(app, args, sleep=None) -> int:
 
     sleep = sleep or time.sleep
     config = Path(app.cfg.config_dir) / "config.yaml"
+    if getattr(args, "resume", False):
+        from .jobs import resume_after_restart
+
+        resumed = resume_after_restart(app.cfg, app.db, config, skip_kind=args.kind)
+        if resumed["poradie"] or resumed["znova"]:
+            print(f"Pokračujem po prerušení: poradie {resumed['poradie'] or '–'}, znova zaradené "
+                  f"{', '.join(f'#{j}' for j in resumed['znova']) or '–'}")
     try:
         job_id = start_job(app.cfg, app.db, config, args.kind, args.minutes, args.hypotheses, mode=args.mode)
     except JobBusy as exc:
@@ -561,6 +568,8 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
                    help="queue (predvolené): ak niečo beží, zaradí sa do poradia; start: iba ak nič nebeží; "
                         "replace: bežiacu zastaví.")
     p.add_argument("--wait", action="store_true", help="Čaká na koniec úlohy (aj čas v poradí).")
+    p.add_argument("--resume", action="store_true",
+                   help="Najprv rozbehne zastavené poradie a znova zaradí prerušené úlohy z posledných 12 h.")
 
     p = sub.add_parser("discover", help="Objavovanie nových problémov (katalóg zdrojov a matica dopytov).")
     p.add_argument("--minutes", type=float, default=None)

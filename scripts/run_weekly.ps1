@@ -44,7 +44,8 @@ try {
     # Profil modelov a výber modelov platia z config.yaml a z GUI (Správca akcií → Modely), rovnako ako pre akcie z GUI.
     if ($Profile -ne "balanced") { Say "Pozn.: -Profile $Profile sa už nepoužíva – profil nastav v GUI (Správca akcií → Modely)." }
     # Autopilot iba naplánuje kolo (úlohy v poradí) a skončí; ďalšie kolá plánuje sám až do konca limitu.
-    & $python -m radar job $Action --minutes $Minutes --mode queue --wait
+    # --resume: po prerušení (spánok, aktualizácia, pád) najprv dokončí zastavené poradie a prerušené úlohy
+    & $python -m radar job $Action --minutes $Minutes --mode queue --wait --resume
     Say "Beh skončil s kódom $LASTEXITCODE; správa: reports\latest.md"
 } finally {
     if ($usesSwap) {
