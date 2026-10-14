@@ -82,6 +82,13 @@ with st.container(border=True):
                     "Model: s dostupnými dátami sa toto rozhodnutie otestovať nedá. Treba: " + missing.get("text", ""))
             st.warning(lead + ". Pridaj dataset (Brána 1 → Datasety → Pridať dataset z odkazu, alebo Tvoje dáta); návrh "
                        "sa zopakuje, keď pribudne.", icon=":material/database_off:")
+            if st.button("Dáta stačia – navrhnúť experiment znova", icon=":material/restart_alt:", key=f"g2_unmiss_{hid}",
+                         help="Značku zruš, ak potrebné dáta v Bráne 1 sú (model ich mohol nepochopiť); ďalší beh "
+                              "Brány 2 navrhne experiment znova."):
+                card.pop("chýbajúce_dáta_pre_experiment", None)
+                d.update_card(card_row["id"], card=card)
+                d.add_note(hid, "Značka „chýbajúce dáta pre experiment“ zrušená v GUI – návrh sa zopakuje.", source="human")
+                refresh()
         st.markdown(f"**Výstup, ktorý pomôže:** {esc(OUTPUT_LABELS.get(card.get('helpful_output'), card.get('helpful_output', '')))}"
                     f" – {esc(card.get('helpful_output_text', ''))}  \n**Obchodná metrika:** {esc(card.get('business_metric', ''))}"
                     f"  \n**Čo by hypotézu vyvrátilo:** {esc(card.get('falsification', ''))}")

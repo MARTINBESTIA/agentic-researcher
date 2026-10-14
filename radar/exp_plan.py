@@ -207,7 +207,7 @@ def precheck_steps(cfg: Config, hid: int, plan: dict[str, Any]) -> list[str]:
 
 
 FUTURE_OPS = ("future_agg", "linked_agg", "link_records")
-SOURCE_DOMAINS = {"nku": "nku.gov.sk", "crz": "crz.gov.sk"}
+SOURCE_DOMAINS = {"nku": "nku.gov.sk", "crz": "crz.gov.sk", "uhp": "hodnotenych-utvarom-hodnoty-za-peniaze"}
 SUPPLIER_COL_RE = re.compile(r"dodav|supplier|zhotovit|predavajuc", re.I)
 
 
@@ -454,9 +454,9 @@ def mark_no_valid_plan(db: DB, card_row, attempts: int, model: str | None = None
         return
     hid = card_row["hypothesis_id"]
     card["chýbajúce_dáta_pre_experiment"] = {
-        "text": f"model v {attempts} pokusoch nenavrhol platný experiment – s dostupnými dátami sa rozhodnutie "
-                "z karty pravdepodobne otestovať nedá (chýbajú udalosti alebo výsledky, ktoré karta potrebuje), "
-                "prípadne treba jasnejšiu kartu",
+        "text": f"model v {attempts} pokusoch nenavrhol platný experiment – buď v dátach chýbajú udalosti alebo "
+                "výsledky, ktoré karta potrebuje, alebo model dáta nepochopil (H581: hodnotenia ÚHP v dátach boli); "
+                "skontroluj tabuľky v Bráne 1 a značku zruš, ak dáta stačia",
         "automaticky": True, "model": model, "datasety": len(db.datasets_for(hid, only_ok=True))}
     db.update_card(card_row["id"], card=card)
 

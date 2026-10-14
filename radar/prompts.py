@@ -301,6 +301,10 @@ DATA_SOURCE_NOTES = {
            "(ministries, regions, municipalities, public universities, state companies), so an ico here is almost always "
            "a public body. To label contracts, join on the buyer's ico (the public side); joined on the supplier's ico it "
            "marks only public bodies acting as suppliers, not private firms. zaciatok_kontroly = start of the audit.",
+    "uhp": "projects evaluated by the Value for Money Unit (ÚHP, Ministry of Finance), one row per project: costs from "
+           "the feasibility study, BCR, area, ministry, investor; 'Ukončenie hodnotenia (dátum)' is when the verdict became "
+           "known; 'Stanovisko ÚHP' (the verdict) and 'Navrhovaná úspora v mil. €' (proposed savings) are outcomes – use "
+           "them as the label, never as features; ~260 rows, so prefer comparison or threshold tasks over complex models.",
     "crz": "contracts from the Central Register of Contracts, published by public bodies; ico_objednavatel is usually "
            "the publishing public body (buyer side), ico_dodavatel the counterparty (a firm, a person or another public "
            "body); datum = signing date.",
