@@ -1,7 +1,7 @@
 # Akceptačné kritériá v0.2 → testy
 
 Všetky testy bežia offline (falošný model, vyhľadávanie a web): `.venv\Scripts\python -m pytest -q`.
-Stav 14. 10. 2026: 237 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v8).
+Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test migrácie overuje schému v9).
 
 | Míľnik | AK | Test |
 |---|---|---|
@@ -164,3 +164,14 @@ Stav 14. 10. 2026: 237 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M15 | 4 GUI: Problémy → Export všetkého vytvorí ZIP | `test_m2_gui.py::test_problems_page_creates_pseudonymized_dossier` |
 | M16 | 1 Brána 1: beh vezme s modelmi toľko hypotéz, koľko stihne (rozpracované, nové, opakované, prešlé) | `test_m10_gates.py::test_gate1_plan_prefers_new_hypotheses_and_fits_the_limit` |
 | M16 | 2 kontrola a sťahovanie dostanú čas, aj keď agent minie celý svoj úsek | `test_m10_gates.py::test_gate1_check_and_downloads_keep_their_time_when_agent_uses_all` |
+| M16 | 3 Brána 1 iba nezačaté a rozpracované; „Prehľadať znova“ | `test_m10_gates.py::test_autopilot_evaluates_user_inputs_and_researches_waiting_hypotheses_only_after_reopen` |
+| M17 | 1 blokujúci vyhľadávač sa vynechá, prázdne hľadania sa počítajú | `test_m10_gates.py::test_search_skips_blocking_engines_for_a_while_and_counts_empty_searches` |
+| M17 | 2 po prerušení pokračuje poradie a prerušené úlohy | `test_m9_agentic.py::test_scheduled_start_resumes_stalled_queue_and_interrupted_jobs` |
+| M17 | 3 lokálny index katalógu: inkrementálne, séria = jeden vektor, hľadanie podľa významu | `test_m10_gates.py::test_local_catalog_index_syncs_incrementally_and_finds_by_meaning` |
+| M17 | 4 Témy: Brána 0 za tému, výber celej témy | `test_m2_gui.py::test_theme_view_shows_gate0_summary_and_selects_whole_theme` |
+| M17 | 5 kandidátske citáty pri read_page | `test_m9_agentic.py::test_read_page_offers_candidate_quotes_for_reading_only_models` |
+| M17 | 6 GDPR: uloženie bez osobných stĺpcov po posúdení | `test_m10_gates.py::test_personal_dataset_kept_without_personal_columns_after_human_gdpr_decision` |
+| M17 | 7 časové okno akcií autopilota | `test_m9_agentic.py::test_autopilot_action_hours_window` |
+| M17 | 8 eval iba pri dosť labeloch | `test_m3_accuracy.py::test_eval_all_runs_only_tasks_with_enough_gold_labels` |
+| M17 | 9 čas výmeny modelu | `test_features.py::test_model_swap_load_time_is_measured_and_kept` |
+| M17 | 10 lokálny index webu organizácie | `test_m10_gates.py::test_domain_index_follows_nested_sitemaps_and_is_cached` |

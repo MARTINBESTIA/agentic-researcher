@@ -14,7 +14,7 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 
 **Stav:** verzia 0.2 „Brána 0 agregátor“ podľa `docs/SPEC_brana0.md` je implementovaná (M1–M8,
 11. 10. 2026), rozšírená o Správcu akcií a výber modelov v GUI, LinkedIn a kontakty k osobe, Brány 1 a 2
-(DuckDB; schéma v8 – vstupy človeka pre Bránu 1, problémové karty, podhypotézy, experimenty podľa úlohy) – M9–M13 v `docs/ACCEPTANCE.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+(DuckDB; schéma v9 – vstupy človeka pre Bránu 1, problémové karty, podhypotézy, experimenty podľa úlohy, index katalógu) – M9–M13 v `docs/ACCEPTANCE.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -53,10 +53,10 @@ docker compose up -d                     # SearXNG
 | `radar/eta.py` | odhady časov pre dashboard (história akcií, poradie, miestny čas) |
 | `radar/dossier.py` | dosiér hypotézy: všetko k hypotéze (aj rodič a podhypotézy) v ZIP; predvolene pseudonymizovaný (`Scrubber`), s menami a kontaktmi iba na voľbu so záznamom do poznámok |
 | `radar/crz.py` | Centrálny register zmlúv: denné dávky, vybrané stĺpce bez mien a adries, zlúčenie podľa ID |
-| `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií |
+| `radar/catalogs.py` | Národný katalóg otvorených dát (SPARQL): hľadanie datasetov, metadáta ako prečítaná stránka, súbory z distribúcií; lokálny index (schéma v9, vektor na sériu datasetov) a hľadanie podľa významu |
 | `radar/themes.py` | témy: zhluky podobných hypotéz (average linkage nad embeddingmi), názov z rýchleho modelu, stabilné ID medzi behmi; hypotézy sa nezlučujú |
 | `radar/publishers.py` | typ vydavateľa zdroja (pravidlá podľa domény, model raz na doménu); dodávatelia sa nepočítajú do sily dôkazov |
-| `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu) |
+| `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
 | `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení, kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |

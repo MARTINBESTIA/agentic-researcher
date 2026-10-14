@@ -98,6 +98,9 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
 | `eval --task entail --sample 30` / `--synthetic 20` / `--profile all` | labely do Kontroly, syntetické prípady, porovnanie profilov |
 | `forget --email x@y.sk` (`--person ID`, `--phone …`) | výmaz osoby a zápis do zoznamu potlačenia |
 | `purge`, `privacy [reapply]`, `export --what people --format xlsx [--include-personal]`, `export --person ID` | retencia, stav súkromia, exporty (predvolene pseudonymizované) |
+| `catalog-sync`, `workflow catalog` | lokálny index Národného katalógu (metadáta a vektory; Brána 1 hľadá podľa významu) |
+| `job autopilot --minutes 480 --mode queue --wait --resume` | plánovaný beh; `--resume` najprv dokončí prerušené poradie a úlohy |
+| `workflow eval`, `eval-all` | eval presnosti profilov modelov na úlohách s ≥ 50 gold labelmi |
 | `dossier --hypothesis 582 [--personal] [--data full\|sample\|none] [--no-related]` | dosiér hypotézy: všetko k hypotéze v jednom ZIP – README, CSV, Excel, JSON, texty zdrojov, Brány 0–2, volania modelov, dáta (Parquet), manifest so SHA-256; predvolene pseudonymizovaný (aj GUI: Problémy → Export všetkého) |
 | `list`, `progress`, `note`, `status`, `merge`, `deep-dive` | ako v0.1 |
 | `collect`, `screen`, `extract`, `verify-code`, `verify`, `embed`, `cluster`, `people-rank`, `prepare-next`, `critique`, `market`, `report`, `scout`, `validate-search`, `validate-finish` | jednotlivé kroky |
