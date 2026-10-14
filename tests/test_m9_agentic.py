@@ -440,6 +440,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "bench": ["bench"],
         "themes": ["embed", "themes"],
         "catalog": ["catalog-sync"],
+        "eval": ["eval-all"],
     }
     for kind, stages in expected.items():
         calls = []

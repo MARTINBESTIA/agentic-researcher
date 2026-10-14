@@ -295,6 +295,27 @@ def run_eval(cfg: Config, db: DB, router: ModelRouter, task: str, profiles: list
     return results
 
 
+def eval_ready(db: DB) -> dict[str, int]:
+    """Úlohy s dosť gold labelmi na eval (≥ MIN_LABELS) a ich počet."""
+    counts = db.label_counts()
+    return {t: counts.get(t, 0) for t in EVAL_TASKS if counts.get(t, 0) >= MIN_LABELS}
+
+
+def run_eval_all(cfg: Config, db: DB, router: ModelRouter, deadline=None) -> dict[str, Any]:
+    """Eval všetkých profilov pre každú úlohu s dosť labelmi (akcia „Eval presnosti modelov“, aj po zmene modelu)."""
+    out: dict[str, Any] = {}
+    if not cfg.models:
+        return {"preskočené": "v config.yaml chýba sekcia models"}
+    for task in eval_ready(db):
+        if deadline is not None and deadline.expired():
+            out["nedokončené"] = True
+            break
+        res = run_eval(cfg, db, router, task, list(cfg.models.eval_profiles))
+        write_eval_report(cfg, res)
+        out[task] = res["recommendation"]
+    return out or {"preskočené": f"žiadna úloha nemá aspoň {MIN_LABELS} gold labelov (Eval → Pridať na označenie)"}
+
+
 def recommend(profiles: dict[str, Any], n: int) -> str:
     """Najlacnejší profil, ktorého interval sa prekrýva s najlepším. Pri < 50 labeloch nedostatok dát."""
     if n < MIN_LABELS:

@@ -409,7 +409,7 @@ EXTRA_CLI_STAGES = ["screen", "verify-code", "embed", "people-rank", "prepare-ne
                     "validate-search", "validate-verify", "validate-cluster", "validate-finish", "profiles", "contacts",
                     "gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-repro", "gate1-user",
                     "gate1-finish",
-                    "gate2-cards", "gate2-plan", "gate2-prereg", "gate2-backtest", "gate2-conclusion", "gate2-demo", "bench", "source-types", "themes", "catalog-sync"]
+                    "gate2-cards", "gate2-plan", "gate2-prereg", "gate2-backtest", "gate2-conclusion", "gate2-demo", "bench", "source-types", "themes", "catalog-sync", "eval-all"]
 
 
 def build_parser() -> argparse.ArgumentParser:

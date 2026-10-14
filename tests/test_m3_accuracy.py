@@ -132,3 +132,13 @@ def test_synthetic_entail_cases(tmp_path):
     assert n >= 1
     labels = db.labels_for("entail")
     assert {l["label"] for l in labels} == {"unsupported"} and all(l["object_type"] == "eval_case" for l in labels)
+
+
+def test_eval_all_runs_only_tasks_with_enough_gold_labels(tmp_path):
+    """Eval po zmene modelu: iba úlohy s ≥ 50 labelmi; bez nich jasná správa namiesto prázdneho výsledku."""
+    from radar.evals import eval_ready, run_eval_all
+
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"), models=ModelsConfig())
+    db = DB(cfg.db_path)
+    assert eval_ready(db) == {} and "žiadna úloha" in run_eval_all(cfg, db, router=None)["preskočené"]
+

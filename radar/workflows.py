@@ -86,6 +86,11 @@ ACTIONS: dict[str, Action] = {
         "Podobné hypotézy (podľa embeddingov) zoskupí do tém, napr. všetky o e-faktúrach; názov témy navrhne rýchly "
         "model zo zoznamu hypotéz. Hypotézy sa nezlučujú ani nemenia; ručne premenované témy ostanú.",
         "témy a ich súhrn dôkazov (Problémy → Témy)", "embeddingy + rýchly", 15),
+    "eval": Action(
+        "Eval presnosti modelov",
+        "Na úlohách, ktoré majú aspoň 50 tvojich gold labelov (Kontrola), porovná profily modelov A–D (rýchly/presný, "
+        "s uvažovaním a bez): správnosť s 95 % intervalom, čas a tokeny; odporučí najlacnejší profil bez straty presnosti.",
+        "výsledky v Eval a reports/eval-*.md", "všetky roly (podľa profilov)", 60),
     "catalog": Action(
         "Aktualizovať index národného katalógu",
         "Stiahne metadáta všetkých datasetov z data.slovensko.sk (názov, popis, vydavateľ – bez súborov) a vypočíta ich "
@@ -435,6 +440,10 @@ def _catalog(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("catalog-sync", deadline)
 
 
+def _eval(app, deadline: Deadline, run, ids, report_progress) -> None:
+    run("eval-all", deadline)
+
+
 def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str, Any]) -> None:
     from .pipeline import run_all
 
@@ -456,5 +465,5 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
-    "themes": _themes, "autopilot": _autopilot, "catalog": _catalog,
+    "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval,
 }

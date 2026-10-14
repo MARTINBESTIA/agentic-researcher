@@ -93,6 +93,17 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
                     "eval na referenčných hodnoteniach (Kontrola → gold labely).", icon=":material/speed:")
             start_job_button("bench", "Zmerať rýchlosť vybraných modelov", 20, key="am_bench_after_change",
                              icon=":material/speed:")
+            from radar.evals import MIN_LABELS, eval_ready
+
+            ready = eval_ready(d)
+            if ready:
+                start_job_button("eval", "Porovnať presnosť (eval: " + ", ".join(ready) + ")", 60,
+                                 key="am_eval_after_change", icon=":material/rule:")
+            else:
+                labels = d.label_counts()
+                st.caption("Eval presnosti čaká na gold labely: " + ", ".join(
+                    f"{t} {labels.get(t, 0)}/{MIN_LABELS}" for t in ("entail", "cluster_assign", "role_fit", "draft_check"))
+                    + " – pridáš ich na stránke Eval → „Pridať na označenie“ a označíš v Kontrole.")
         if chosen:
             st.caption("Aktívny výber z GUI (prepisuje config.yaml): " + ", ".join(
                 f"{r} = {m}" for r, m in (chosen.get("roles") or {}).items()) + f" · profil {chosen.get('profile')}")
@@ -160,7 +171,8 @@ for col, kind in zip(cols, ("gate1", "gate1-input", "cards", "gate2")):
 
 st.subheader("Ďalšie akcie")
 cols = st.columns(3)
-for i, kind in enumerate(("contacts", "drafts", "evidence", "themes", "topics", "critique", "catalog", "bench", "run-all")):
+for i, kind in enumerate(("contacts", "drafts", "evidence", "themes", "topics", "critique", "catalog", "bench", "eval",
+                          "run-all")):
     with cols[i % 3]:
         action_card(kind, "am", extras.get(kind))
 

@@ -76,6 +76,13 @@ def stage_themes(app, deadline: Deadline) -> dict:
     return run_themes(app.cfg, app.db, app.router, app.embedder, deadline)
 
 
+def stage_eval_all(app, deadline: Deadline) -> dict:
+    """Eval presnosti profilov modelov na úlohách s aspoň 50 gold labelmi (výsledky v GUI Eval a reports/)."""
+    from .evals import run_eval_all
+
+    return run_eval_all(app.cfg, app.db, app.router, deadline)
+
+
 def stage_catalog_sync(app, deadline: Deadline) -> dict:
     """Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU)."""
     from .catalogs import NKODClient, sync_catalog
@@ -266,6 +273,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "source-types": stage_source_types,
     "themes": stage_themes,
     "catalog-sync": stage_catalog_sync,
+    "eval-all": stage_eval_all,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
     "gate1-check": stage_gate1("check"),
@@ -314,6 +322,7 @@ STAGE_HELP = {
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
     "themes": "Témy: zhluky podobných hypotéz podľa embeddingov (kód), názvy tém (rýchly model); hypotézy sa nezlučujú.",
     "catalog-sync": "Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU).",
+    "eval-all": "Eval presnosti profilov modelov na úlohách s aspoň 50 gold labelmi.",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",
     "purge": "Retencia: zmaže osobné údaje po lehotách z config.yaml a staré exporty.",
