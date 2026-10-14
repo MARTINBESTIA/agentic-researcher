@@ -226,8 +226,27 @@ INDEX_KIND = "catalog"
 
 
 def index_text(row) -> str:
-    """Text na embedding: názov, začiatok popisu a vydavateľ."""
-    return f"{row['title'] or ''}. {(row['description'] or '')[:300]} ({row['publisher'] or ''})"
+    """Text na embedding: názov, začiatok popisu a vydavateľ (krátky – embeddingy bežia na CPU, ~2 texty/s)."""
+    return f"{row['title'] or ''}. {(row['description'] or '')[:150]} ({row['publisher'] or ''})"
+
+
+def series_key(row) -> str:
+    """Séria datasetov: rovnaký názov bez čísel (a bez názvu obce) od rovnakého vydavateľa – „objednávky 05/2018“,
+    „Adresy v obci X“. Katalóg má 22 579 datasetov, ale iba ~7 950 sérií; vektor stačí jeden na sériu."""
+    t = fold(row["title"] or "")
+    t = re.sub(r"\d+", "#", t)
+    t = re.sub(r"\b(v obci|obce|mesta|v meste|obec|mesto)\b.*", r"\1 *", t)
+    return " ".join(t.split()) + " | " + (row["publisher"] or "")
+
+
+def representatives(rows: list) -> list:
+    """Jeden dataset za sériu: najnovšie zmenený (pri zhode vyššie id) – rovnaké pravidlo pri výpočte aj načítaní."""
+    best: dict[str, Any] = {}
+    for r in rows:
+        k = series_key(r)
+        if k not in best or ((r["modified"] or ""), r["id"]) > ((best[k]["modified"] or ""), best[k]["id"]):
+            best[k] = r
+    return sorted(best.values(), key=lambda r: r["id"])
 
 
 def fetch_all(client: NKODClient, page: int = 1000, max_pages: int = 100,
@@ -266,7 +285,10 @@ def sync_catalog(db, client: NKODClient, embedder, deadline, progress: Callable[
         stats["chyba"] = "katalóg nedostupný"
     if embedder is None:
         return stats
-    items = [(r["id"], index_text(r)) for r in db.catalog_index()]
+    rows_all = db.catalog_index()
+    reps = representatives(rows_all)
+    stats["série"] = len(reps)
+    items = [(r["id"], index_text(r)) for r in reps]
     have = {(e["ref_id"], e["text_hash"]) for e in db.embeddings_of_kind(INDEX_KIND, embedder.model)}
     todo = [it for it in items if (it[0], hashlib.sha1(it[1].encode("utf-8")).hexdigest()) not in have]
     done = 0
@@ -293,7 +315,7 @@ class LocalCatalog:
     def load(cls, db, embedder) -> "LocalCatalog | None":
         if embedder is None:
             return None
-        rows = db.catalog_index()
+        rows = representatives(db.catalog_index())
         if not rows:
             return None
         vecs = {e["ref_id"]: (e["text_hash"], e["vector"]) for e in db.embeddings_of_kind(INDEX_KIND, embedder.model)}
