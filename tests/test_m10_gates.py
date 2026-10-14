@@ -1186,11 +1186,14 @@ def test_gate1_plan_prefers_new_hypotheses_and_fits_the_limit(tmp_path):
         if when:
             db.conn.execute("UPDATE data_fields SET updated_at = ? WHERE id = ?", (when, fid))
     db.set_gate_status(passed, 1, "passed")
+    found = db.upsert_field(recent, "Počet", "", False, "")
+    db.add_source(found, recent, "Portál", "https://data.sk/portal", "agent")  # nájdený, ešte neskontrolovaný
     ids = [old_searched, recent, new_a, new_b, passed, started]
     plan = gate1.plan_run(cfg, db, ids, 120, now=now)
     # rozpočet 120 − 15 (kontrola a sťahovanie) − 6 = 99 min: nové po 19 min, ostatné po 15 min; rozpracovaná prvá
     assert plan["s_modelom"] == [started, new_a, new_b, old_searched, passed] and plan["odhad_min"] == 83
     assert plan["bez_práce_s_modelom"] == [recent] and plan["všetky"] == ids
+    assert plan["na_kontrolu"] == [recent]  # kontrola a sťahovanie bez modelu (GUI ju predvolene vyberie)
     plan = gate1.plan_run(cfg, db, ids, 45, now=now)
     assert plan["s_modelom"] == [started] and plan["nabudúce"] == [new_a, new_b, old_searched, passed]
     assert gate1.plan_run(cfg, db, ids, 5, now=now)["s_modelom"] == [started]  # aspoň jedna

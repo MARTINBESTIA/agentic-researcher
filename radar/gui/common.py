@@ -328,7 +328,14 @@ def _hypothesis_choices(kind: str, mode: str, key: str) -> list[int] | None:
                                           else h["gate2_status"] in ("not_started", "running"))]
         st.caption("Brána 1 beží súbežne s rozhovormi Brány 0." if mode == "gate0" else
                    "Dvojice hypotéza × organizácia vzniknú z organizácií, ktoré sú v nájdených dátach.")
-        return st.multiselect("Hypotézy", list(labels), default=todo[:3], key=key, format_func=labels.get)
+        default = todo[:3]
+        if mode == "gate0":  # predvolene tie, pri ktorých má beh prácu (úloha #75: H1–H3 boli prehľadané, nové nie)
+            from radar.gate1 import plan_run
+            from radar.workflows import ACTIONS
+
+            plan = plan_run(cfg(), d, [h["id"] for h in hyps], ACTIONS[kind].minutes)
+            default = list(dict.fromkeys(plan["s_modelom"] + plan["na_kontrolu"])) or default
+        return st.multiselect("Hypotézy", list(labels), default=default, key=key, format_func=labels.get)
     rows = hypothesis_table(cfg().db_path)
     order = {"silnejšia": 2, "stredná": 1, "slabá": 0}
     verified = [r for r in rows if r["test"] == "podložená"]
@@ -373,7 +380,9 @@ def action_card(kind: str, key_prefix: str = "act", extra: str | None = None) ->
             st.caption(f"**V tomto behu s modelmi:** {names} (odhad ~{plan['odhad_min']} min)"
                        + (f" · na ďalší beh: {len(plan['nabudúce'])}" if plan["nabudúce"] else "")
                        + f". Kontrola zdrojov a sťahovanie dát (vyhradených {c.gate1.download_reserve_minutes:g} min) "
-                       "prebehnú pre všetky zvolené.")
+                       "prebehnú pre všetky zvolené"
+                       + (": nájdené zdroje čakajú pri " + ", ".join(f"H{h}" for h in plan["na_kontrolu"])
+                          if plan["na_kontrolu"] else "") + ".")
         start_job_button(kind, a.label, minutes, ids, key=f"{key_prefix}_{kind}_go",
                          disabled=blocked or (a.hypotheses is not None and not ids))
 

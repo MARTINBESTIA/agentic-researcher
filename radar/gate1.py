@@ -159,6 +159,20 @@ def model_work(cfg: Config, db: DB, hyp, cutoff: str) -> tuple[int, float] | Non
     return later + (0 if any(f["status"] == "open" for f in todo) else 2), cfg.gate1.sources_minutes_per_hypothesis
 
 
+def download_work(cfg: Config, db: DB, hid: int) -> bool:
+    """Práca bez modelu: zdroj ešte nekontrolovaný, alebo overený zdroj so súbormi, ktoré nie sú stiahnuté."""
+    done = {d["url"] for d in db.datasets_for(hid)}
+    for src in db.sources_for(hid):
+        if src["status"] == "rejected":
+            continue
+        checks = json.loads(src["checks_json"] or "{}")
+        if not checks.get("http_stav"):
+            return True
+        if src["status"] == "verified" and any(u not in done for u in (checks.get("súbory") or [])[: cfg.gate1.max_files_per_source]):
+            return True
+    return False
+
+
 def plan_run(cfg: Config, db: DB, ids: list[int] | None, minutes: float, now: datetime | None = None) -> dict[str, Any]:
     """Ktoré hypotézy beh Brány 1 stihne s modelmi: najprv rozpracované, potom nové, potom polia na opakované hľadanie,
     nakoniec tie, čo už prešli; toľko, koľko sa zmestí do limitu po odrátaní vyhradeného času na kontrolu a sťahovanie (aspoň jedna).
@@ -180,6 +194,7 @@ def plan_run(cfg: Config, db: DB, ids: list[int] | None, minutes: float, now: da
         used += est
     later = [hid for _p, _i, hid, _e in work if hid not in batch]
     return {"s_modelom": batch, "odhad_min": round(used), "nabudúce": later,
+            "na_kontrolu": [h["id"] for h in hyps if download_work(cfg, db, h["id"])],
             "bez_práce_s_modelom": [h["id"] for h in hyps if h["id"] not in batch and h["id"] not in later],
             "všetky": [h["id"] for h in hyps]}
 
