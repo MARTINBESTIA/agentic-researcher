@@ -96,7 +96,7 @@ ACTIONS: dict[str, Action] = {
         "Stiahne metadáta všetkých datasetov z data.slovensko.sk (názov, popis, vydavateľ – bez súborov) a vypočíta ich "
         "vektory. Brána 1 potom hľadá kandidátov na zdroje aj podľa významu poľa, nielen podľa slov. Prvý beh "
         "~22 tis. datasetov, ďalšie iba nové a zmenené; dá sa prerušiť.",
-        "index katalógu (Zdroje → Národný katalóg)", "embeddingy (CPU), bez GPU", 40, gpu=False),
+        "index katalógu (Zdroje → Národný katalóg – lokálny index)", "embeddingy (CPU), bez GPU", 40, gpu=False),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "

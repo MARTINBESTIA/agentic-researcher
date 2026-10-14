@@ -58,3 +58,39 @@ st.dataframe(rows, hide_index=True, height=520, alt="Katalóg zdrojov objavovani
                             "povolený": st.column_config.CheckboxColumn("Povolený")})
 st.caption("Počty pri zdroji sa počítajú podľa domény dokumentov z objavovania. Zdroj, ktorý po niekoľkých behoch nemá "
            "žiadne overené tvrdenie, je kandidát na vypnutie.")
+
+st.subheader("Národný katalóg – lokálny index")
+cat = d.catalog_stats()
+st.caption(f"{cat['datasety']} datasetov z data.slovensko.sk, aktualizovaný {(cat['aktualizované'] or 'nikdy')[:10]} "
+           "(akcia „Aktualizovať index národného katalógu“). Hľadá podľa významu – rovnako ako Brána 1 pri zdrojoch.")
+
+
+@st.cache_resource(show_spinner="Načítavam vektory katalógu…")
+def _local_catalog(n_datasets: int, n_vectors: int):
+    from radar.catalogs import LocalCatalog
+    from radar.embed import Embedder
+
+    c2 = cfg()
+    emb = c2.embeddings
+    if c2.models is not None and "embed" in c2.models.roles:
+        role = c2.models.roles["embed"]
+        emb = emb.model_copy(update={"model": role.model, "base_url": emb.base_url or role.base_url or c2.models.base_url})
+    return LocalCatalog.load(db(), Embedder(emb, c2.llm, db()))
+
+
+query = st.text_input("Hľadať v katalógu (napr. „výdavky obcí na verejné obstarávanie“)", key="nkod_q")
+if query.strip() and cat["datasety"]:
+    vectors = d._one("SELECT COUNT(*) AS n FROM embeddings WHERE kind = 'catalog'")["n"]
+    local = None
+    try:
+        local = _local_catalog(cat["datasety"], vectors)
+        hits = local.search(query.strip(), 15) if local is not None else []
+    except Exception as exc:  # noqa: BLE001 – embeddingy nedostupné (Ollama nebeží)
+        st.error(f"Hľadanie podľa významu nie je dostupné: {exc}")
+        hits = []
+    if local is None:
+        st.caption("Vektory katalógu ešte nie sú – spusti akciu „Aktualizovať index národného katalógu“.")
+    st.dataframe([{"dataset": h.title, "vydavateľ": h.publisher, "periodicita": h.periodicity, "odkaz": safe_url(h.uri)}
+                  for h in hits], hide_index=True, alt="Datasety z lokálneho indexu katalógu",
+                 column_config={"odkaz": st.column_config.LinkColumn("Odkaz")})
+
