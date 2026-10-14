@@ -26,6 +26,7 @@ from .config import Config, LLMConfig, ModelsConfig, RoleConfig, TaskRoute
 from .db import DB
 from .llm import LLM, LLMError, LLMTruncated
 from .prompts import prompt_version
+from .util import utcnow
 
 log = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -69,6 +70,7 @@ def _value_dump(value: Any) -> Any:
 
 
 MODEL_SETTINGS_KEY = "models"  # nastavenie z GUI: {"roles": {"agent": "qwen3.6:35b-a3b", …}, "profile": "balanced"}
+SWAPS_KEY = "model_swaps"  # posledných 30 načítaní modelu pri výmene (čas, uvoľnené modely)
 
 
 def gui_model_settings(db: DB | None) -> dict[str, Any]:
@@ -246,6 +248,10 @@ class ModelRouter:
         if exclusive is not None:
             try:
                 exclusive()
+                swap = getattr(client, "last_swap", None)
+                if isinstance(swap, dict) and self.db is not None:  # posledné výmeny modelov (GUI: Správca akcií)
+                    swaps = (self.db.get_setting(SWAPS_KEY, []) or [])[-29:]
+                    self.db.set_setting(SWAPS_KEY, swaps + [swap | {"kedy": utcnow()}])
             except Exception as exc:  # noqa: BLE001 – výmena modelu nesmie zhodiť beh
                 log.warning("Uvoľnenie predošlého modelu zlyhalo: %s", exc)
         self._current_model = route.model

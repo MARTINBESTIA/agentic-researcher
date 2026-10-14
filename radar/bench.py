@@ -124,8 +124,12 @@ def bench_role(router: ModelRouter, role: str, tools: list[dict[str, Any]] | Non
         return result
     try:
         if _ollama(base_url):
-            router.client(role).make_exclusive()  # meria sa tak, ako pri behu: na GPU iba tento model
+            llm = router.client(role)
+            llm.make_exclusive()  # meria sa tak, ako pri behu: na GPU iba tento model
             result.load_s, result.prompt_tps, result.gen_tps = bench_ollama(base_url, role_cfg.model, role_cfg.timeout_s)
+            swap = getattr(llm, "last_swap", None)  # make_exclusive model už načítal – čas načítania je z neho
+            if isinstance(swap, dict) and swap.get("načítanie_s"):
+                result.load_s = swap["načítanie_s"]
         else:
             result.load_s, result.prompt_tps, result.gen_tps = bench_openai(router.client(role))
     except Exception as exc:  # noqa: BLE001 – benchmark nesmie zhodiť doctor

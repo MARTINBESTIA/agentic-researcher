@@ -161,6 +161,19 @@ class LLM:
                 log.warning("Uvoľnenie modelu %s zlyhalo: %s", m.get("name"), exc)
         if unloaded:
             log.info("Výmena modelu: uvoľnené %s, načítava sa %s", ", ".join(unloaded), self.cfg.model)
+        self.last_swap = None
+        if not any(m.get("name") in wanted or m.get("model") in wanted for m in loaded):
+            # načítanie zmerané hneď (prázdny prompt = iba načítanie): koľko stojí výmena modelov na 8 GB VRAM
+            t0 = time.monotonic()
+            try:
+                resp = httpx.post(self._server_root() + "/api/generate", json={"model": self.cfg.model, "prompt": ""},
+                                  timeout=900).json()
+                self.last_swap = {"model": self.cfg.model, "uvoľnené": unloaded,
+                                  "načítanie_s": round((resp.get("load_duration") or 0) / 1e9, 1),
+                                  "spolu_s": round(time.monotonic() - t0, 1)}
+                log.info("Načítanie %s: %.1f s", self.cfg.model, self.last_swap["spolu_s"])
+            except (httpx.HTTPError, ValueError) as exc:
+                log.warning("Meranie načítania %s zlyhalo: %s", self.cfg.model, exc)
         return unloaded
 
     def gpu_share(self) -> float | None:

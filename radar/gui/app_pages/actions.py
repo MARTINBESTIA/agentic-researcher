@@ -43,6 +43,14 @@ with st.container(horizontal=True):
         st.metric("Model v GPU", ", ".join(m["model"].removesuffix(":latest") for m in loaded) or "žiadny",
                   f"{sum(m['vram_gb'] for m in loaded):.1f} GB VRAM" if loaded else None, delta_color="off", border=True)
 
+swaps = d.get_setting("model_swaps", []) or []
+if swaps:
+    by_model: dict[str, list[float]] = {}
+    for s in swaps:
+        by_model.setdefault(s["model"], []).append(s["spolu_s"])
+    st.caption("Výmena modelu v GPU (medián posledných načítaní): " + ", ".join(
+        f"{m.removeprefix('radar-')} {sorted(v)[len(v) // 2]:.0f} s ({len(v)}×)" for m, v in by_model.items())
+        + ". Každá výmena 9B ↔ 27B ↔ 35B stojí tento čas – kroky akcií sú zoradené tak, aby ich bolo čo najmenej.")
 if gpu:
     with st.expander("Načítané modely (aj z iných aplikácií, napr. astra)"):
         st.dataframe(gpu, hide_index=True, alt="Modely načítané v Ollame",

@@ -330,3 +330,29 @@ def test_reasoning_only_answer_gives_clear_error():
     llm._create = lambda *args, **kwargs: SimpleNamespace(choices=[SimpleNamespace(message=message)])
     with pytest.raises(LLMError, match="reasoning_effort"):
         llm.chat_json([{"role": "user", "content": "x"}], Project)
+
+
+def test_model_swap_load_time_is_measured_and_kept(tmp_path, monkeypatch):
+    """Nápad z improvements_logs: zmerať čas výmeny modelu (Ollama load_duration) a ukázať ho v Správcovi akcií."""
+    from types import SimpleNamespace
+
+    from radar.config import ModelsConfig
+    from radar.models import SWAPS_KEY
+    from tests.fakes import Recorder, make_router
+
+    posted = []
+    monkeypatch.setattr("radar.llm.httpx.get", lambda url, timeout: SimpleNamespace(
+        json=lambda: {"models": [{"name": "radar-qwen3.5-9b:latest", "size_vram": 5e9}]}))
+    monkeypatch.setattr("radar.llm.httpx.post", lambda url, json, timeout: posted.append(json) or SimpleNamespace(
+        json=lambda: {"load_duration": 12_500_000_000}))
+    llm = LLM(LLMConfig(model="radar-qwen3.6-27b"))
+    llm._is_ollama = True
+    assert llm.make_exclusive() == ["radar-qwen3.5-9b:latest"]
+    assert posted[-1] == {"model": "radar-qwen3.6-27b", "prompt": ""}  # prázdny prompt = iba načítanie
+    assert llm.last_swap["načítanie_s"] == 12.5 and llm.last_swap["uvoľnené"] == ["radar-qwen3.5-9b:latest"]
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"), models=ModelsConfig(), embeddings=EmbeddingsConfig(enabled=False))
+    db = DB(cfg.db_path)
+    router = make_router(cfg, db, Recorder())
+    router._switch_to(SimpleNamespace(model="radar-qwen3.6-27b"),
+                      SimpleNamespace(make_exclusive=lambda: [], last_swap=llm.last_swap))
+    assert db.get_setting(SWAPS_KEY)[0]["model"] == "radar-qwen3.6-27b"
