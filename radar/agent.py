@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import date
 from typing import Any
 
@@ -111,6 +113,37 @@ def assistant_message(msg: Any) -> dict[str, Any]:
     return out
 
 
+# Slová, ktoré v slovenských textoch často opisujú problém (kmene bez diakritiky).
+PROBLEM_CUES = ("nedostat", "chyba", "chyb", "problem", "naklad", "zlozit", "nestiha", "zataz", "rucn", "prietah",
+                "oneskor", "kritiz", "staz", "neefektiv", "rizik", "absenc", "komplik", "administrativ", "byrokrac",
+                "deficit", "nedostupn", "nejasn", "zdlhav", "preťaž", "pretaz", "nezvlada", "chýb", "obmedz")
+SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÁČĎÉÍĽĹŇÓÔŔŠŤÚÝŽ0-9„\"])")
+
+
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode()
+
+
+def candidate_quotes(text: str, topic: str, k: int = 4) -> list[str]:
+    """Vety, ktoré vyzerajú ako opis problému: slová problému, slová témy, čísla. Kód ich iba ponúkne – uloží ich
+    model (record_evidence) a overí kód (verify), takže výber nič neoveruje. Pomôcka pre modely, ktoré stránky čítajú,
+    ale nástroj na uloženie takmer nevolajú (9B aj MoE 35B)."""
+    topic_stems = {w[:5] for w in re.findall(r"\w+", _fold(topic)) if len(w) >= 5}
+    scored = []
+    for s in SENTENCE_RE.split(" ".join(text.split())):
+        s = s.strip()
+        if not 60 <= len(s) <= 320 or PERSONAL_RE.search(s):
+            continue
+        low = _fold(s)
+        cues = sum(1 for c in PROBLEM_CUES if _fold(c) in low)
+        if not cues:
+            continue
+        topic_hits = len(topic_stems & {w[:5] for w in re.findall(r"\w+", low) if len(w) >= 5})
+        score = 2 * cues + topic_hits + (0.5 if re.search(r"\d", s) else 0)
+        scored.append((score, s))
+    return [s for _, s in sorted(scored, key=lambda x: -x[0])[:k]]
+
+
 class ResearchAgent:
     """Agent s nástrojmi na čítanie. Úloha (task) určuje model cez routing a prompt:
     deep_dive (ponor do hypotézy alebo otázky), validate (test uloženej hypotézy), scout (nové problémy).
@@ -180,10 +213,18 @@ class ResearchAgent:
         _, chunks = self.pages[url]
         if not 0 <= part < len(chunks):
             return f"Part {part} does not exist; this document has parts 0 to {len(chunks) - 1}."
-        return (
+        out = (
             f"URL: {url}\nPart {part} of parts 0-{len(chunks) - 1}.\n"
             f"<untrusted_document>\n{chunks[part]}\n</untrusted_document>"
         )
+        if any(t["function"]["name"] == "record_evidence" for t in self.tools):
+            cands = candidate_quotes(chunks[part], self.topic)
+            if cands:
+                out += ("\nCandidate quotes picked by code from this part (verbatim; they may be irrelevant). If one "
+                        "shows the problem, call record_evidence with this url, part and the quote copied exactly:\n"
+                        "<untrusted_document>\n" + "\n".join(f"{i + 1}. {c}" for i, c in enumerate(cands))
+                        + "\n</untrusted_document>")
+        return out
 
     def record_evidence(
         self, url: str, part: int, problem: str, quote: str, affected_party: str, stance: str = "supports"

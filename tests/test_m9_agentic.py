@@ -747,3 +747,20 @@ def test_scheduled_start_resumes_stalled_queue_and_interrupted_jobs(tmp_path):
     assert db.get_job(out["znova"][0])["kind"] == "validate" and db.get_job(out["znova"][0])["status"] == "queued"
     assert db.get_job(old_pilot)["status"] == "interrupted"  # nový autopilot ho nahradí
 
+
+def test_read_page_offers_candidate_quotes_for_reading_only_models():
+    """9B a MoE 35B stránky čítajú, ale record_evidence takmer nevolajú – kód ponúkne vety s opisom problému."""
+    from radar.agent import TOOLS, ResearchAgent, candidate_quotes
+
+    text = ("Úvod k obstarávaniu v obciach. Malé obce nestíhajú administratívne zvládnuť verejné obstarávanie a "
+            "chýba im právnik, preto sa zákazky oneskorujú o 3 mesiace. Kontakt: starosta@obec.sk, tel. 0905 123 456 "
+            "chýba. Počasie bolo v októbri pekné a teplé, bez zrážok a bez problémov na cestách v regióne.")
+    cands = candidate_quotes(text, "Obstarávanie v malých obciach")
+    assert cands[0].startswith("Malé obce nestíhajú") and not any("@" in c for c in cands)
+    agent = ResearchAgent.__new__(ResearchAgent)
+    agent.pages, agent.tools, agent.topic = {"https://x.sk": (1, [text])}, TOOLS, "Obstarávanie v malých obciach"
+    out = agent.read_page("https://x.sk", 0)
+    assert "Candidate quotes picked by code" in out and "1. Malé obce nestíhajú" in out
+    agent.tools = [t for t in TOOLS if t["function"]["name"] != "record_evidence"]  # agent bez ukladania citátov
+    assert "Candidate quotes" not in agent.read_page("https://x.sk", 0)
+
