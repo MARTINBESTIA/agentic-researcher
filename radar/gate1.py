@@ -40,6 +40,7 @@ from .nku import is_nku_page
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
+    drop_columns,
     FILE_LINK_RE, DatasetError, coverage, download, download_paginated, drop_table, file_format, hyp_dir, import_table,
     profile_table, run_query, schema_text, wide_to_long,
 )
@@ -192,7 +193,7 @@ def reopen(db: DB, hid: int, who: str = "GUI") -> int:
 
 def download_work(cfg: Config, db: DB, hid: int) -> bool:
     """Práca bez modelu: zdroj ešte nekontrolovaný, alebo overený zdroj so súbormi, ktoré nie sú stiahnuté."""
-    done = {d["url"] for d in db.datasets_for(hid)}
+    done = {d["url"] for d in db.datasets_for(hid) if d["status"] != "gdpr_approved"}  # posúdené – čaká na stiahnutie
     for src in db.sources_for(hid):
         if src["status"] == "rejected":
             continue
@@ -722,19 +723,44 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
                 retry_crz = old is not None and old["status"] == "error" and is_crz_export(url)  # adresár → dávky
                 # prerušené uprostred sťahovania (pád procesu alebo kroku) – znova
                 retry_broken = old is not None and old["status"] == "error" and (old["note"] or "") == "sťahuje sa"
-                if old is not None and not (retry_crz or retry_broken) and not (
+                gdpr = (json.loads(old["profile_json"] or "{}").get("gdpr") if old is not None
+                        and old["status"] == "gdpr_approved" else None)  # posúdené človekom: bez osobných stĺpcov
+                if old is not None and not (retry_crz or retry_broken or gdpr) and not (
                         paging.get(url) and not (old["note"] or "").startswith("API:")):
                     continue  # už stiahnuté (jednostránkové API sa stiahne znova, keď vieme stránkovať)
                 if db.datasets_total_bytes() >= limit_total:
                     stats["total_limit"] += 1
                     return dict(stats)
                 stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url),
-                                          (checks.get("formát_podľa_katalógu") or {}).get(url), deadline))
+                                          (checks.get("formát_podľa_katalógu") or {}).get(url), deadline, gdpr=gdpr))
     return dict(stats)
 
 
+def approve_without_personal(db: DB, dataset_id: int, decision: str) -> list[str]:
+    """Tvoje posúdenie podľa GDPR pre dataset zablokovaný pre osobné údaje: pri najbližšom prieskume dát sa stiahne
+    znova a uloží bez stĺpcov s osobnými údajmi (minimalizácia). Rozhodnutie sa zapíše k datasetu aj do poznámok.
+    Vráti stĺpce, ktoré sa odstránia."""
+    ds = db.get_dataset(dataset_id)
+    if ds is None or ds["status"] != "personal_data_blocked":
+        raise ValueError("Dataset nie je zablokovaný pre osobné údaje.")
+    decision = (decision or "").strip()
+    if len(decision) < 20:
+        raise ValueError("Opíš účel a právny základ (aspoň jednou vetou).")
+    prof = json.loads(ds["profile_json"] or "{}")
+    cols = list(prof.get("personal_columns") or [])
+    prof["gdpr"] = {"rozhodnutie": decision, "odstrániť": cols, "kedy": utcnow()}
+    db.update_dataset(dataset_id, status="gdpr_approved", profile_json=prof,
+                      note="GDPR posúdené človekom – stiahne sa znova bez stĺpcov: " + ", ".join(cols))
+    hyp = db.get_hypothesis(ds["hypothesis_id"])
+    if hyp is not None and hyp["gate1_status"] in ("needs_input", "ready"):
+        db.set_gate_status(hyp["id"], 1, "running")  # automatický prieskum má znova prácu (sťahovanie)
+    db.add_note(ds["hypothesis_id"], f"GDPR: dataset {ds['url']} – uložiť bez stĺpcov {', '.join(cols)}; "
+                                     f"posúdenie: {decision}", source="human")
+    return cols
+
+
 def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None,
-                 fmt_hint: str | None = None, deadline: Deadline | None = None) -> Counter:
+                 fmt_hint: str | None = None, deadline: Deadline | None = None, gdpr: dict | None = None) -> Counter:
     stats: Counter = Counter()
     dataset_id = db.add_dataset(hid, src["id"], url, "pending", status="error", note="sťahuje sa")
     table = f"ds{dataset_id}"
@@ -758,6 +784,16 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         if is_crz_export(url):
             dedupe_latest(cfg, hid, table)
         prof = profile_table(cfg, hid, table)
+        removed: list[str] = []
+        for _ in range(3 if gdpr else 0):  # posúdené človekom: osobné stĺpce preč (aj tie, čo detektor nájde navyše)
+            cols = list(dict.fromkeys(list(gdpr.get("odstrániť") or []) + prof["personal_columns"]))
+            dropped = drop_columns(cfg, hid, table, cols)
+            removed += dropped
+            prof = profile_table(cfg, hid, table)
+            if not prof["personal_columns"] or not dropped:
+                break
+        if gdpr:
+            prof["gdpr"] = gdpr | {"odstránené": removed}
         if dl.window and dl.window[0]:  # dávky CRZ: zmluvy zverejnené v týchto dňoch (časový rad Brány 2 iba v okne)
             prof["časové_okno"] = {"od": dl.window[0], "do": dl.window[1], "podľa": "deň zverejnenia (dávky)"}
     except DatasetError as exc:
@@ -770,8 +806,12 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         db.add_dataset(hid, src["id"], url, table, status="error", note=f"chyba: {type(exc).__name__}: {str(exc)[:200]}")
         stats["dataset_errors"] += 1
         return stats
+    note = dl.note
+    if gdpr:
+        note = ((note + " · ") if note else "") + (f"GDPR: odstránené stĺpce {', '.join(prof['gdpr']['odstránené'])}; "
+                                                    f"posúdenie človeka: {gdpr.get('rozhodnutie', '')[:160]}")
     return _store_profiled(cfg, db, hid, src["id"], url, table, dataset_id, prof, orgs, format=fmt, size_bytes=dl.size,
-                           sha256=dl.sha256, note=dl.note)
+                           sha256=dl.sha256, note=note)
 
 
 def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: str, table: str, dataset_id: int,
@@ -791,7 +831,7 @@ def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: s
         prof["dlhý_tvar"] = wide_to_long(cfg, hid, table)
         stats["long_tables"] += 1 if (prof["dlhý_tvar"] or {}).get("tabuľka") else 0
     db.add_dataset(hid, source_id, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
-                   status="ok")
+                   status="ok", personal_data=0)
     for other in sharing_hypotheses(db, hid):  # rozdelená hypotéza: tabuľka je v spoločnej DuckDB, záznam pre všetky
         if other != hid:
             db.add_dataset(other, None, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,

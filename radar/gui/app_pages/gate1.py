@@ -3,7 +3,10 @@ from datetime import date
 import streamlit as st
 
 from radar.datasets import DatasetError
-from radar.gate1 import REPRO_LABELS, USER_FILE_EXT, add_dataset_url, automated_work, decide, eligible, reopen, upload_path
+from radar.gate1 import (
+    REPRO_LABELS, USER_FILE_EXT, add_dataset_url, approve_without_personal, automated_work, decide, eligible, reopen,
+    upload_path,
+)
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
 
@@ -208,6 +211,29 @@ with tab_d:
                          "stav": ds["status"], "poznámka": ds["note"] or ""})
         st.dataframe(rows, hide_index=True, alt="Stiahnuté datasety",
                      column_config={"url": st.column_config.LinkColumn("URL")})
+        for ds in [x for x in datasets if x["status"] == "personal_data_blocked"]:
+            cols = json_or(ds["profile_json"], {}).get("personal_columns") or []
+            with st.expander(f"Posúdenie GDPR: {ds['table_name']} – osobné údaje v stĺpcoch {', '.join(cols)}",
+                             icon=":material/shield_person:"):
+                st.caption("Dataset sa neuložil, lebo obsahuje osobné údaje. Ak na jeho použitie máš účel a právny "
+                           "základ, dá sa uložiť bez týchto stĺpcov (minimalizácia). Over aj zvyšné stĺpce – napr. IČO "
+                           "živnostníka alebo presná adresa môžu osobu identifikovať; za posúdenie zodpovedáš ty.")
+                with st.form(f"g1_gdpr_{ds['id']}"):
+                    decision = st.text_area("Účel a právny základ (tvoje posúdenie)", key=f"g1_gdpr_t_{ds['id']}")
+                    sure = st.checkbox("Posúdil(a) som spracovanie podľa GDPR; zvyšné stĺpce osoby neidentifikujú",
+                                       key=f"g1_gdpr_c_{ds['id']}")
+                    if st.form_submit_button("Uložiť bez stĺpcov s osobnými údajmi", icon=":material/save:"):
+                        if not sure:
+                            st.error("Najprv potvrď posúdenie.")
+                        else:
+                            try:
+                                approve_without_personal(d, ds["id"], decision)
+                            except ValueError as exc:
+                                st.error(str(exc))
+                            else:
+                                st.toast("Zapísané – dataset sa stiahne bez osobných stĺpcov pri najbližšom "
+                                         "prieskume dát.", icon=":material/check:")
+                                refresh()
     with st.form(f"g1_addurl_{hid}"):
         st.caption("Pridať dataset z odkazu (CSV, XLSX, JSON, XML, ZIP; stránka https://www.nku.gov.sk/datasety = kontrolné "
                    "zistenia NKÚ s IČO). Stiahne sa pri najbližšom prieskume dát; do DuckDB sa uloží iba bez osobných údajov.")

@@ -1290,3 +1290,21 @@ def test_local_catalog_index_syncs_incrementally_and_finds_by_meaning(tmp_path):
     hits = local.search("Rozpočet projektu – financie obcí", 1)
     assert [h.title for h in hits] == ["Rozpočty obcí 2025"] and hits[0].uri.endswith("/0")
 
+
+def test_personal_dataset_kept_without_personal_columns_after_human_gdpr_decision(tmp_path):
+    """Zlepšenie z improvements_logs: po tvojom posúdení GDPR sa dataset stiahne znova a uloží bez osobných stĺpcov."""
+    cfg, db, rec, router, hid, fid, org, fetcher = _dataset_env(tmp_path, PERSONAL_CSV)
+    gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])
+    ds = db.datasets_for(hid)[0]
+    with pytest.raises(ValueError):
+        gate1.approve_without_personal(db, ds["id"], "lebo")  # bez účelu a právneho základu nie
+    assert gate1.approve_without_personal(db, ds["id"], "Agregované sumy na obec pre analýzu problému, oprávnený "
+                                                       "záujem (LIA).") == ["meno", "priezvisko"]
+    assert gate1.download_work(cfg, db, hid)  # čaká na nové stiahnutie
+    assert gate1.run_datasets(cfg, db, fetcher, Deadline(1), [hid])["datasets"] == 1
+    ds = db.datasets_for(hid)[0]
+    assert ds["status"] == "ok" and ds["personal_data"] == 0 and "GDPR: odstránené stĺpce meno, priezvisko" in ds["note"]
+    assert [r[0] for r in run_query(cfg, hid, f"SELECT * FROM {ds['table_name']} ORDER BY suma")] == [100, 200]
+    assert not gate1.download_work(cfg, db, hid)
+    assert any("GDPR" in n["text"] for n in db.notes_for(hid))
+

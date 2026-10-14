@@ -476,6 +476,21 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
                 extra.unlink(missing_ok=True)
 
 
+def drop_columns(cfg: Config, hid: int, table: str, columns: list[str]) -> list[str]:
+    """Odstráni stĺpce z tabuľky datasetu (minimalizácia osobných údajov po rozhodnutí človeka); vráti odstránené."""
+    if not re.fullmatch(r"ds\d+", table) or not duck_path(cfg, hid).exists():
+        return []
+    con = duckdb.connect(str(duck_path(cfg, hid)))
+    try:
+        existing = {r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()}
+        dropped = [c for c in columns if c in existing]
+        for c in dropped:
+            con.execute(f"ALTER TABLE {table} DROP COLUMN {_quote(c)}")
+        return dropped
+    finally:
+        con.close()
+
+
 def drop_table(cfg: Config, hid: int, table: str) -> None:
     if not re.fullmatch(r"ds\d+", table) or not duck_path(cfg, hid).exists():
         return
