@@ -379,6 +379,8 @@ def action_card(kind: str, key_prefix: str = "act", extra: str | None = None) ->
             names = ", ".join(f"H{h}" for h in plan["s_modelom"]) or "žiadna (všetky polia sú hľadané nedávno)"
             st.caption(f"**V tomto behu s modelmi:** {names} (odhad ~{plan['odhad_min']} min)"
                        + (f" · na ďalší beh: {len(plan['nabudúce'])}" if plan["nabudúce"] else "")
+                       + (f" · už vyhodnotené, preskočia sa: {', '.join(f'H{h}' for h in plan['vyhodnotené'])} "
+                          "(znova: Brána 1 → Prehľadať znova)" if plan["vyhodnotené"] else "")
                        + f". Kontrola zdrojov a sťahovanie dát (vyhradených {c.gate1.download_reserve_minutes:g} min) "
                        "prebehnú pre všetky zvolené"
                        + (": nájdené zdroje čakajú pri " + ", ".join(f"H{h}" for h in plan["na_kontrolu"])

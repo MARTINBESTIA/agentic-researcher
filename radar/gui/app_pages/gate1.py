@@ -3,7 +3,7 @@ from datetime import date
 import streamlit as st
 
 from radar.datasets import DatasetError
-from radar.gate1 import REPRO_LABELS, USER_FILE_EXT, add_dataset_url, decide, upload_path
+from radar.gate1 import REPRO_LABELS, USER_FILE_EXT, add_dataset_url, automated_work, decide, eligible, reopen, upload_path
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
 
@@ -18,7 +18,7 @@ if not hyps:
     st.info("Žiadna hypotéza nie je vybraná na Bránu 0. Vyber ju v Problémoch alebo akciou „Zbierať ľudí ku overeným "
             "hypotézam“.", icon=":material/info:")
     st.stop()
-STATUS = {"not_started": "nezačatá", "running": "prebieha", "ready": "pripravená na rozhodnutie",
+STATUS = {"not_started": "nezačatá", "running": "rozpracovaná", "ready": "pripravená na rozhodnutie",
           "needs_input": "čaká na tvoje dáta", "passed": "prešla", "paused": "pozastavená", "stopped": "zastavená"}
 labels = {h["id"]: f"H{h['id']}: {h['title'][:80]} · {STATUS.get(h['gate1_status'], h['gate1_status'])}" for h in hyps}
 hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g1_h")
@@ -39,12 +39,25 @@ if summary:
         f"{k} {v}" for k, v in summary.get("zložky", {}).items()) + ". Poradie, nie pravdepodobnosť úspechu.")
 if h["gate1_status"] == "needs_input":
     st.warning(f"Pripravenosť dát je pod {c.gate1.auto_gate2_readiness:.2f} – Brána 2 čaká na tvoje dáta alebo aspoň "
-               "schému (záložka Tvoje dáta). Autopilot medzitým občas znova prehľadá zdroje.", icon=":material/upload:")
+               "schému (záložka Tvoje dáta). Automatický prieskum je hotový a sám sa neopakuje; zdroje znova prehľadá "
+               "iba „Prehľadať znova“.", icon=":material/upload:")
 last = next(iter(d.gate_decisions_for(hid, 1)), None)
 if h["gate1_status"] == "passed" and last is not None:
     st.success(f"Brána 1 prešla ({last['decided_at'][:10]}): {last['reason'] or ''}", icon=":material/check_circle:")
-start_job_button("gate1", "Spustiť prieskum dát pre túto hypotézu", 90, [hid], key=f"g1_run_{hid}",
-                 icon=":material/database:")
+if eligible(h):
+    todo = automated_work(c, d, hid)
+    if todo:
+        st.caption("Zostáva: " + ", ".join(todo) + ".")
+    start_job_button("gate1", "Spustiť prieskum dát pre túto hypotézu", 90, [hid], key=f"g1_run_{hid}",
+                     icon=":material/database:")
+elif h["gate1_status"] in ("needs_input", "ready", "passed"):
+    st.caption("Prieskum dát je vyhodnotený – automatické behy ho preskakujú.")
+    if st.button("Prehľadať znova", icon=":material/restart_alt:", key=f"g1_reopen_{hid}",
+                 help="Polia, ku ktorým agent nenašiel zdroj, sa znova otvoria a hypotéza bude rozpracovaná; "
+                      "spusti potom prieskum dát."):
+        n = reopen(d, hid)
+        st.toast(f"Znova otvorené polia: {n}. Hypotéza je rozpracovaná.")
+        refresh()
 jobs_panel(show_last=False)
 
 tab_f, tab_u, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(["Polia", "Tvoje dáta", "Zdroje", "Datasety",

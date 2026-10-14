@@ -247,8 +247,8 @@ USER_CSV = "ico;rok;mesiac;vydavky_eur\n00313271;2024;1;1200\n00313271;2024;2;13
 
 def _waiting_hyp(cfg, db, fields=(("Výdavky obce", True), ("Termíny projektov", True), ("Počet zamestnancov", False))):
     hid = gate1_hyp(db)
-    for name, key in fields:
-        db.upsert_field(hid, name, "", key, "")
+    for name, key in fields:  # agent ich hľadal a zdroj nenašiel – automatický prieskum je hotový
+        db.update_field(db.upsert_field(hid, name, "", key, ""), status="missing")
     db.start_gate1(hid)
     return hid
 
@@ -338,7 +338,7 @@ def test_user_input_with_personal_data_low_score_and_model_failure(tmp_path):
     assert db.get_hypothesis(low)["gate1_status"] == "needs_input"  # čaká na ďalší vstup
 
 
-def test_autopilot_evaluates_user_inputs_and_retries_waiting_hypotheses_later(tmp_path):
+def test_autopilot_evaluates_user_inputs_and_researches_waiting_hypotheses_only_after_reopen(tmp_path):
     from radar.autopilot import ROUND, gate1_ids, pending_work
     from radar.workflows import ACTIONS, _gate1_input
 
@@ -346,9 +346,11 @@ def test_autopilot_evaluates_user_inputs_and_retries_waiting_hypotheses_later(tm
     hid = _waiting_hyp(cfg, db)
     assert gate1_ids(db) == [hid]  # nikdy nedokončená
     gate1.run_finish(cfg, db, Deadline(1), [hid])
-    now = datetime.now(timezone.utc)
-    assert gate1_ids(db, retry_days=3, now=now) == []  # čaká na tvoje dáta – hneď sa znova neprehľadáva
-    assert gate1_ids(db, retry_days=3, now=now + timedelta(days=4)) == [hid]
+    assert gate1_ids(db) == []  # čaká na tvoje dáta – automaticky sa znova neprehľadáva
+    assert gate1.reopen(db, hid) == 3 and gate1_ids(db) == [hid]  # „Prehľadať znova“
+    assert {f["status"] for f in db.fields_for(hid)} == {"open"}
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    assert db.get_hypothesis(hid)["gate1_status"] == "running"  # polia čakajú na agenta – nie „čaká na tvoje dáta“
     assert "gate1-input" not in pending_work(cfg, db)
     db.add_gate1_input(hid, "schéma: obec; rok; výdavky v €")
     assert "H" + str(hid) in pending_work(cfg, db)["gate1-input"]
@@ -500,9 +502,7 @@ def test_sources_from_read_pages_when_agent_only_reads(tmp_path):
     """Reálny beh: agent prečítal 5 stránok ITMS, ale record_source nezavolal ani raz."""
     cfg, db, rec, router = setup(tmp_path)
     hid = gate1_hyp(db)
-    fid = db.upsert_field(hid, "Výdavky obce na obstarávanie", "", True, "")
-    db.update_field(fid, status="missing")  # agent ho hľadal pred týždňom – znova až po research_retry_days
-    db.conn.execute("UPDATE data_fields SET updated_at = '2020-01-01T00:00:00+00:00' WHERE id = ?", (fid,))
+    fid = db.upsert_field(hid, "Výdavky obce na obstarávanie", "", True, "")  # otvorené – agent ho ešte nehľadal
     db.add_info_request(hid, fid, "{POVINNÁ_OSOBA}", "Žiadosť", "text")
     page = "https://data.obce.sk/dataset/vydavky"
     rec.responses["tools"] = [step(call("read_page", {"url": page})), step(call("finish", {"summary": "našiel som portál"}))]
@@ -1168,35 +1168,32 @@ def test_catalog_candidates_ranked_by_meaning_of_field():
 
 
 # ======================================================================= Brána 1: rozdelenie času (úloha #75)
-def test_gate1_plan_prefers_new_hypotheses_and_fits_the_limit(tmp_path):
-    """58 hypotéz za 120 min sa nedá – beh vezme s modelmi toľko, koľko stihne; nedávno hľadané polia sa preskočia."""
+def test_gate1_plan_only_unstarted_and_in_progress_and_fits_the_limit(tmp_path):
+    """58 hypotéz za 120 min sa nedá – beh vezme s modelmi toľko, koľko stihne; vyhodnotené hypotézy sa preskočia
+    (pokyn 14. 10. 2026: automaticky iba nezačaté a rozpracované)."""
     cfg, db, rec, router = setup(tmp_path)
-    now = datetime(2026, 10, 14, 12, tzinfo=timezone.utc)
-    old_searched = db.create_hypothesis("Hľadané pred týždňom", "", "x")
-    recent = db.create_hypothesis("Hľadané dnes", "", "x")
+    waiting = db.create_hypothesis("Čaká na tvoje dáta", "", "x")
+    searched = db.create_hypothesis("Rozpracovaná, polia prehľadané", "", "x")
     new_a = db.create_hypothesis("Nová A", "", "x")
     new_b = db.create_hypothesis("Nová B", "", "x")
     passed = db.create_hypothesis("Prešla", "", "x")
     started = db.create_hypothesis("Rozpracovaná (polia bez hľadania)", "", "x")
-    for hid, status, when in ((old_searched, "missing", "2026-10-07T10:00:00+00:00"),
-                              (recent, "missing", "2026-10-14T09:00:00+00:00"), (passed, "open", None),
-                              (started, "open", None)):
-        fid = db.upsert_field(hid, "Suma", "", True, "")
-        db.update_field(fid, status=status)
-        if when:
-            db.conn.execute("UPDATE data_fields SET updated_at = ? WHERE id = ?", (when, fid))
+    for hid, status in ((waiting, "open"), (searched, "missing"), (passed, "open"), (started, "open")):
+        db.update_field(db.upsert_field(hid, "Suma", "", True, ""), status=status)
+        db.start_gate1(hid)
+    db.set_gate_status(waiting, 1, "needs_input")
     db.set_gate_status(passed, 1, "passed")
-    found = db.upsert_field(recent, "Počet", "", False, "")
-    db.add_source(found, recent, "Portál", "https://data.sk/portal", "agent")  # nájdený, ešte neskontrolovaný
-    ids = [old_searched, recent, new_a, new_b, passed, started]
-    plan = gate1.plan_run(cfg, db, ids, 120, now=now)
-    # rozpočet 120 − 15 (kontrola a sťahovanie) − 6 = 99 min: nové po 19 min, ostatné po 15 min; rozpracovaná prvá
-    assert plan["s_modelom"] == [started, new_a, new_b, old_searched, passed] and plan["odhad_min"] == 83
-    assert plan["bez_práce_s_modelom"] == [recent] and plan["všetky"] == ids
-    assert plan["na_kontrolu"] == [recent]  # kontrola a sťahovanie bez modelu (GUI ju predvolene vyberie)
-    plan = gate1.plan_run(cfg, db, ids, 45, now=now)
-    assert plan["s_modelom"] == [started] and plan["nabudúce"] == [new_a, new_b, old_searched, passed]
-    assert gate1.plan_run(cfg, db, ids, 5, now=now)["s_modelom"] == [started]  # aspoň jedna
+    found = db.upsert_field(searched, "Počet", "", False, "")
+    db.add_source(found, searched, "Portál", "https://data.sk/portal", "agent")  # nájdený, ešte neskontrolovaný
+    ids = [waiting, searched, new_a, new_b, passed, started]
+    plan = gate1.plan_run(cfg, db, ids, 120)
+    # rozpočet 120 − 15 (kontrola a sťahovanie) − 6 = 99 min: nové po 19 min, rozpracované po 15 min
+    assert plan["s_modelom"] == [started, new_a, new_b] and plan["odhad_min"] == 53
+    assert plan["vyhodnotené"] == [waiting, passed] and plan["všetky"] == [searched, new_a, new_b, started]
+    assert plan["bez_práce_s_modelom"] == [searched] and plan["na_kontrolu"] == [searched]
+    plan = gate1.plan_run(cfg, db, ids, 45)
+    assert plan["s_modelom"] == [started] and plan["nabudúce"] == [new_a, new_b]
+    assert gate1.plan_run(cfg, db, ids, 5)["s_modelom"] == [started]  # aspoň jedna
 
 
 def test_gate1_check_and_downloads_keep_their_time_when_agent_uses_all(tmp_path, monkeypatch):

@@ -348,8 +348,6 @@ class Gate1Config(BaseModel):
     # „čaká na tvoje dáta“ – po vstupe človeka (text, schéma, súbor) posúdi model polia a kód spočíta vhodnosť ≥ prah.
     auto_gate2_readiness: float = 0.5
     user_data_threshold: float = 0.5
-    # Autopilot: hypotézu „čaká na tvoje dáta“ znova automaticky prehľadá najskôr po toľkých dňoch (zdroje pribúdajú).
-    research_retry_days: float = 3.0
     # Rozdelenie času akcie Brána 1 (úloha #75: agent zdrojov minul spoločný úsek a kontrola so sťahovaním sa preskočili).
     download_reserve_minutes: float = 15.0  # kontrola zdrojov a sťahovanie (bez modelu) – vyhradené, agent ich nemíňa
     sources_minutes_per_hypothesis: float = 15.0  # strop agenta zdrojov na jednu hypotézu (H15 minula 23 min)

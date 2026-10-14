@@ -44,18 +44,15 @@ def selected_ids(db: DB) -> list[int]:
     return [h["id"] for h in db.people_enabled_hypotheses()]
 
 
-def gate1_ids(db: DB, k: int = GATE1_PER_JOB, retry_days: float = 3.0, now: datetime | None = None) -> list[int]:
-    """Vybrané hypotézy s nedokončenou Bránou 1: najprv nikdy nespracované, potom najdlhšie nespracované; tie, ktoré
-    čakajú na tvoje dáta, sa znova automaticky prehľadajú najskôr po `retry_days` (zdroje a katalóg pribúdajú)."""
-    cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=retry_days)).isoformat(timespec="seconds")
+def gate1_ids(db: DB, k: int = GATE1_PER_JOB) -> list[int]:
+    """Vybrané hypotézy s nedokončenou Bránou 1 (nezačaté a rozpracované): najprv rozpracované, potom najdlhšie
+    nespracované. Vyhodnotené („čaká na tvoje dáta“) sa automaticky znova neprehľadávajú (pokyn 14. 10. 2026)."""
     rows = []
     for h in db.people_enabled_hypotheses():
         status = h["gate1_status"] or "not_started"
         when = (json.loads(h["gate1_json"] or "{}") or {}).get("vypočítané") or ""
         if status in ("not_started", "running"):
-            rows.append((0, when, h["id"]))
-        elif status == "needs_input" and when < cutoff:
-            rows.append((1, when, h["id"]))
+            rows.append((0 if status == "running" else 1, when, h["id"]))
     return [hid for *_, hid in sorted(rows)[:k]]
 
 
@@ -95,7 +92,7 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
                               OR (c.org_id = p.org_id AND c.is_generic = 1))""", tuple(ids))["n"]
         if drafts:
             work["drafts"] = f"{drafts} zoradených ľudí s kontaktom bez návrhu"
-        g1 = gate1_ids(db, retry_days=cfg.gate1.research_retry_days)
+        g1 = gate1_ids(db)
         if g1:
             work["gate1"] = "hypotézy " + ", ".join(f"H{i}" for i in g1)
     inputs = sorted({r["hypothesis_id"] for r in db.pending_gate1_inputs()})
@@ -142,7 +139,7 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
         if slice_min < MIN_SLICE:
             skipped[kind] = "nezmestí sa do času"
             continue
-        ids = (gate1_ids(db, retry_days=cfg.gate1.research_retry_days) if kind == "gate1"
+        ids = (gate1_ids(db) if kind == "gate1"
                else selected_ids(db) if kind in ("people", "contacts", "drafts") else [])
         job = db.create_job(kind, {"minutes": round(slice_min), "hypotheses": ids, "config": config,
                                    "autopilot": round_no}, status="queued")

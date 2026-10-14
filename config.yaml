@@ -265,9 +265,9 @@ gate1:
   # dáta“ – v GUI (Brána 1 → Tvoje dáta) vložíš popis, schému alebo súbor, sudca posúdi polia, vhodnosť počíta kód.
   auto_gate2_readiness: 0.5
   user_data_threshold: 0.5         # vhodnosť tvojich dát ≥ 0,5 → Brána 1 prejde automaticky
-  research_retry_days: 3           # autopilot znova prehľadá „čaká na tvoje dáta“ najskôr po 3 dňoch
   # Čas akcie Brána 1: kontrola a sťahovanie majú vyhradený čas; beh vezme s modelmi len toľko hypotéz, koľko stihne
-  # (nové a s nehľadanými poľami najprv), ostatné počkajú na ďalší beh.
+  # (rozpracované, potom nové), ostatné počkajú na ďalší beh. Vyhodnotené hypotézy („čaká na tvoje dáta“, „prešla“)
+  # sa automaticky neprehľadávajú – iba po „Prehľadať znova“ na stránke Brána 1.
   download_reserve_minutes: 15     # kontrola zdrojov a sťahovanie dát (bez modelu)
   sources_minutes_per_hypothesis: 15  # strop agenta zdrojov na hypotézu
   fields_minutes: 4                # odhad návrhu polí na hypotézu (plánovanie behu)

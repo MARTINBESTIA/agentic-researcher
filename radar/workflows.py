@@ -358,20 +358,27 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
 
     g1 = app.cfg.gate1
     plan = plan_run(app.cfg, app.db, ids, deadline.remaining_minutes())
-    log.info("Brána 1: s modelmi %s (odhad %s min), na ďalší beh %s, bez práce s modelmi %s",
+    log.info("Brána 1: s modelmi %s (odhad %s min), na ďalší beh %s, bez práce s modelmi %s, vyhodnotené (preskočené) %s",
              ", ".join(f"H{h}" for h in plan["s_modelom"]) or "nič", plan["odhad_min"], len(plan["nabudúce"]),
-             len(plan["bez_práce_s_modelom"]))
-    report_progress(s_modelom=plan["s_modelom"], nabudúce=len(plan["nabudúce"]))
+             len(plan["bez_práce_s_modelom"]), ", ".join(f"H{h}" for h in plan["vyhodnotené"]) or "žiadne")
+    report_progress(s_modelom=plan["s_modelom"], nabudúce=len(plan["nabudúce"]), preskočené=plan["vyhodnotené"])
+    inputs = sorted({r["hypothesis_id"] for r in app.db.pending_gate1_inputs()
+                     if not ids or r["hypothesis_id"] in ids})  # tvoje dáta sa posúdia aj pri vyhodnotenej hypotéze
+    if not plan["všetky"] and not inputs:
+        log.info("Brána 1: žiadna nezačatá ani rozpracovaná hypotéza – nič na prieskum (znova: Brána 1 → Prehľadať znova)")
+        return
     if plan["s_modelom"]:
         app.gate_ids = plan["s_modelom"]
         model_dl = deadline.sub(deadline.remaining_minutes() - g1.download_reserve_minutes - GATE1_TAIL_MIN)
         run("gate1-fields", model_dl.sub(model_dl.remaining_minutes() * 0.3))
         run("gate1-sources", model_dl)
-    app.gate_ids = plan["s_modelom"] + [h for h in plan["všetky"] if h not in plan["s_modelom"]] or ids
-    downloads = max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)
-    run("gate1-check", deadline.sub(min(downloads, max(3.0, downloads * 0.3))))
-    run("gate1-datasets", deadline.sub(max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)))
-    run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 3)))
+    app.gate_ids = plan["s_modelom"] + [h for h in plan["všetky"] if h not in plan["s_modelom"]]
+    if app.gate_ids:
+        downloads = max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)
+        run("gate1-check", deadline.sub(min(downloads, max(3.0, downloads * 0.3))))
+        run("gate1-datasets", deadline.sub(max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)))
+        run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 3)))
+    app.gate_ids = app.gate_ids + [h for h in inputs if h not in app.gate_ids]
     run("gate1-user", Deadline(8))  # čakajúce vstupy človeka (bez nich bez modelu)
     run("gate1-finish", Deadline(2))
 
