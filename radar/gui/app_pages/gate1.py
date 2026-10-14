@@ -35,6 +35,15 @@ with st.container(horizontal=True):
     st.metric("Organizácie v dátach", summary.get("organizácie_v_dátach", 0), border=True)
     st.metric("Reprodukcia čísla", REPRO_LABELS.get(
         summary.get("reprodukcia"), "–"), border=True)
+running_here = next((j for j in d.active_jobs() if j["kind"] in ("gate1", "autopilot")
+                     and hid in (json_or(j["progress_json"], {}).get("s_modelom") or [])), None)
+if running_here is not None:
+    st.info(f"Prieskum dát pre túto hypotézu práve beží (úloha #{running_here['id']}, krok "
+            f"{json_or(running_here['progress_json'], {}).get('krok', '?')}) – pripravenosť sa spočíta na konci úlohy.",
+            icon=":material/hourglass_top:")
+elif (h["gate1_status"] or "not_started") == "not_started":
+    st.caption("Prieskum dát pre túto hypotézu ešte nebežal, preto pripravenosť chýba. Beh Brány 1 stihne s modelmi "
+               "~5–6 hypotéz za 120 min (karta akcie v Správcovi akcií ukáže, ktoré); ostatné idú v ďalších behoch.")
 for flag in summary.get("príznaky", []):
     st.warning(flag, icon=":material/flag:")
 if summary:
