@@ -1308,3 +1308,22 @@ def test_personal_dataset_kept_without_personal_columns_after_human_gdpr_decisio
     assert not gate1.download_work(cfg, db, hid)
     assert any("GDPR" in n["text"] for n in db.notes_for(hid))
 
+
+def test_domain_index_follows_nested_sitemaps_and_is_cached(tmp_path):
+    """Lokálny index webu organizácie: sitemap z robots.txt aj vnorené (WordPress), v cache – druhá osoba bez sťahovania."""
+    from radar.person_contacts import domain_index, person_links
+
+    cfg, db, rec, router = setup(tmp_path)
+    index_xml = ("<sitemapindex><sitemap><loc>https://www.fiktivne-mesto.sk/wp-sitemap-posts-page-1.xml</loc></sitemap>"
+                 "<sitemap><loc>https://ine.sk/sitemap.xml</loc></sitemap></sitemapindex>")
+    pages_xml = ("<urlset><url><loc>https://www.fiktivne-mesto.sk/urad/jana-novakova</loc></url>"
+                 "<url><loc>https://www.fiktivne-mesto.sk/kontakt</loc></url></urlset>")
+    fetcher = FakeFetcher(htmls={"https://fiktivne-mesto.sk/wp-sitemap.xml": index_xml,
+                                 "https://www.fiktivne-mesto.sk/wp-sitemap-posts-page-1.xml": pages_xml})
+    fetcher.sitemaps = lambda url: ["https://fiktivne-mesto.sk/wp-sitemap.xml"]
+    urls = domain_index(db, fetcher, "fiktivne-mesto.sk")
+    assert urls == ["https://www.fiktivne-mesto.sk/urad/jana-novakova", "https://www.fiktivne-mesto.sk/kontakt"]
+    assert person_links(urls, "fiktivne-mesto.sk", "Mgr. Jana Nováková") == [urls[0]]
+    fetcher.htmls.clear()  # druhá osoba tej istej organizácie: z cache
+    assert domain_index(db, fetcher, "fiktivne-mesto.sk") == urls
+

@@ -17,6 +17,7 @@ a sociálne siete sa nesťahujú. Pred uložením kontrola zoznamu potlačenia. 
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import Counter
@@ -77,18 +78,58 @@ def contacts_of_name(text: str, name: str, emails: list[str], phones: list[str])
     return out
 
 
-def sitemap_person_links(xml: str, org_domain: str, name: str, limit: int = 3) -> list[str]:
-    """URL zo sitemap.xml webu organizácie, ktorých cesta obsahuje priezvisko (napr. /urad/jana-novakova)."""
+LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
+DOMAIN_INDEX_DAYS = 30
+SITEMAP_PATHS = ("/sitemap.xml", "/sitemap_index.xml", "/wp-sitemap.xml")
+
+
+def person_links(urls: list[str], org_domain: str, name: str, limit: int = 3) -> list[str]:
+    """Adresy webu organizácie, ktorých cesta obsahuje priezvisko (napr. /urad/jana-novakova)."""
     surname = fold(split_titles(name)[0]).split()[-1] if split_titles(name)[0] else ""
     if len(surname) < 3:
         return []
     out = []
-    for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", xml or "", re.I):
+    for loc in urls:
         if domain_of(loc) == org_domain and surname in fold(loc.replace("-", " ").replace("_", " ")):
             out.append(loc)
         if len(out) >= limit:
             break
     return out
+
+
+def sitemap_person_links(xml: str, org_domain: str, name: str, limit: int = 3) -> list[str]:
+    """URL zo sitemap.xml webu organizácie, ktorých cesta obsahuje priezvisko (napr. /urad/jana-novakova)."""
+    return person_links(LOC_RE.findall(xml or ""), org_domain, name, limit)
+
+
+def domain_index(db: DB, fetcher, org_domain: str, max_sitemaps: int = 12, max_urls: int = 5000) -> list[str]:
+    """Lokálny index webu organizácie: adresy zo sitemap (aj z robots.txt a vnorených sitemap, napr. WordPress),
+    v cache 30 dní a spoločný pre všetkých ľudí organizácie – bez vyhľadávača, ktorý býva blokovaný. Predtým sa
+    pri každej osobe sťahovala iba /sitemap.xml (vnorené sitemapy sa nečítali)."""
+    key = f"domain-index:{org_domain}"
+    cached = db.cache_get(key, DOMAIN_INDEX_DAYS)
+    if cached is not None:
+        return json.loads(cached)
+    sitemaps = getattr(fetcher, "sitemaps", None)
+    queue = list(sitemaps(f"https://{org_domain}/") if sitemaps else []) + [f"https://{org_domain}{p}" for p in SITEMAP_PATHS]
+    seen: set[str] = set()
+    urls: list[str] = []
+    while queue and len(seen) < max_sitemaps and len(urls) < max_urls:
+        sm = queue.pop(0)
+        if sm in seen or domain_of(sm) != org_domain:
+            continue
+        seen.add(sm)
+        page = fetcher.fetch_html(sm)
+        if page.status != "ok":
+            continue
+        locs = [u for u in LOC_RE.findall(page.html or "") if domain_of(u) == org_domain]
+        if "<sitemapindex" in (page.html or "").lower():
+            queue += locs
+        else:
+            urls += locs
+    urls = list(dict.fromkeys(urls))[:max_urls]
+    db.cache_put(key, json.dumps(urls))
+    return urls
 
 
 def text_windows(text: str, name: str, radius: int = WINDOW) -> list[str]:
@@ -124,11 +165,10 @@ def find_person_contacts(cfg: Config, db: DB, searx, fetcher, person, deadline: 
         [f'"{name}" "{org["name"]}" kontakt'] if org is not None else [f'"{name}" kontakt']) + (
         [f'"{name}" site:{org_domain} filetype:pdf'] if org_domain else [])  # telefónne zoznamy, organizačné poriadky
     urls: list[str] = []
-    if org_domain:  # sitemap nepotrebuje vyhľadávač (ten býva preťažený alebo blokovaný)
-        sm = fetcher.fetch_html(f"https://{org_domain}/sitemap.xml")
-        stats["pages"] += 1
-        if sm.status == "ok":
-            urls += sitemap_person_links(sm.html, org_domain, name)
+    if org_domain:  # lokálny index webu nepotrebuje vyhľadávač (ten býva preťažený alebo blokovaný)
+        index = domain_index(db, fetcher, org_domain)
+        stats["index_urls"] += len(index)
+        urls += person_links(index, org_domain, name)
     for q in queries:
         try:
             results = searx.search(q, limit=8)

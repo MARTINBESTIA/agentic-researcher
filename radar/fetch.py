@@ -90,6 +90,19 @@ class Fetcher:
         parser = self._robots[base]
         return True if parser is None else parser.can_fetch(self.cfg.user_agent, url)
 
+    def sitemaps(self, url: str) -> list[str]:
+        """Riadky „Sitemap:“ z robots.txt webu (robots.txt sa číta raz a pamätá ako pri kontrole povolenia)."""
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        if base not in self._robots:
+            respect, self.cfg.respect_robots = self.cfg.respect_robots, True  # načíta robots.txt aj pri vypnutej kontrole
+            try:
+                self.allowed(url)
+            finally:
+                self.cfg.respect_robots = respect
+        parser = self._robots.get(base)
+        return list(parser.site_maps() or []) if parser is not None else []
+
     def _wait(self, domain: str) -> None:
         last = self._last_hit.get(domain)
         if last is not None:
