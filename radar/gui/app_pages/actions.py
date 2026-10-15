@@ -93,7 +93,7 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
             if st.form_submit_button("Uložiť výber modelov", icon=":material/save:"):
                 changed = {r: m for r, m in picks.items() if m not in (c.models.roles[r].model,
                                                                        f"{c.models.roles[r].model}:latest")}
-                d.set_setting(MODEL_SETTINGS_KEY, {"roles": changed, "profile": profile})
+                d.set_setting(MODEL_SETTINGS_KEY, {**chosen, "roles": changed, "profile": profile})  # cloud ostáva
                 st.toast("Výber modelov uložený – platí pre ďalšie spustené akcie.", icon=":material/check:")
                 st.session_state["models_changed"] = True
                 st.rerun()
@@ -113,14 +113,24 @@ with st.expander("Modely – výber pre ďalšie spustené akcie", icon=":materi
                 st.caption("Eval presnosti čaká na gold labely: " + ", ".join(
                     f"{t} {labels.get(t, 0)}/{MIN_LABELS}" for t in ("entail", "cluster_assign", "role_fit", "draft_check"))
                     + " – pridáš ich na stránke Eval → „Pridať na označenie“ a označíš v Kontrole.")
-        if chosen:
+        if chosen.get("roles") or chosen.get("profile"):
             st.caption("Aktívny výber z GUI (prepisuje config.yaml): " + ", ".join(
                 f"{r} = {m}" for r, m in (chosen.get("roles") or {}).items()) + f" · profil {chosen.get('profile')}")
-            if st.button("Obnoviť podľa config.yaml", icon=":material/restart_alt:"):
-                d.delete_setting(MODEL_SETTINGS_KEY)
+            if st.button("Obnoviť podľa config.yaml", icon=":material/restart_alt:",
+                         help="Vráti lokálne modely rolí a profil; cloudové profily a smerovanie ostanú."):
+                rest = {k: v for k, v in chosen.items() if k not in ("roles", "profile")}
+                if rest:
+                    d.set_setting(MODEL_SETTINGS_KEY, rest)
+                else:
+                    d.delete_setting(MODEL_SETTINGS_KEY)
                 st.rerun()
         st.caption("Na 8 GB VRAM sa zmestí jeden veľký model; väčšie modely (napr. 27B, MoE 35B) bežia čiastočne na CPU. "
                    "Bežiaca akcia si ponechá modely, s ktorými začala. Rýchlosť zmeria akcia „Zmerať rýchlosť modelov“.")
+
+with st.expander("Cloudové modely (Azure OpenAI) – profily, nasadenia, rozpočet", icon=":material/cloud:"):
+    from radar.gui.cloud_panel import cloud_panel
+
+    cloud_panel(c, d)
 
 with st.container(border=True):
     st.markdown("**Nechať bežať všetko (autopilot)**")

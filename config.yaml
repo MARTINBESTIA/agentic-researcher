@@ -29,6 +29,21 @@ models:
     # Agenti s nástrojmi (scout, test hypotéz, zdroje Brány 1). Tu 9B; v GUI (Správca akcií → Modely) je od 12. 10. 2026
     # zvolený MoE radar-qwen3.6-35b-a3b (ollama/Modelfile.qwen3.6-35b-a3b): 32,8 tok/s, nástroje OK. Výber v GUI prepíše tento riadok.
     agent:    {model: radar-qwen3.5-9b, timeout_s: 900, max_tokens: 2048}
+    # Hodnotiteľ (reviewer): kontrola prehľadov domén, návrhov prínosu a oslovení – iný model než generátor.
+    # Rola môže bežať v cloude (provider = názov profilu nižšie, deployment = názov nasadenia v Azure, reasoning: true
+    # pre reasoning modely). Pohodlnejšie v GUI: Správca akcií → Cloudové modely (výber prežije reštart).
+    # reviewer: {provider: azure, deployment: moje-gpt-4-1-mini, reasoning: false, json_mode: json_schema}
+  # Cloudové profily (audit 15. 10. 2026). Kľúč NIKDY nepíš sem – iba názov premennej prostredia, v ktorej je.
+  # Nasadenia sa iba čítajú (Azure Resource Manager, token v mgmt_token_env) alebo pridajú ručne; nič sa nevytvára.
+  # providers:
+  #   azure:
+  #     kind: azure_openai
+  #     endpoint: https://<resource>.openai.azure.com/openai/v1/
+  #     api_key_env: AZURE_OPENAI_API_KEY
+  #     subscription_id: ""          # voliteľné: na načítanie nasadení
+  #     resource_group: ""
+  #     account_name: ""
+  #     mgmt_token_env: AZURE_MGMT_TOKEN   # napr. az account get-access-token --query accessToken
   profile: balanced              # fast | balanced | accurate (napr. víkendový beh: run-all --profile accurate)
   self_consistency_temperature: 0.7
   # Ollama nemá rozpočet uvažovania (--reasoning-budget); strop dáva max_tokens úlohy + thinking_extra_tokens.
@@ -381,6 +396,25 @@ privacy:
   retention_days_declined: 30
   retention_days_exports: 30
   pseudonymize_reports: true
+  # Smú úlohy s menami a kontaktmi (návrhy oslovení, ich kontrola, kontakty) ísť do cloudového modelu? Predvolene nie:
+  # také úlohy čakajú, kým ich rola beží v cloude. Do cloudu idú iba úlohy z cloud.allowed_tasks (verejné zdroje).
+  cloud_personal_data: false
+
+# ---------------------------------------------------------------- cloudové modely (Azure OpenAI)
+# Vlastný rozpočet – nie zostatok Azure. Pred každým volaním sa rezervuje horný odhad ceny (vstup + max. výstup),
+# po odpovedi sa vyrovná podľa skutočných tokenov; timeout ostáva započítaný. Bez sadzby nasadenia sa nevolá.
+# Azure for Students: komerčné použitie (pilot so zákazníkom) si over v podmienkach predplatného.
+cloud:
+  budget_total_eur: 0.0            # 0 = cloud vypnutý; napr. 85.87 podľa zostatku kreditu (nastaviteľné aj v GUI)
+  budget_since: ""                 # od kedy sa ráta celkový rozpočet (YYYY-MM-DD)
+  budget_daily_eur: 2.0
+  budget_run_eur: 1.0
+  max_retries: 2                   # limit rýchlosti a dočasné chyby; potom položka čaká (žiadny drahší náhradný model)
+  chars_per_token: 2.0             # konzervatívny odhad tokenov promptu pri rezervácii
+  cache: true                      # rovnaký vstup + nasadenie + verzia promptu = odpoveď z cache (bez nákladov)
+  rates: {}                        # nasadenie → {input_per_1m, output_per_1m, currency, verified_at} z cenníka Azure
+  # allowed_tasks: [domain_brief, domain_brief_check, value_proposal, value_check, field_binding, entail, card_check,
+  #                 experiment_conclusion, critique]
 
 # ---------------------------------------------------------------- GUI (python -m radar gui)
 gui:

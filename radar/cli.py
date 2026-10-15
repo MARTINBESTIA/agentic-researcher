@@ -191,6 +191,17 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
         for role, model in roles.items():
             if role == "embed":
                 continue
+            if router.is_cloud(role):  # cloud: bez volania (stojí tokeny) – test pripojenia je v GUI
+                from .cloud import rate_for, secret_present
+
+                rc = router.role_config(role)
+                prof = router.models.providers.get(rc.provider)
+                env = prof.api_key_env if prof else "?"
+                print(f"[INFO] Rola {role} beží v cloude ({rc.provider}: nasadenie {rc.deployment}); kľúč v {env}: "
+                      f"{'nastavený' if prof and secret_present(env) else 'CHÝBA'}; sadzba: "
+                      f"{'áno' if rate_for(router.cloud, rc.deployment) else 'CHÝBA'}; rozpočet "
+                      f"{router.cloud.budget_total_eur:.2f} €. Test pripojenia: GUI → Správca akcií → Cloudové modely.")
+                continue
             if available and model.replace(":latest", "") not in available:
                 print(f"[CHYBA] Model {model} (rola {role}) na serveri nie je – pozri README (ollama create …).")
                 ok = False
@@ -203,7 +214,9 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
             except Exception as exc:  # noqa: BLE001
                 print(f"[CHYBA] Rola {role} ({model}) nevracia platný JSON: {exc}")
                 ok = False
-        if ok:
+        local_extract = cfg.models is None or not router.is_cloud(router.route("extract").role)
+        local_agent = cfg.models is None or not router.is_cloud(router.route("deep_dive").role)
+        if ok and local_extract:
             try:
                 full, code = check_context(app)
                 if full:
@@ -214,6 +227,7 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
                     ok = False
             except Exception as exc:  # noqa: BLE001
                 print(f"[POZOR] Test kontextu zlyhal: {exc}")
+        if ok and local_agent:
             try:
                 msg = router.client_for("deep_dive").chat_tools(
                     [{"role": "user", "content": "Call the finish tool with the summary 'test'."}], [TOOLS[-1]]
@@ -239,6 +253,9 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
         roles = ["fast", "accurate", "embed"] if cfg.models else ["llm"]
         for role in roles:
             if cfg.models and role not in cfg.models.roles:
+                continue
+            if cfg.models and router.is_cloud(role):
+                print(f"  {role:<9} cloud – benchmark meria iba lokálne modely")
                 continue
             result = bench_role(router, role, tools=[TOOLS[-1]] if role != "embed" else None)
             save_bench(app.db, result)

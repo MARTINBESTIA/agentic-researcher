@@ -153,13 +153,19 @@ class ValueMixin:
             "FROM llm_usage WHERE created_at >= ?", (since,))
         return dict(row)
 
+    def record_cloud_cache(self, provider: str, deployment: str | None, task: str) -> None:
+        """Odpoveď z cache: bez volania a bez nákladov (iba na prehľad v GUI)."""
+        self._exec("INSERT INTO llm_usage (provider, profile, deployment, task, status, reserved_eur, cost_eur, created_at, "
+                   "settled_at) VALUES (?, ?, ?, ?, 'cached', 0, 0, ?, ?)",
+                   (provider, provider, deployment, task, utcnow(), utcnow()))
+
     def cloud_usage(self, limit: int = 50) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM llm_usage ORDER BY id DESC LIMIT ?", (limit,))
 
-    def cache_get(self, key: str) -> str | None:
+    def llm_cache_get(self, key: str) -> str | None:
         row = self._one("SELECT response FROM llm_cache WHERE key = ?", (key,))
         return row["response"] if row is not None else None
 
-    def cache_put(self, key: str, provider: str, deployment: str | None, task: str, response: str) -> None:
+    def llm_cache_put(self, key: str, provider: str, deployment: str | None, task: str, response: str) -> None:
         self._exec("INSERT OR REPLACE INTO llm_cache (key, provider, deployment, task, response, created_at) "
                    "VALUES (?, ?, ?, ?, ?, ?)", (key, provider, deployment, task, response, utcnow()))

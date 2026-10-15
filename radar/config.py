@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -37,6 +37,27 @@ class RoleConfig(BaseModel):
     max_tokens: int = 2048
     temperature: float = 0.2
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    # Poskytovateľ (audit 15. 10. 2026): "local" (Ollama, llama-server) alebo názov profilu v models.providers
+    # (napr. Azure OpenAI). Pri Azure sa v poli `model` posiela názov nasadenia (deployment), nie názov modelu.
+    provider: str = "local"
+    deployment: str = ""
+    reasoning: bool = False  # reasoning model: max_completion_tokens, bez temperature
+    json_mode: Literal["json_schema", "json_object", "none"] = "json_schema"  # začiatočný režim štruktúrovaného výstupu
+
+
+class ProviderProfile(BaseModel):
+    """Profil cloudového poskytovateľa. Tajomstvo sa nikdy neukladá (YAML, SQLite, logy, prompty) – iba názov
+    premennej prostredia, v ktorej je kľúč."""
+
+    kind: Literal["azure_openai"] = "azure_openai"
+    endpoint: str = ""  # napr. https://<resource>.openai.azure.com/openai/v1/
+    api_key_env: str = "AZURE_OPENAI_API_KEY"  # premenná prostredia s inference kľúčom
+    # Voliteľné: načítanie nasadení cez Azure Resource Manager (iba čítanie; vyžaduje oprávnenie na resource).
+    subscription_id: str = ""
+    resource_group: str = ""
+    account_name: str = ""
+    mgmt_token_env: str = "AZURE_MGMT_TOKEN"  # Bearer token (napr. az account get-access-token)
+    mgmt_api_version: str = "2024-10-01"
 
 
 class TaskRoute(BaseModel):
@@ -120,6 +141,7 @@ class ModelsConfig(BaseModel):
     base_url: str = "http://localhost:11434/v1"
     api_key: str = "local"
     roles: dict[str, RoleConfig] = Field(default_factory=_default_roles)
+    providers: dict[str, ProviderProfile] = Field(default_factory=dict)  # cloudové profily (local je vždy)
     profile: str = "balanced"
     self_consistency_temperature: float = 0.7
     # Zapnutie a vypnutie uvažovania pre jednu požiadavku. Ollama: reasoning_effort;
@@ -561,6 +583,7 @@ class PrivacyConfig(BaseModel):
     retention_days_declined: int = 30
     retention_days_exports: int = 30
     pseudonymize_reports: bool = True
+    cloud_personal_data: bool = False  # úlohy s menami a kontaktmi smú ísť do cloudového modelu (napr. Azure)
     salt_path: str | None = None  # None = .salt vedľa databázy (data/.salt); súbor je mimo gitu
 
 
@@ -606,6 +629,34 @@ class Project(BaseModel):
         return f"Projekt: {self.name}"
 
 
+class CloudRate(BaseModel):
+    """Sadzba nasadenia (z cenníka Azure pre zvolený deployment) – žiadny zakódovaný cenník; chýbajúca sadzba = volanie
+    sa nevykoná (cena sa nenahrádza nulou)."""
+
+    input_per_1m: float
+    output_per_1m: float
+    currency: str = "EUR"
+    verified_at: str = ""  # kedy si sadzbu overil (YYYY-MM-DD)
+
+
+class CloudConfig(BaseModel):
+    """Cloudové modely: vlastný rozpočet (nie zostatok Azure), sadzby a čo smie opustiť počítač."""
+
+    budget_total_eur: float = 0.0  # 0 = cloudové volania vypnuté (napr. 85.87 podľa tvojho zostatku)
+    budget_since: str = ""  # od kedy sa počíta celkový rozpočet (YYYY-MM-DD); prázdne = celá história
+    budget_daily_eur: float = 2.0
+    budget_run_eur: float = 1.0
+    rates: dict[str, CloudRate] = Field(default_factory=dict)  # názov nasadenia → sadzba
+    max_retries: int = 2  # limit rýchlosti a dočasné chyby; potom položka čaká (bez drahšieho fallbacku)
+    chars_per_token: float = 2.0  # horný odhad tokenov promptu pri rezervácii (slovenčina ~2,5–3 znaky na token)
+    cache: bool = True
+    # Úlohy, ktorých podklady smú opustiť počítač (verejné zdroje, bez osobných údajov). Úlohy s menami a kontaktmi
+    # (návrhy oslovení, kontrola návrhov, kontakty) iba s privacy.cloud_personal_data.
+    allowed_tasks: list[str] = Field(default_factory=lambda: [
+        "domain_brief", "domain_brief_check", "value_proposal", "value_check", "field_binding", "entail", "card_check",
+        "experiment_conclusion", "critique"])
+
+
 class Config(BaseModel):
     db_path: str = "data/radar.sqlite"
     reports_dir: str = "reports"
@@ -628,6 +679,7 @@ class Config(BaseModel):
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
+    cloud: CloudConfig = Field(default_factory=CloudConfig)
     gui: GuiConfig = Field(default_factory=GuiConfig)
     topics: list[Topic] = Field(default_factory=list)
     projects: list[Project] = Field(default_factory=list)
