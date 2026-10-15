@@ -194,3 +194,37 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M19 | 6 reťaz končí po čase alebo po opakovaných zlyhaniach | `test_funnel_chain_stops_after_time_or_repeated_failures` |
 | M19 | 7 reštart prerušenej úlohy zachová argumenty reťaze | `test_restart_keeps_chain_arguments` |
 | M19 | 8 GUI: posledné kroky lievika a „Čaká na teba“ | `test_actions_page_shows_funnel_log_and_waiting_hypotheses` |
+| M20 | 1 nefunkčný odkaz ani stránka prihlásenia nie je overený zdroj; pole ostane „iba odkaz“ | `test_m20_data_trust.py::test_broken_link_or_login_page_is_not_verified_and_field_stays_partial` |
+| M20 | 2 overenie súboru: presmerovanie, blokovaná doména aj po presmerovaní, HTML namiesto dát | `test_fetcher_probe_follows_redirects_blocks_social_and_detects_html` |
+| M20 | 3 HTML uložené ako CSV sa neimportuje ako tabuľka | `test_html_saved_as_csv_is_rejected_not_imported_as_table` |
+| M20 | 4 SpreadsheetML s 3 riadkami → 3 záznamy, bez stĺpcov formátovania, jednotka z hlavičky | `test_spreadsheetml_rows_become_records_without_formatting_columns` |
+| M20 | 5 RDF kocka: pozorovania s dimenziami (aj cez rdf:nodeID) a jednotkou | `test_rdf_cube_observations_keep_dimensions_and_unit` |
+| M20 | 6 RDF s odpojenými dimenziami alebo bez pozorovaní nie je použiteľné | `test_rdf_with_disconnected_dimensions_or_without_observations_is_not_usable` |
+| M20 | 7 neznáme XML a CSV s odmietnutými riadkami → na kontrolu, nerátajú sa; schválenie/zamietnutie človekom (label) | `test_unknown_xml_and_rejected_csv_rows_go_to_review_and_do_not_count` |
+| M20 | 8 XLSX: nadpis nad tabuľkou a dvojriadková hlavička | `test_xlsx_title_rows_and_two_row_header_are_detected` |
+| M20 | 9 duplikát distribúcie sa ráta raz; pôvodný súbor podľa SHA-256 | `test_duplicate_distribution_counts_once_and_raw_file_is_kept_by_hash` |
+| M20 | 10 register liekov nepokrýva patent ani cenu (exspirácia ≠ patent); vysoké skóre nenahradí kľúčové pole | `test_drug_register_does_not_cover_patent_or_price`, `test_concept_guard_needs_concept_in_column_not_in_model_text` |
+| M20 | 11 stĺpec overený kódom + tvoje potvrdenie → prechod pravidlom; zamietnutie väzby → „treba znova overiť“ | `test_binding_confirmed_by_human_passes_gate_and_rejection_revokes_it` |
+| M20 | 12 ručný prechod ostáva s autorom a príznakom; staré rozhodnutie pravidlom sa preverí | `test_manual_pass_is_kept_with_author_but_flagged` |
+| M20 | 13 podhypotéza dedí dáta a návrhy väzieb, nie prechod; lievik čaká na potvrdenie stĺpcov | `test_split_child_inherits_data_and_bindings_not_the_pass` |
+| M20 | 14 interné pole → partner, web sa nehľadá | `test_internal_field_goes_to_partner_not_web_search` |
+| M20 | 15 GUI: potvrdenie stĺpca a schválenie importu | `test_gate1_page_confirms_column_and_approves_import` |
+| M21 | 1 zmena validačných odpovedí nezmení príznaky učenia (sonda z auditu: 200 záznamov, 112/28/60); zmena testovacích nezmení príznaky | `test_m21_experiments.py::test_entity_rate_feature_ignores_validation_and_test_answers` |
+| M21 | 2 zmena testovacích odpovedí nezmení predikcie ani výber modelu; štítky dozreté pred každou hranicou | `test_test_labels_do_not_change_predictions_and_labels_mature_per_boundary` |
+| M21 | 3 silné porovnanie vybrané na validácii; osi, verdikt, verzie, interval po entitách | `test_strong_baseline_is_chosen_on_validation_and_result_has_axes_and_versions`, `test_cluster_bootstrap_and_entity_unit` |
+| M21 | 4 E6: splnená predregistrácia proti slabému porovnaniu nie je prínos | `test_verdict_does_not_claim_benefit_against_weak_baseline_e6` |
+| M21 | 5 štítok z inej tabuľky: neznáma dostupnosť a neohraničený čas blokujú; horizont = okno + oneskorenie zverejnenia | `test_lookup_label_needs_known_availability_and_horizon_includes_publication_delay` |
+| M21 | 6 jednotka štítka, nesprávna entita, nekontrolované subjekty NKÚ blokujú uzamknutie | `test_label_unit_entity_and_uninspected_nku_subjects_block_the_experiment` |
+| M21 | 7 staršie uzamknutý experiment s metodickou chybou → „neplatné – metodika“ | `test_old_locked_experiment_with_methodology_error_is_marked_invalid` |
+| M21 | 8 záver uvádza verdikt a silné porovnanie | `test_conclusion_states_verdict_and_strong_baseline` |
+| M21 | 9 neúspešný návrh sa opakuje iba pri zmene odtlačku vstupov | `test_failed_plan_is_retried_only_when_inputs_change` |
+| M21 | 10 GUI: verdikt, osi (a)–(d), zápis výsledku u používateľa | `test_gate2_page_shows_verdict_axes_and_saves_user_result` |
+| M22 | 1 krátky beh: tvoje dáta a vetva vybranej hypotézy pred zberom; zber má vyhradený podiel; starnutie | `test_m22_priorities.py::test_short_run_plans_user_inputs_and_branches_before_discovery`, `test_m9_agentic.py::test_autopilot_plans_round_by_work_and_time_and_continues` |
+| M22 | 2 najviac 3 prioritné hypotézy, najďalej v lieviku prvé | `test_priority_hypotheses_are_limited_and_furthest_first` |
+| M22 | 3 účel kontaktu s dôkazom; politik, člen orgánu a osoba z článku nie sú vlastníci procesu | `test_contact_purposes_need_evidence_and_politicians_are_not_owners`, `test_rank_gives_role_owner_only_with_responsibility_evidence` |
+| M22 | 4 osi stavu samostatne; krok obchodného stavu iba s dôkazom | `test_axes_are_separate_and_business_steps_need_proof` |
+| M22 | 5 postup k zákazníkovi; počet hypotéz iba prevádzková metrika | `test_customer_progress_counts_steps_toward_customer` |
+| M22 | 6 referenčná vzorka s kontrolnou časťou (stabilný hash) a zhodou systému | `test_reference_sample_has_stable_holdout_and_system_agreement` |
+| M22 | 7 dokument dodávateľa nie je úspech objavovania | `test_vendor_documents_do_not_reward_discovery` |
+| M22 | 8 kvalita IČO s pôvodnou hodnotou; profil zo snapshotu tabuľky | `test_identifier_quality_keeps_original_and_reprofile_from_snapshot` |
+| M22 | 9 GUI: osi na stránke Problémy, referenčná vzorka v Evale | `test_problems_page_shows_axes_and_eval_page_reference_sample` |

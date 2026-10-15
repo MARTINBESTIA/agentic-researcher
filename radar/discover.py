@@ -77,13 +77,20 @@ def next_matrix_queries(cfg: Config, db: DB, n: int) -> list[str]:
 
 # ------------------------------------------------------------------ bandit
 def update_arm_stats(db: DB) -> int:
-    """Zapíše výsledky spracovaných dokumentov z objavovania (úspech = aspoň 1 overené tvrdenie)."""
+    """Zapíše výsledky spracovaných dokumentov z objavovania (úspech = aspoň 1 overené tvrdenie). Dokument
+    dodávateľa (marketing vlastného produktu) nie je úspech – objavovanie sa má učiť na problémoch zákazníkov, nie
+    na dobre indexovaných weboch dodávateľov (audit 14. 10. 2026: 460 z 1 798 dokumentov od dodávateľov)."""
+    from .util import utc_days_ago
+
     counted = 0
     for row in db.discovery_outcomes():
         if row["pending"]:
             continue  # ešte čaká na overenie
+        if row["source_type"] is None and (row["fetched_at"] or "") > utc_days_ago(3):
+            continue  # typ vydavateľa ešte nie je známy (krok source-types); po 3 dňoch sa započíta aj bez neho
         arm = row["source_category"] or "other"
-        db.record_arm(arm, tries=1, successes=1 if row["verified"] else 0)
+        vendor = row["source_type"] == "vendor"
+        db.record_arm(arm, tries=1, successes=1 if row["verified"] and not vendor else 0)
         db.mark_bandit_counted(row["id"])
         counted += 1
     return counted

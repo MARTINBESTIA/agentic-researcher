@@ -54,6 +54,29 @@ class HtmlPage:
     status: str = "ok"  # ok | robots_blocked | blocked_domain | error
 
 
+@dataclass
+class Probe:
+    """Overenie dostupnosti súboru: skutočná požiadavka a prvé bajty obsahu (nie iba prípona v URL)."""
+
+    url: str
+    final_url: str
+    status: str  # ok | html (stránka namiesto dát) | error | robots_blocked | blocked_domain
+    http_status: int | None = None
+    content_type: str = ""
+    head: bytes = b""
+
+
+HTML_HEAD_RE = re.compile(rb"^\s*(<!--.*?-->\s*)*(<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])", re.I | re.S)
+
+
+def looks_like_html(head: bytes, content_type: str = "") -> bool:
+    """Stránka HTML (prihlásenie, chyba, rozcestník) namiesto súboru s dátami."""
+    data = head.lstrip(b"\xef\xbb\xbf")
+    if HTML_HEAD_RE.match(data[:2048]):
+        return True
+    return "text/html" in (content_type or "").lower() and not data.lstrip().startswith((b"{", b"[", b"<?xml"))
+
+
 def domain_blocked(url: str, blocked: list[str]) -> bool:
     host = (urlparse(url).hostname or "").lower().rstrip(".")
     return any(host == d or host.endswith("." + d) for d in blocked)
@@ -137,6 +160,38 @@ class Fetcher:
             return resp, "ok"
         log.warning("Priveľa presmerovaní: %s", url)
         return None, "error"
+
+    def probe(self, url: str, max_bytes: int = 65536) -> Probe:
+        """Dostupnosť súboru s dátami: GET s ručným sledovaním presmerovaní (blokované domény, robots.txt), prečíta sa
+        iba začiatok obsahu. Stránka HTML namiesto súboru (prihlásenie, chyba 200) = status „html“."""
+        start = url
+        for _ in range(MAX_REDIRECTS + 1):
+            if not url.startswith(("http://", "https://")):
+                return Probe(start, url, "error")
+            if domain_blocked(url, self.blocked):
+                return Probe(start, url, "blocked_domain")
+            if not self.allowed(url):
+                return Probe(start, url, "robots_blocked")
+            self._wait(urlparse(url).netloc)
+            try:
+                with self.http.stream("GET", url, follow_redirects=False) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        url = urljoin(str(resp.url), resp.headers["location"])
+                        continue
+                    ctype = resp.headers.get("content-type", "")
+                    if resp.status_code >= 400:
+                        return Probe(start, str(resp.url), "error", resp.status_code, ctype)
+                    head = b""
+                    for chunk in resp.iter_bytes(8192):
+                        head += chunk
+                        if len(head) >= max_bytes:
+                            break
+                    status = "html" if looks_like_html(head, ctype) else "ok"
+                    return Probe(start, str(resp.url), status, resp.status_code, ctype, head[:max_bytes])
+            except httpx.HTTPError as exc:
+                log.warning("Overenie súboru %s zlyhalo: %s", url, exc)
+                return Probe(start, url, "error")
+        return Probe(start, url, "error")
 
     def _get(self, url: str) -> httpx.Response | None:
         resp, _ = self._request(url)

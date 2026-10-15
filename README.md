@@ -163,7 +163,25 @@ Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.
 
+## Stav hypotézy a postup k zákazníkovi
+
+Overený citát nie je overený trh. Stránka **Problémy → Osi a obchodný stav** ukazuje štyri samostatné osi –
+literatúra (overené tvrdenia z nezávislých domén, bez dodávateľov), zákazník (rozhovory, nevyžiadané spomenutie),
+dáta (Brána 1 s potvrdenými stĺpcami) a ochota platiť – a obchodný stav, ktorý zapisuješ ty: preukázaný problém,
+vlastník procesu, vzorka, nameraná úspora, pilot, platiteľ (každý krok s dôkazom). **Prehľad** ukazuje postup
+k zákazníkovi (kontakty, odpovede, rozhovory, vzorky, piloty); počet hypotéz je iba prevádzková metrika.
+
+V **Koho osloviť** má každý kontakt účel s dôkazom: vlastník procesu (funkcia zodpovednosti zverejnená organizáciou),
+používateľ riešenia, správca dát, schvaľovateľ rozpočtu, expert. Politici a členovia predstavenstiev nie sú vlastníci
+procesu; osoba spomenutá v článku nemá doloženú kompetenciu.
+
+**Autopilot** plánuje najprv tvoje dáta a rozpracované vetvy (najviac 3 prioritné hypotézy), nový zber dostane
+vyhradený podiel kola (25 %); akcia, ktorá sa 2 kolá nezmestila, ide dopredu.
+
 ## Presnosť a eval
+
+**Referenčná vzorka** (Eval): 30 mapovaní polí, 20 importov, 20 účelov kontaktov a 30 rozhodnutí o dôkazoch, ktoré
+označíš ty; 20 % je kontrolná časť, podľa ktorej sa neladia prompty.
 
 - Profily: `fast` (všetko rýchly model), `balanced` (tabuľka v `config.yaml → models.tasks`),
   `accurate` (všetko presný, napr. víkend): `run-all --profile accurate`.
@@ -223,12 +241,24 @@ z prečítanej stránky) → kontrola a kvalita → stiahnutie do DuckDB (`data/
 návrhy žiadostí podľa zákona 211/2000 a pripravenosť dát so zložkami. Chýbajúce dáta sú príznak, nič sa
 nevyraďuje.
 
-**Prechod do Brány 2:** pripravenosť dát ≥ 0,5 → Brána 1 prejde automaticky (rozhodnutie s dôvodom a metrikami).
-Inak hypotéza „čaká na tvoje dáta“: v GUI (Brána 1 → Tvoje dáta) napíš popis dát alebo aspoň schému (stĺpce,
+**Dôvera v dáta (od 15. 10. 2026):** súbor zdroja sa overí skutočnou požiadavkou (nefunkčný odkaz ani stránka
+prihlásenia nie je zdroj); import ide podľa obsahu (HTML sa odmietne; SpreadsheetML, RDF/JSON-LD dátové kocky
+s dimenziami a jednotkou, výkazy XLSX/CSV s nadpisom a dvojriadkovou hlavičkou) a každý dataset má importný report
+(načítané a odmietnuté riadky, typy, kľúče, jednotky, vzorka). Import s problémom čaká **na tvoju kontrolu**
+(Brána 1 → Datasety) a nič sa z neho nepočíta. Stav poľa je rebrík: iba odkaz → súbor dostupný → dáta načítané →
+stĺpec overený kódom. **Mapovanie polí** (Brána 1 → Mapovanie polí, krok `gate1-bindings`): presný model navrhne
+stĺpec, kód overí pokrytie, typ a pojem (dátum exspirácie nie je dátum patentu), význam kľúčového poľa potvrdíš ty
+(alebo zadáš stĺpec sám). Interné dáta organizácie (napr. tikety) sú „od partnera“ – web sa pre ne neprehľadáva.
+
+**Prechod do Brány 2:** pripravenosť dát ≥ 0,5 **a každé kľúčové pole má stĺpec potvrdený tebou** na aktuálnej
+verzii datasetu → Brána 1 prejde automaticky (rozhodnutie s dôvodom, metrikami, autorom a odtlačkom dát). Keď
+podmienky prechodu pravidlom neskôr prestanú platiť (zamietnutý dataset alebo stĺpec), hypotéza dostane „treba znova
+overiť“; tvoje ručné rozhodnutie ostane s príznakom (`python -m radar gate1-revalidate` alebo tlačidlo
+„Preveriť prechod s aktuálnymi dátami“). Podhypotéza dedí dáta, nie prechod. Inak hypotéza „čaká na tvoje dáta“: v GUI (Brána 1 → Tvoje dáta) napíš popis dát alebo aspoň schému (stĺpce,
 jednotky, obdobie, odkiaľ) a prípadne nahraj súbor (CSV, XLSX, JSON, Parquet, ZIP, XML). Akcia „Brána 1: posúdiť tvoje
 dáta“ (aj v autopilotovi) súbor naimportuje do DuckDB (tabuľka s osobnými údajmi sa neuloží, súbor sa zmaže), sudca
-posúdi každé pole (áno / čiastočne / nie) a kód spočíta vhodnosť (kľúčové polia spolu 0,7, ostatné 0,3); ≥ 0,5 →
-Brána 1 prejde. Kedy Brána 2 naozaj beží, určuje akcia, ktorú spustíš ty alebo autopilot. Samotná schéma na prechod
+posúdi každé pole (áno / čiastočne / nie) a kód spočíta vhodnosť (kľúčové polia spolu 0,7, ostatné 0,3); polia
+dostanú stav „dáta načítané“ (súbor) alebo „iba opis schémy“ a prechod ide cez potvrdenie stĺpcov. Kedy Brána 2 naozaj beží, určuje akcia, ktorú spustíš ty alebo autopilot. Samotná schéma na prechod
 stačí, spätný test však potrebuje skutočné dáta. Nevkladaj dáta zamestnávateľa. Prahy: `gate1.auto_gate2_readiness`,
 `gate1.user_data_threshold`; ručné rozhodnutie (prešla, pozastaviť, zastaviť) má vždy prednosť.
 
@@ -254,6 +284,13 @@ nižšie skóre a príznak – over, či sa hodia pre tvoj produkt. Vypnutie: `g
    model vybraný na validačnom období, interval bootstrap, položky na kontrolu s rozpadom, protokol prípravy dát.
 5. **Záver pre problém** – čo výsledok znamená pre rozhodnutie z karty, obmedzenia, otázky do rozhovorov
    Brány 0; čísla iba z faktov (inak záver poskladá kód). Správa HTML.
+
+**Výsledok má štyri osi** (od 15. 10. 2026): (a) predregistrované pravidlo, (b) prínos oproti silnému jednoduchému
+postupu vybranému na validácii pred testom (napr. doterajšia miera entity), (c) metodická platnosť a (d) výsledok
+u používateľa (zapíšeš ho v Bráne 2 po pilote). Verdikt „prínos“ znamená iba prínos v dátach; experiment s metodickou
+chybou (neznámy čas zverejnenia štítka, štítok subjektu pri rozhodovaní o zmluvách, subjekty bez kontroly ako
+negatívne prípady) sa nedá uzamknúť. Príznaky zo štítkov sa počítajú po časových foldoch a štítok sa použije, až keď
+je známy (okno + oneskorenie zverejnenia) – bez úniku validačných a testovacích odpovedí.
 
 Pôvodné experimenty (predpoveď sumy pre organizáciu) ostávajú zobrazené s postupom krok po kroku.
 `python -m radar crz-extend --hypothesis 11 --months 36` doplní staršie dávky CRZ (po blokoch, dá sa prerušiť;

@@ -179,7 +179,7 @@ def make_card(cfg: Config, db: DB, llm: Any, hyp, embedder=None) -> dict[str, An
 
 def split_hypothesis(cfg: Config, db: DB, hyp, card: dict[str, Any]) -> list[int]:
     """Podhypotézy z podproblémov karty: presun citátov, väzba na rodiča, dedenie dát Brány 1."""
-    from .gate1 import OPEN_STATUSES, decide
+    from .gate1 import OPEN_STATUSES
 
     if hyp["parent_id"] or not card.get("subproblems"):  # podhypotéza sa ďalej nedelí (najviac jedna úroveň)
         return []
@@ -193,8 +193,12 @@ def split_hypothesis(cfg: Config, db: DB, hyp, card: dict[str, Any]) -> list[int
             db.clone_gate1(hyp["id"], child)
             share_datasets(cfg, child, hyp["id"])
             status = hyp["gate1_status"]
-            if status == "passed":
-                decide(db, child, 1, "passed", f"Zdedené z H{hyp['id']} (rozdelenie hypotézy) – rovnaké dáta Brány 1.")
+            if status in ("passed", "needs_revalidation"):
+                # Dieťa zdedí odkazy na dáta, nie prechod: je to iná otázka a musí potvrdiť vlastné dátové požiadavky
+                # (audit 14. 10. 2026 – H581/H582, H673/H674 zdedili „prešla“).
+                db.add_gate_decision(1, child, "needs_revalidation", f"Zdedené z H{hyp['id']}: odkazy na dáta, nie prechod "
+                                     "– potvrď stĺpce kľúčových polí pre túto otázku.", {}, decided_by="rule")
+                db.set_gate_status(child, 1, "needs_revalidation")
             elif status in OPEN_STATUSES and status != "not_started":
                 db.set_gate_status(child, 1, status)
         children.append(child)

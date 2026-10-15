@@ -262,6 +262,11 @@ workflows:
   funnel_max_attempts: 2           # krok 2× bez zmeny stavu hypotézy → odloží sa (zaseknutá), lievik ide ďalej
   funnel_max_runs_per_step: 4      # najviac behov jedného kroku pre jednu hypotézu
   funnel_max_failures: 3           # 3 zlyhané kroky za sebou (nebeží model, SearXNG) → lievik zastaví
+  # Autopilot: tvoje dáta, rozpracované vetvy (Brána 2 → Brána 1 → ľudia) a test pred novým zberom; nový zber
+  # (scout, topics) dostane pevný podiel kola, keď je iná práca (bez inej práce celý čas). Pracovné nastavenie z auditu.
+  autopilot_discovery_share: 0.25  # podiel času kola na nový zber
+  autopilot_max_priorities: 3      # najviac 3 prioritné hypotézy naraz (ľudia, kontakty, návrhy, Brána 1)
+  autopilot_aging_rounds: 2        # akcia s prácou, ktorá sa 2 kolá nezmestila do času, ide v ďalšom kole dopredu
 
 # ---------------------------------------------------------------- Brána 1 (dáta) a Brána 2 (experimenty)
 # Brána 1 beží pre hypotézy vybrané na Bránu 0 (súbežne s rozhovormi): polia → zdroje (licencia, frekvencia,
@@ -283,6 +288,14 @@ gate1:
   download_reserve_minutes: 15     # kontrola zdrojov a sťahovanie dát (bez modelu)
   sources_minutes_per_hypothesis: 15  # strop agenta zdrojov na hypotézu
   fields_minutes: 4                # odhad návrhu polí na hypotézu (plánovanie behu)
+  # Dôveryhodnosť dát (audit 14. 10. 2026): súbory sa overia skutočnou požiadavkou; import rozpozná obsah (HTML sa
+  # odmietne, SpreadsheetML a RDF dátové kocky majú adaptér, výkaz XLSX hľadá riadok hlavičky); pri problémoch ide
+  # dataset na kontrolu (needs_review) a do pripravenosti ani experimentov sa neráta, kým ho neschváliš.
+  max_rejected_share: 0.05         # viac odmietnutých riadkov CSV → na kontrolu
+  binding_min_coverage: 0.5        # väzba pole → stĺpec: aspoň polovica hodnôt neprázdna
+  max_bindings_per_run: 12         # návrhy väzieb presným modelom na hypotézu a beh
+  raw_cache_gb: 5                  # pôvodné súbory datasetov podľa SHA-256 (zopakovanie parsera); data/datasets/raw
+  raw_cache_max_file_mb: 500
   # catalog: známe zdroje (data.slovensko.sk, DATAcube, RÚZ, RPO, CRZ, ÚVO, ITMS, FS, Eurostat, NKÚ, ÚHP) – radar/config.py
 gate2:
   backtest_folds: 4

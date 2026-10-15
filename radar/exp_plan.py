@@ -65,6 +65,8 @@ class ExperimentPlan(BaseModel):
     thresholds: list[float] = Field(default_factory=list)
     threshold_claims: list[int] = Field(default_factory=list)
     capacity: int = 50
+    decision_unit: Literal["row", "entity"] = "row"  # o čom sa rozhoduje: riadok (zmluva, prípad) alebo subjekt
+    label_population: str = ""  # riadky, pri ktorých je štítok overený (napr. kontrolované subjekty), aj negatívne
     primary_metric: str = ""
     primary_baseline: str = ""
     success_threshold: float = 10.0
@@ -211,17 +213,95 @@ SOURCE_DOMAINS = {"nku": "nku.gov.sk", "crz": "crz.gov.sk", "uhp": "hodnotenych-
 SUPPLIER_COL_RE = re.compile(r"dodav|supplier|zhotovit|predavajuc", re.I)
 
 
+def _nku_tables(db: DB, hid: int) -> set[str]:
+    return {d["table_name"] for d in db.datasets_for(hid, only_ok=True) if SOURCE_DOMAINS["nku"] in (d["url"] or "")}
+
+
 def source_warnings(db: DB, hid: int, plan: dict[str, Any]) -> list[str]:
-    """Upozornenia podľa zdroja tabuľky (čo znamenajú jej riadky). NKÚ kontroluje iba subjekty hospodáriace
-    s verejnými prostriedkami – štítok „zistenie NKÚ u dodávateľa“ v E6 označil iba ministerstvá, kraje, mestá
-    a univerzity v roli dodávateľa (206 z 88 759 dodávateľov), nie súkromné firmy."""
-    nku = {d["table_name"] for d in db.datasets_for(hid, only_ok=True) if SOURCE_DOMAINS["nku"] in (d["url"] or "")}
+    """Nesprávna entita v join-e podľa zdroja tabuľky (čo znamenajú jej riadky). NKÚ kontroluje iba subjekty
+    hospodáriace s verejnými prostriedkami – štítok „zistenie NKÚ u dodávateľa“ v E6 označil iba ministerstvá, kraje,
+    mestá a univerzity v roli dodávateľa (206 z 88 759 dodávateľov), nie súkromné firmy. Od M20 je to chyba (audit:
+    nesprávna entita v join-e je dôvod na zastavenie, nie žlté upozornenie)."""
+    nku = _nku_tables(db, hid)
     return [f"krok lookup {s.get('name', '')!r}: NKÚ kontroluje iba verejné subjekty – pripojenie podľa IČO "
             "dodávateľa zachytí iba verejné inštitúcie v roli dodávateľa (ministerstvá, kraje, mestá), nie súkromné "
             "firmy; pre riziko na strane verejného obstarávateľa pripájaj podľa IČO objednávateľa"
             for s in plan.get("steps") or []
             if s.get("op") == "lookup" and base_table(s.get("table", "")) in nku
             and any(SUPPLIER_COL_RE.search(k or "") for k in s.get("keys") or [])]
+
+
+def apply_population(ws: Workspace, plan: dict[str, Any]) -> None:
+    """Populácia štítka: riadky, pri ktorých je štítok overený aj negatívne (napr. kontrolované subjekty)."""
+    expr = (plan.get("label_population") or "").strip()
+    if expr and not any(p.get("op") == "population" for p in ws.protocol):
+        before = ws.rows()
+        ws._next(f"SELECT * FROM {ws.table} WHERE ({check_expr(expr)})")
+        ws.protocol.append({"krok": "populácia štítka", "op": "population", "popis": f"iba riadky, kde je štítok "
+                            f"overený: {expr}", "riadky_pred": before, "riadky_po": ws.rows()})
+
+
+def methodology(db: DB, hid: int, plan: dict[str, Any], ws: Workspace) -> tuple[list[str], list[str]]:
+    """Metodické chyby, pre ktoré experiment nie je platný (audit 14. 10. 2026 – E6/H582), a upozornenia. Chyby
+    blokujú uzamknutie a vo výsledku robia test neplatným: nesprávna entita v join-e, neohraničený alebo neznámy čas
+    dostupnosti štítka, jednotka štítka ≠ jednotka rozhodnutia, nekontrolované subjekty ako negatívne prípady."""
+    errors = list(source_warnings(db, hid, plan))
+    warnings: list[str] = []
+    label = plan.get("label") or ""
+    if not label or label not in ws.columns():
+        return errors, warnings
+    nku = _nku_tables(db, hid)
+    unit = plan.get("decision_unit") or "row"
+    ent = plan.get("entity_column") or ""
+    population = (plan.get("label_population") or "").strip()
+    for col in ws.label_columns(label):
+        info = ws.availability[col]
+        table, key = info.get("tabuľka", ""), info.get("kľúč", "")
+        if info.get("neohraničený"):
+            errors.append(f"štítok {col}: udalosť z {table} „kedykoľvek“ (days 0) – čas nie je ohraničený, štítok by "
+                          "videl budúcnosť; nastav days > 0 a dostupnosť udalosti")
+        elif info.get("spôsob") == "neznámy":
+            errors.append(f"štítok {col}: neznámy čas dostupnosti udalostí z {table} – doplň available_column (dátum "
+                          "zverejnenia v tabuľke) alebo available_lag_days (predpoklad oneskorenia zverejnenia, over ho)")
+        elif "predpoklad" in str(info.get("spôsob")):
+            warnings.append(f"štítok {col}: dostupnosť je predpoklad ({info['spôsob']}) – potvrď ho pri uzamknutí")
+        if unit == "row":
+            errors.append(f"jednotka štítka {col} je subjekt podľa {key} (udalosť v {table}), nie riadok – rozhodnutie "
+                          "o riadkoch (zmluvách) takýto štítok nemeria; nastav decision_unit „entity“ (rozhoduje sa "
+                          "o subjektoch) alebo štítok z udalostí samotného riadku")
+        elif ent and ent != key:
+            errors.append(f"nesprávna entita: štítok {col} je podľa {key}, ale entita experimentu je {ent} – "
+                          "jednotka rozhodnutia a štítka musí byť ten istý subjekt")
+        if not population:
+            if base_table(table) in nku:
+                errors.append(f"štítok {col}: NKÚ dáta obsahujú iba zistenia – subjekt bez zistenia nie je overený "
+                              "negatívny prípad (nemusel byť kontrolovaný); nastav label_population na kontrolované "
+                              "subjekty (aj kontroly bez zistení), inak test meria, kto bol kontrolovaný")
+            else:
+                warnings.append(f"štítok {col}: subjekt bez udalosti v {table} nemusí byť overený negatívny prípad – ak "
+                                f"{table} obsahuje iba nálezy, nastav label_population")
+    if population:
+        try:
+            check_expr(population)
+        except DatasetError as exc:
+            errors.append(f"label_population: {exc}")
+        if label in population:
+            errors.append("label_population nesmie obsahovať samotný štítok")
+        warnings.append(f"výsledok platí iba pre populáciu „{population}“ (riadky s overeným štítkom)")
+    return errors, warnings
+
+
+def inputs_fingerprint_for(cfg: Config, db: DB, hid: int, card_row) -> str:
+    """Odtlačok vstupov návrhu experimentov: dáta (tabuľky, verzie súborov, parser), karta a prompt. Neúspešný návrh
+    sa opakuje iba pri jeho zmene (audit: porovnávať odtlačok vstupov, nie počet datasetov)."""
+    import hashlib
+
+    from .bindings import inputs_fingerprint, usable_datasets
+    from .prompts import prompt_version
+
+    parts = [inputs_fingerprint(usable_datasets(db, hid)), str(card_row["id"] if card_row is not None else ""),
+             prompt_version("experiment_plan")]
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
 
 
 def plan_signature(plan: dict[str, Any]) -> str:
@@ -280,7 +360,6 @@ def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: d
             except (DatasetError, ValueError) as exc:
                 errors.append(f"krok {i + 1} ({raw.get('op')} {raw.get('name', '')}): {exc}")
                 return {"chyby": errors, "upozornenia": warnings, "štatistiky": stats}
-        warnings.extend(source_warnings(db, hid, plan))
         cols = ws.columns()
         stats["riadky"] = ws.rows()
         ent = plan.get("entity_column") or ""
@@ -320,6 +399,9 @@ def validate_plan(cfg: Config, db: DB, hid: int, plan: dict[str, Any], quotes: d
                 errors.append(f"štítok {plan['label']!r} neexistuje")
             elif not plan.get("label"):
                 warnings.append("bez štítku je porovnanie iba popisné (úspech sa nevyhodnotí)")
+        meth_errors, meth_warnings = methodology(db, hid, plan, ws)
+        errors += meth_errors
+        warnings += meth_warnings
         stats["protokol"] = ws.protocol
     finally:
         if workspace is None:
@@ -347,6 +429,11 @@ def _check_ranking(cfg, ws: Workspace, plan, cols, errors, warnings, stats) -> N
         errors.append("poradie potrebuje aspoň jeden príznak známy v deň riadku")
     if label not in ws.future and not ws._uses_future(label):
         warnings.append("štítok nevznikol z budúcnosti – model by predpovedal súčasný stav, nie budúcu udalosť")
+    try:
+        apply_population(ws, plan)
+    except DatasetError as exc:
+        errors.append(f"label_population: {exc}")
+    stats["dozretie_štítka_dní"] = ws.label_horizon(label)
     ws.matured(label)
     pos, n = ws.query(f"SELECT SUM(CASE WHEN TRY_CAST({q(label)} AS DOUBLE) > 0 THEN 1 ELSE 0 END), COUNT(*) "
                       f"FROM {ws.table}")[0]
@@ -446,7 +533,7 @@ def counts(e) -> bool:
         json.loads(e["flags_json"] or "{}") or {}).get("chyby_návrhu")
 
 
-def mark_no_valid_plan(db: DB, card_row, attempts: int, model: str | None = None) -> None:
+def mark_no_valid_plan(db: DB, card_row, attempts: int, model: str | None = None, fingerprint: str | None = None) -> None:
     """Žiadny platný návrh ani po opravách → karta dostane „chýbajúce dáta“ a autopilot hypotézu preskakuje, kým
     nepribudne dataset (reálny beh: H581 – 4 neplatné návrhy, v dátach nie sú hodnotenia projektov ÚHP)."""
     card = json.loads(card_row["card_json"])
@@ -457,7 +544,8 @@ def mark_no_valid_plan(db: DB, card_row, attempts: int, model: str | None = None
         "text": f"model v {attempts} pokusoch nenavrhol platný experiment – buď v dátach chýbajú udalosti alebo "
                 "výsledky, ktoré karta potrebuje, alebo model dáta nepochopil (H581: hodnotenia ÚHP v dátach boli); "
                 "skontroluj tabuľky v Bráne 1 a značku zruš, ak dáta stačia",
-        "automaticky": True, "model": model, "datasety": len(db.datasets_for(hid, only_ok=True))}
+        "automaticky": True, "model": model, "datasety": len(db.datasets_for(hid, only_ok=True)),
+        "odtlačok_vstupov": fingerprint}
     db.update_card(card_row["id"], card=card)
 
 
@@ -471,8 +559,10 @@ def plan_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
         if card is None or not db.datasets_for(h["id"], only_ok=True):
             continue
         missing = (json.loads(card["card_json"]) or {}).get("chýbajúce_dáta_pre_experiment") or {}
-        if missing and missing.get("datasety") == len(db.datasets_for(h["id"], only_ok=True)):
-            continue  # model povedal, že s týmito dátami sa rozhodnutie otestovať nedá; čaká sa na nový dataset
+        if missing and (missing.get("odtlačok_vstupov") == inputs_fingerprint_for(cfg, db, h["id"], card)
+                        if missing.get("odtlačok_vstupov") else
+                        missing.get("datasety") == len(db.datasets_for(h["id"], only_ok=True))):
+            continue  # s týmito vstupmi (dáta, parser, karta, prompt) sa návrh nepodaril; čaká sa na ich zmenu
         new = [e for e in db.experiments_for(h["id"]) if counts(e)]
         if len(new) < cfg.experiments.plans_per_hypothesis:
             out.append((h, card))
@@ -549,7 +639,8 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 break
             if not res.value.experiments:
                 card["chýbajúce_dáta_pre_experiment"] = {"text": res.value.missing_data.strip(), "model": res.model,
-                                                        "datasety": len(db.datasets_for(hid, only_ok=True))}
+                                                        "datasety": len(db.datasets_for(hid, only_ok=True)),
+                                                        "odtlačok_vstupov": inputs_fingerprint_for(cfg, db, hid, card_row)}
                 db.update_card(card_row["id"], card=card)
                 stats["no_suitable_data"] += 1
                 break
@@ -605,6 +696,7 @@ def run_plans(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
                 except ValueError as exc:
                     log.warning("Automatické uzamknutie E%s zlyhalo: %s", exp_id, exc)
         if attempts and not any(counts(e) for e in db.experiments_for(hid)):
-            mark_no_valid_plan(db, db.get_card(card_row["id"]), attempts, last_model)
+            mark_no_valid_plan(db, db.get_card(card_row["id"]), attempts, last_model,
+                               inputs_fingerprint_for(cfg, db, hid, card_row))
             stats["no_valid_plan"] += 1
     return dict(stats)

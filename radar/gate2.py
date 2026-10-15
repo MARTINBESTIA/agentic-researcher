@@ -535,14 +535,21 @@ def _run_task_experiment(cfg: Config, db: DB, exp, embedder, llm) -> Counter:
         flags["chyba_testu"] = f"{type(exc).__name__}: {str(exc)[:250]}"
         db.update_experiment(exp["id"], status="failed", flags_json=flags)
         return Counter(failed=1)
+    from .exp_tasks import verdict
+
     prim = res.get("hlavné") or {}
     flags.pop("chyba_testu", None)
     if prim.get("zlepšenie_pct") is not None:
         flags["model_neprekonal_naivny_odhad"] = prim["zlepšenie_pct"] <= 0
     if prim.get("splnené") is not None:
         flags["pravidlo_nesplnené"] = not prim["splnené"]
+    osi = res.get("osi") or {}
+    flags["metodicky_neplatné"] = not (osi.get("metodika") or {}).get("platné", True)
+    flags["model_neprekonal_silný_odhad"] = (osi.get("silné_porovnanie") or {}).get("prekonal") is False
+    flags["nepresvedčivé"] = bool((osi.get("metodika") or {}).get("nepresvedčivé"))
+    flags["verdikt"] = verdict(res, flags)["verdikt"]
     db.update_experiment(exp["id"], status="done", result_json=res, flags_json=flags)
-    return Counter(done=1)
+    return Counter(done=1, **({"invalid_methodology": 1} if flags["metodicky_neplatné"] else {}))
 
 
 # ======================================================================= demo

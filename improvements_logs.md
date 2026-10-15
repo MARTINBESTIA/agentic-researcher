@@ -110,3 +110,23 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-15 – lievik – menej výmen modelov.** Pri jednej hypotéze sa modely striedajú ~6–8× (agent, sudca, presný).
   Zoskupiť kroky s rovnakou rolou (napr. agent testu ďalšej hypotézy hneď po agentovi zdrojov Brány 1) by ušetrilo
   ~5 min na hypotézu; zmerať najprv čas výmen v Správcovi akcií. · 1 deň.
+- **2026-10-15 – Brána 1 – opakovať import z pôvodného súboru po novej verzii parsera.** Pôvodné súbory sa už uchovávajú
+  podľa SHA-256 (`data/datasets/raw`); príkaz `gate1-reimport` by pri zmene `PARSER_VERSION` znova naimportoval
+  datasety bez sťahovania a väzby by sa overili na novej verzii (`refresh_stale`). · 0,5 dňa.
+- **2026-10-15 – Brána 1 – referenčná vzorka väzieb a importov.** Potvrdenia a zamietnutia stĺpcov (`field_binding`) a
+  kontroly importu (`dataset_import`) sú labely; po ~30 väzbách a ~20 importoch zmerať presnosť návrhov modelu a
+  pravidiel kontroly (eval s Wilsonovým intervalom, holdout). · 0,5 dňa.
+- **2026-10-15 – Brána 1 – pojmová poistka zo slovníka domény.** Pojmy (patent, cena, odpoveď …) sú zatiaľ pevný
+  zoznam v `bindings.CONCEPTS`; zamietnuté väzby s dôvodom by mohli navrhovať nové pojmy (človek schváli). · 1 deň.
+- **2026-10-15 – Brána 2 – dátum zverejnenia NKÚ a zoznam kontrol bez zistení.** Štítky NKÚ sú od M21 bez
+  `label_population` neplatné. Doplniť adaptér zoznamu kontrolných akcií (subjekty vrátane kontrol bez zistení) a dátum
+  zverejnenia správy (stránka výsledku kontroly) – potom sa dá E6/H582 navrhnúť znova s platným štítkom. · 1–2 dni.
+- **2026-10-15 – Brána 2 – workflow experiment (nie predikcia).** Audit: nie každá hypotéza potrebuje model; pre
+  automatizáciu práce typ úlohy „workflow“ (čas, chybovosť, výsledok práce pred a po) s meraním u používateľa. · 2 dni.
+- **2026-10-15 – Brána 2 – časové bloky aj pre predpoveď.** Bootstrap predpovede je po entitách; pri jednej entite by
+  mal prevzorkovať bloky období. · 0,5 dňa.
+- **2026-10-15 – kontakty – účel z textu stránky, nie iba z funkcie.** Účel kontaktu sa zatiaľ určuje z názvu funkcie
+  pravidlami; dôkaz zodpovednosti by mohol byť aj veta zo stránky („zodpovedá za fakturáciu“) – kód by ju našiel
+  v okolí mena a doslovne uložil. Najprv zmerať na referenčnej vzorke `contact_role`. · 1 deň.
+- **2026-10-15 – autopilot – ladenie podielu zberu a počtu priorít.** 25 % a 3 priority sú pracovné nastavenie z auditu;
+  po 2 týždňoch porovnať postup k zákazníkovi (Prehľad) a počet nových hypotéz a upraviť. · 0,5 dňa.

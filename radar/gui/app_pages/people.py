@@ -9,7 +9,8 @@ d, c = db(), cfg()
 if not c.privacy.lia_completed:
     st.warning("Hľadanie ľudí je zablokované, kým nepotvrdíš LIA (privacy.lia_completed).", icon=":material/lock:")
 
-LINK = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlastník procesu", "org_affected": "vedenie dotknutej org.",
+LINK = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlastník procesu", "process_user": "používateľ (zažíva problém)",
+        "org_affected": "vedenie dotknutej org.",
         "procurement_contact": "kontakt v obstarávaní", "expert": "expert", "data_holder": "drží dáta"}
 RELATION = {"mentioned_with_problem": "v dôkaze", "quoted_person": "citovaná osoba", "procured_related": "obstarávanie",
             "segment_match": "segment", "manual": "ručne", "contact_search": "hľadanie podľa hypotézy",

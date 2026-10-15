@@ -32,6 +32,7 @@ from .exp_plan import METRICS
 log = logging.getLogger(__name__)
 
 RNG_SEED = 0
+EXPERIMENT_CODE_VERSION = "2026-10-15"  # verzia výpočtu (bez úniku po foldoch, dozretie, silné porovnanie, osi)
 
 
 # ======================================================================= spoločné
@@ -153,15 +154,100 @@ class _Encoder:
         return np.hstack(parts) if parts else np.zeros((len(cat), 0))
 
 
+def entity_rates(y: np.ndarray, t: np.ndarray, known_at: np.ndarray, ents: np.ndarray, cutoff: Any,
+                 m: float = 5.0) -> np.ndarray:
+    """Doterajšia miera entity bez úniku (audit 14. 10. 2026, P0 3): riadok pred hranicou `cutoff` vidí iba štítky
+    známe pred svojím dňom (priebežný historický súhrn), riadok od hranice iba štítky známe pred hranicou (zmrazené).
+    Štítok riadku j je známy dňom `known_at[j]` (dátum + okno štítka + oneskorenie zverejnenia). Prior (miera všetkých)
+    rovnako – validačné ani testovacie odpovede sa do príznakov učenia nedostanú."""
+    n = len(y)
+    out = np.full(n, np.nan)
+    order = np.argsort(known_at, kind="stable")
+    pos: dict[str, float] = {}
+    cnt: dict[str, int] = {}
+    tot = [0.0, 0]
+    k = 0
+
+    def release(limit) -> None:
+        nonlocal k
+        while k < n and known_at[order[k]] < limit:
+            j = order[k]
+            pos[ents[j]] = pos.get(ents[j], 0.0) + y[j]
+            cnt[ents[j]] = cnt.get(ents[j], 0) + 1
+            tot[0] += y[j]
+            tot[1] += 1
+            k += 1
+
+    def rate(e: str) -> float:
+        prior = tot[0] / tot[1] if tot[1] else 0.0
+        return (pos.get(e, 0.0) + prior * m) / (cnt.get(e, 0) + m)
+
+    for i in np.argsort(t, kind="stable"):
+        if t[i] >= cutoff:
+            break
+        release(t[i])
+        out[i] = rate(ents[i])
+    release(cutoff)
+    for i in np.where(t >= cutoff)[0]:
+        out[i] = rate(ents[i])
+    return out
+
+
+def _by_unit(y: np.ndarray, scores: np.ndarray | None, ents: np.ndarray | None) -> tuple[np.ndarray, np.ndarray | None]:
+    """Jednotka rozhodnutia „entity“: subjekt má štítok, keď ho má niektorý jeho riadok; skóre = najvyššie z riadkov."""
+    if ents is None:
+        return y, scores
+    uniq, inv = np.unique(ents, return_inverse=True)
+    yy = np.zeros(len(uniq), dtype=int)
+    np.maximum.at(yy, inv, y)
+    if scores is None:
+        return yy, None
+    ss = np.full(len(uniq), -np.inf)
+    np.maximum.at(ss, inv, np.where(np.isfinite(scores), scores, -np.inf))
+    return yy, ss
+
+
+def clusters_of(ents: np.ndarray | None, t: np.ndarray) -> tuple[np.ndarray, str]:
+    """Zhluky pre bootstrap: entity (záznamy toho istého subjektu nie sú nezávislé), inak kalendárne mesiace."""
+    if ents is not None:
+        return np.unique(ents, return_inverse=True)[1], "po entitách"
+    months = np.asarray(t, dtype="datetime64[M]")
+    return np.unique(months, return_inverse=True)[1], "po časových blokoch (mesiace)"
+
+
+def cluster_bootstrap(groups: np.ndarray, stat: Callable[[np.ndarray], float | None], n_boot: int,
+                      rng: np.random.Generator) -> list[float] | None:
+    """95 % interval štatistiky pri prevzorkovaní celých zhlukov (entít alebo časových blokov) s opakovaním."""
+    ids = np.unique(groups)
+    members = [np.where(groups == g)[0] for g in ids]
+    vals = []
+    for _ in range(n_boot):
+        pick = rng.integers(0, len(ids), size=len(ids))
+        idx = np.concatenate([members[i] for i in pick]) if len(pick) else np.array([], dtype=int)
+        v = stat(idx)
+        if v is not None:
+            vals.append(v)
+    if not vals:
+        return None
+    return [round(float(np.percentile(vals, 2.5)), 4), round(float(np.percentile(vals, 97.5)), 4)]
+
+
 def _ranking(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, Any]:
+    """Poradie bez úniku: hranice učenie | validácia | test podľa času; štítky iba dozreté pred každou hranicou
+    (dátum + okno štítka + oneskorenie zverejnenia); príznaky odvodené zo štítkov (miera entity) po foldoch;
+    silný naivný odhad vybraný na validácii a zmrazený pred testom; interval bootstrap po entitách/časových blokoch."""
     from sklearn.ensemble import HistGradientBoostingClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
 
+    from .exp_plan import apply_population
+
     label, feats = plan["label"], [f for f in plan["features"] if f]
-    ws.matured(label)
+    apply_population(ws, plan)
+    horizon = ws.matured(label)
     value = (plan.get("value") or "").strip()
     ent = plan.get("entity_column") or ""
+    unit_entity = (plan.get("decision_unit") or "row") == "entity" and bool(ent)
     sel = ", ".join(f"{q(f)} AS f{i}" for i, f in enumerate(feats))
     data = ws.con.execute(
         f"SELECT _rid, _t, {sel}, CASE WHEN TRY_CAST({q(label)} AS DOUBLE) > 0 THEN 1 ELSE 0 END AS _y"
@@ -172,137 +258,171 @@ def _ranking(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, Any]
     if n < 100:
         raise DatasetError(f"málo riadkov so štítkom ({n})")
     y = np.asarray(data["_y"], dtype=int)
-    t = np.asarray(data["_t"])
-    num_cols, cat_cols = [], []
+    t = np.asarray(data["_t"]).astype("datetime64[D]")
+    known_at = t + np.timedelta64(int(horizon), "D")  # deň, keď je štítok riadku známy
+    ents_all = np.asarray([str(v) for v in np.ma.filled(data["_ent"], "")], dtype=object) if ent else None
+    base_num, cat_cols = [], []
     for i, f in enumerate(feats):
         col = data[f"f{i}"]
         try:
             arr = np.asarray(np.ma.filled(np.ma.asarray(col, dtype=float), np.nan), dtype=float)
-            num_cols.append((f, arr))
+            base_num.append((f, arr))
         except (TypeError, ValueError):
             cat_cols.append((f, np.asarray([("∅" if v is None else str(v)) for v in np.ma.filled(col, None)], dtype=object)))
-    if ent:  # doterajšia miera entity ako príznak (naivný odhad entity_rate ho mal, modely nie – reálny beh E6)
-        ents_all = np.asarray([str(v) for v in np.ma.filled(data["_ent"], "")], dtype=object)
-        cut = int(n * (1 - cfg.experiments.test_share))
-        prior = float(y[:cut].mean()) if cut else 0.0
-        pos: dict[str, float] = {}
-        cnt: dict[str, int] = {}
-        for e_, yy in zip(ents_all[:cut], y[:cut]):
-            pos[e_] = pos.get(e_, 0.0) + yy
-            cnt[e_] = cnt.get(e_, 0) + 1
-        m = 5.0
-        rate = np.empty(n)
-        for i, e_ in enumerate(ents_all):
-            p_, c_ = pos.get(e_, 0.0), cnt.get(e_, 0)
-            if i < cut:  # bez vlastného riadku – inak by model videl vlastný štítok
-                p_, c_ = p_ - y[i], c_ - 1
-            rate[i] = (p_ + prior * m) / (c_ + m)
-        num_cols.append(("miera_entity", rate))
-    num = np.column_stack([a for _, a in num_cols]) if num_cols else np.zeros((n, 0))
     cat = np.column_stack([a for _, a in cat_cols]) if cat_cols else np.zeros((n, 0), dtype=object)
-    names = [f for f, _ in num_cols] + [f for f, _ in cat_cols]
     test_from = int(n * (1 - cfg.experiments.test_share))
     val_from = int(test_from * 0.8)
-    if y[test_from:].sum() < 5 or y[:val_from].sum() < 5:
-        raise DatasetError("málo pozitívnych prípadov v učení alebo v teste")
+    t_val, t_test = t[val_from], t[test_from]
+    idx = np.arange(n)
+    train_val = (idx < val_from) & (known_at < t_val)  # učenie pre výber modelu: štítky známe pred validáciou
+    train_test = (idx < test_from) & (known_at < t_test)  # učenie pre test: štítky známe pred testom
+    val_rows, test_rows = np.arange(val_from, test_from), np.arange(test_from, n)
+    if y[test_rows].sum() < 5 or y[train_val].sum() < 5:
+        raise DatasetError("málo pozitívnych prípadov v učení (dozretých pred hranicou) alebo v teste"
+                           + (f" – štítok je známy až {horizon} dní po dátume riadku" if horizon else ""))
+
+    def fold_num(cutoff) -> tuple[np.ndarray, list[str]]:
+        """Číselné príznaky pre fold s hranicou `cutoff` (miera entity sa počíta pre každý fold zvlášť)."""
+        cols = list(base_num)
+        if ent:
+            cols.append(("miera_entity", entity_rates(y, t, known_at, ents_all, cutoff)))
+        num = np.column_stack([a for _, a in cols]) if cols else np.zeros((n, 0))
+        return num, [f for f, _ in cols]
+
+    num_val, names = fold_num(t_val)
+    num_test, _ = fold_num(t_test)
+    names = names + [f for f, _ in cat_cols]
     rng = np.random.default_rng(RNG_SEED)
     k = int(plan.get("capacity") or 50)
-    yt = y[test_from:]
+    primary = plan["primary_metric"]
+    unit_ents = (lambda rows: ents_all[rows]) if unit_entity else (lambda rows: None)
 
-    def fit(kind: str, a: int, b: int):
-        enc = _Encoder(num[a:b], cat[a:b])
+    def evaluate(rows: np.ndarray, scores: np.ndarray | None, kk: int, only: str | None = None) -> dict[str, float | None]:
+        yy, ss = _by_unit(y[rows], scores, unit_ents(rows))
+        return rank_metrics(yy, ss, kk, rng, only=only)
+
+    def fit(kind: str, num: np.ndarray, mask: np.ndarray):
+        enc = _Encoder(num[mask], cat[mask])
         if kind == "logistic":
             scaler = StandardScaler()
-            xtr = scaler.fit_transform(enc.onehot(num[a:b], cat[a:b]))
-            m = LogisticRegression(max_iter=2000, class_weight="balanced").fit(xtr, y[a:b])
-            return lambda nn, cc: m.predict_proba(scaler.transform(enc.onehot(nn, cc)))[:, 1]
-        mask = [False] * num.shape[1] + [True] * cat.shape[1]
-        m = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.06, categorical_features=mask if any(mask) else None,
-                                           random_state=RNG_SEED).fit(enc.dense(num[a:b], cat[a:b]), y[a:b])
-        return lambda nn, cc: m.predict_proba(enc.dense(nn, cc))[:, 1]
+            xtr = scaler.fit_transform(enc.onehot(num[mask], cat[mask]))
+            m = LogisticRegression(max_iter=2000, class_weight="balanced").fit(xtr, y[mask])
+            return lambda rows: m.predict_proba(scaler.transform(enc.onehot(num[rows], cat[rows])))[:, 1]
+        catmask = [False] * num.shape[1] + [True] * cat.shape[1]
+        m = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.06,
+                                           categorical_features=catmask if any(catmask) else None,
+                                           random_state=RNG_SEED).fit(enc.dense(num[mask], cat[mask]), y[mask])
+        return lambda rows: m.predict_proba(enc.dense(num[rows], cat[rows]))[:, 1]
 
-    table, scores, notes = [], {}, {}
-    primary = plan["primary_metric"]
-    val_scores = {}
+    k_val = max(1, int(k * len(val_rows) / max(1, len(test_rows))))
+    table, scores, notes, val_scores, models = [], {}, {}, {}, {}
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         for kind in ("logistic", "boosting"):
             try:
-                f = fit(kind, 0, val_from)
-                val_scores[kind] = rank_metrics(y[val_from:test_from], f(num[val_from:test_from], cat[val_from:test_from]),
-                                                max(1, int(k * (test_from - val_from) / max(1, n - test_from))), rng)
-                g = fit(kind, 0, test_from)  # vybraný postup sa znova naučí na učení + validácii
-                scores[kind] = g(num[test_from:], cat[test_from:])
+                f = fit(kind, num_val, train_val)
+                val_scores[kind] = evaluate(val_rows, f(val_rows), k_val)
+                models[kind] = fit(kind, num_test, train_test)  # znova naučený na štítkoch známych pred testom
+                scores[kind] = models[kind](test_rows)
             except Exception as exc:  # noqa: BLE001 – jeden model nezastaví ostatné
                 notes[kind] = f"{type(exc).__name__}: {str(exc)[:150]}"
     if not scores:
         raise DatasetError("žiadny model sa nepodarilo naučiť: " + "; ".join(notes.values()))
     chosen = max(val_scores, key=lambda m: val_scores[m].get(primary) or -1)
-    for kind, s in scores.items():
-        table.append({"postup": kind, "typ": "model", **rank_metrics(yt, s, k, rng)})
-    base_scores: dict[str, np.ndarray | None] = {"random": None}
-    if value:
-        base_scores["value_desc"] = np.asarray(np.ma.filled(np.ma.asarray(data["_value"], dtype=float), np.nan))[test_from:]
-    flags = [i for i, (fname, a) in enumerate(num_cols) if set(np.unique(a[~np.isnan(a)])) <= {0.0, 1.0}]
-    if flags:
-        base_scores["flag_count"] = np.nansum(num[test_from:, flags], axis=1)
-    if ent:
-        ents = np.asarray([str(v) for v in np.ma.filled(data["_ent"], "")], dtype=object)
-        prior = y[:test_from].mean()
-        rates: dict[str, tuple[int, int]] = {}
-        for e_, yy in zip(ents[:test_from], y[:test_from]):
-            p, c = rates.get(e_, (0, 0))
-            rates[e_] = (p + yy, c + 1)
-        base_scores["entity_rate"] = np.array([(rates.get(e_, (0, 0))[0] + 5 * prior) / (rates.get(e_, (0, 0))[1] + 5)
-                                               for e_ in ents[test_from:]])
-    for name, s in base_scores.items():
-        table.append({"postup": name, "typ": "naivný", **rank_metrics(yt, s, k, rng)})
+    for kind, sc in scores.items():
+        table.append({"postup": kind, "typ": "model", **evaluate(test_rows, sc, k)})
+
+    def baselines(rows: np.ndarray, num: np.ndarray, cutoff) -> dict[str, np.ndarray | None]:
+        out: dict[str, np.ndarray | None] = {"random": None}
+        if value:
+            out["value_desc"] = np.asarray(np.ma.filled(np.ma.asarray(data["_value"], dtype=float), np.nan))[rows]
+        flags = [i for i, (fname, a) in enumerate(base_num) if set(np.unique(a[~np.isnan(a)])) <= {0.0, 1.0}]
+        if flags:
+            out["flag_count"] = np.nansum(num[np.ix_(rows, flags)], axis=1)
+        if ent:  # zmrazená miera entity pred hranicou (rovnaká ako príznak)
+            out["entity_rate"] = num[rows, len(base_num)]
+        return out
+
+    base_val = baselines(val_rows, num_val, t_val)
+    base_scores = baselines(test_rows, num_test, t_test)
+    for name, sc in base_scores.items():
+        table.append({"postup": name, "typ": "naivný", **evaluate(test_rows, sc, k)})
     for row in table:
         for key in list(row):
             row[key] = _r(row[key]) if key not in ("postup", "typ") else row[key]
-    # interval rozdielu hlavnej metriky (vybraný model − hlavný naivný odhad), bootstrap testovacích riadkov
-    ci = None
-    base = plan["primary_baseline"]
-    if base in base_scores and chosen in scores:
-        diffs = []
-        idx_all = np.arange(len(yt))
-        for _ in range(cfg.experiments.bootstrap):
-            idx = rng.choice(idx_all, size=len(idx_all), replace=True)
-            mk = rank_metrics(yt[idx], scores[chosen][idx], k, rng, only=primary).get(primary)
-            bs = base_scores[base]
-            bk = rank_metrics(yt[idx], None if bs is None else bs[idx], k, rng, only=primary).get(primary)
-            if mk is not None and bk is not None:
-                diffs.append(mk - bk)
-        if diffs:
-            ci = [round(float(np.percentile(diffs, 2.5)), 4), round(float(np.percentile(diffs, 97.5)), 4)]
+    # silný naivný odhad: vybraný na validácii podľa hlavnej metriky a zmrazený pred testom (nie dodatočne na teste)
+    base_val_scores = {b: evaluate(val_rows, sc, k_val, only=primary).get(primary) for b, sc in base_val.items()}
+    direction = METRICS["ranking"].get(primary, "higher")
+    cand = {b: v for b, v in base_val_scores.items() if v is not None and b != "random"} or \
+        {b: v for b, v in base_val_scores.items() if v is not None}
+    strong = (max if direction == "higher" else min)(cand, key=cand.get) if cand else None
+    # intervaly rozdielu (vybraný model − naivný odhad): bootstrap zhlukov testu (entity, inak mesiace)
+    groups, how = clusters_of(ents_all[test_rows] if ent else None, t[test_rows])
+    yt = y[test_rows]
+
+    def diff_ci(base: str) -> list[float] | None:
+        if base not in base_scores or chosen not in scores:
+            return None
+        bs = base_scores[base]
+
+        def stat(ix: np.ndarray) -> float | None:
+            rows = test_rows[ix]
+            mk = evaluate(rows, scores[chosen][ix], k, only=primary).get(primary)
+            bk = evaluate(rows, None if bs is None else bs[ix], k, only=primary).get(primary)
+            return None if mk is None or bk is None else mk - bk
+
+        return cluster_bootstrap(groups, stat, cfg.experiments.bootstrap, rng)
+
+    ci = diff_ci(plan["primary_baseline"])
+    strong_row = next((r for r in table if r["postup"] == strong), None)
+    chosen_row = next(r for r in table if r["postup"] == chosen)
+    strong_out = None
+    if strong_row is not None:
+        imp = improvement(chosen_row.get(primary), strong_row.get(primary), direction)
+        sci = ci if strong == plan["primary_baseline"] else diff_ci(strong)
+        strong_out = {"naivný": strong, "metrika": primary, "validácia": _r(base_val_scores.get(strong)),
+                      "hodnota": strong_row.get(primary), "model_hodnota": chosen_row.get(primary),
+                      "zlepšenie_pct": None if imp is None else round(imp, 2), "ci95_rozdielu": sci,
+                      "vybraný_na": "validácia (zmrazené pred testom)",
+                      "prekonal": bool(imp is not None and imp > 0 and (sci is None or (
+                          sci[0] > 0 if direction == "higher" else sci[1] < 0)))}
     # dôležitosť príznakov: pokles priemernej presnosti po premiešaní príznaku (vzorka testu)
     importance = {}
-    sample = rng.choice(np.arange(test_from, n), size=min(20000, n - test_from), replace=False)
+    sample = rng.choice(test_rows, size=min(20000, len(test_rows)), replace=False)
     try:
-        g = fit(chosen, 0, test_from)
         from sklearn.metrics import average_precision_score
-        base_ap = average_precision_score(y[sample], g(num[sample], cat[sample]))
+
+        g = models[chosen]  # model číta num_test a cat – premiešaný stĺpec sa po meraní vráti
+        base_ap = average_precision_score(y[sample], g(sample))
         for j, fname in enumerate(names):
-            nn, cc = num[sample].copy(), cat[sample].copy()
-            if j < num.shape[1]:
-                nn[:, j] = rng.permutation(nn[:, j])
-            else:
-                cc[:, j - num.shape[1]] = rng.permutation(cc[:, j - num.shape[1]])
-            importance[fname] = round(float(base_ap - average_precision_score(y[sample], g(nn, cc))), 4)
+            mat, col = (num_test, j) if j < num_test.shape[1] else (cat, j - num_test.shape[1])
+            saved = mat[sample, col].copy()
+            mat[sample, col] = rng.permutation(saved)
+            try:
+                importance[fname] = round(float(base_ap - average_precision_score(y[sample], g(sample))), 4)
+            finally:
+                mat[sample, col] = saved
     except Exception as exc:  # noqa: BLE001
         notes["dôležitosť"] = str(exc)[:150]
     # položky na kontrolu: prvých k testovacích riadkov podľa vybraného modelu
     top = _top_k(scores[chosen], min(k, cfg.experiments.top_items), rng)
     rids = [int(data["_rid"][test_from + i]) for i in top]
     items = _items(ws, rids, label, feats, value, ent, order=[float(scores[chosen][i]) for i in top])
-    t0, t1, t2 = str(t[0]), str(t[test_from]), str(t[-1])
+    dropped_val = int(((idx < val_from) & ~train_val).sum())
+    dropped_test = int(((idx < test_from) & ~train_test).sum())
     return {"tabuľka": table, "metriky": list(METRICS["ranking"]), "vybraný_model": chosen,
             "výber": f"vybraný na validačnom období podľa {primary}: " + ", ".join(
                 f"{m} {_r(v.get(primary))}" for m, v in val_scores.items()),
             "hlavné": _primary(plan, table, chosen, ci),
-            "detaily": {"riadky": n, "učenie": f"{t0} – {t[val_from - 1]}", "validácia": f"{t[val_from]} – {t[test_from - 1]}",
-                        "test": f"{t1} – {t2}", "test_riadky": int(len(yt)), "test_pozitívne": int(yt.sum()),
+            "silné_porovnanie": strong_out,
+            "detaily": {"riadky": n, "učenie": f"{t[0]} – {t[val_from - 1]}", "validácia": f"{t_val} – {t[test_from - 1]}",
+                        "test": f"{t_test} – {t[-1]}", "test_riadky": int(len(yt)), "test_pozitívne": int(yt.sum()),
                         "podiel_pozitívnych_test": _r(yt.mean()), "k": k, "dôležitosť_príznakov": importance,
+                        "jednotka_rozhodnutia": "subjekt" if unit_entity else "riadok",
+                        "dozretie_štítka_dní": int(horizon),
+                        "nedozreté_pred_validáciou": dropped_val, "nedozreté_pred_testom": dropped_test,
+                        "naivné_na_validácii": {b: _r(v) for b, v in base_val_scores.items()},
+                        "interval": f"bootstrap {how}",
                         "koncentrácia_štítku": label_concentration(ws, label, ent), "poznámky": notes},
             "položky": items, "položky_popis": f"prvých {len(items)} položiek testovacieho obdobia podľa modelu {chosen}"}
 
@@ -492,12 +612,36 @@ def _forecast(cfg: Config, ws: Workspace, plan: dict[str, Any], anomaly: bool = 
             arr = np.array(per_e)
             boots = [rng.choice(arr, size=len(arr), replace=True).mean() for _ in range(cfg.experiments.bootstrap)]
             ci = [round(float(np.percentile(boots, 2.5)), 4), round(float(np.percentile(boots, 97.5)), 4)]
+    strong_out = None
+    if val_scores and not anomaly:  # silný naivný odhad vybraný na validačných obdobiach, zmrazený pred testom
+        base_val = {b: metrics_for(b, val_o).get(primary) for b in names[:4]}
+        cand = {b: v for b, v in base_val.items() if v is not None}
+        if cand:
+            strong = min(cand, key=cand.get)
+            sv = next(r.get(primary) for r in table if r["postup"] == strong)
+            mv = next(r.get(primary) for r in table if r["postup"] == chosen)
+            imp = improvement(mv, sv, "lower")
+            diffs = []
+            for i in range(len(ents)):
+                mm = _forecast_metrics(panel[i, test_o], preds[chosen][i, test_o], scale_mat[i, test_o]).get(primary)
+                bb = _forecast_metrics(panel[i, test_o], preds[strong][i, test_o], scale_mat[i, test_o]).get(primary)
+                if mm is not None and bb is not None:
+                    diffs.append(mm - bb)
+            sci = None
+            if diffs:  # bootstrap po entitách (zhluk = entita)
+                arr = np.array(diffs)
+                boots = [rng.choice(arr, size=len(arr), replace=True).mean() for _ in range(cfg.experiments.bootstrap)]
+                sci = [round(float(np.percentile(boots, 2.5)), 4), round(float(np.percentile(boots, 97.5)), 4)]
+            strong_out = {"naivný": strong, "metrika": primary, "validácia": _r(cand[strong]), "hodnota": sv,
+                          "model_hodnota": mv, "zlepšenie_pct": None if imp is None else round(imp, 2),
+                          "ci95_rozdielu": sci, "vybraný_na": "validačné obdobia (zmrazené pred testom)",
+                          "prekonal": bool(imp is not None and imp > 0 and (sci is None or sci[1] < 0))}
     plan_eff = plan if plan["primary_metric"] in [r for r in table[0]] else {**plan, "primary_metric": primary}
     out = {"tabuľka": table, "metriky": list(METRICS["forecast"]), "vybraný_model": chosen,
            "výber": (f"vybraný na validačných obdobiach ({', '.join(str(periods[o]) for o in val_o)}) podľa {primary}: "
                      + ", ".join(f"{m} {_r(v.get(primary))}" for m, v in val_scores.items())) if val_scores else
                     "príliš málo období na výber – použité ETS",
-           "hlavné": _primary(plan_eff, table, chosen, ci),
+           "hlavné": _primary(plan_eff, table, chosen, ci), "silné_porovnanie": strong_out,
            "detaily": {"entity": len(ents), "obdobia": [str(p) for p in periods], "testovacie_obdobia":
                        [str(periods[o]) for o in test_o], "sezóna": season,
                        "rad_súčet": [_r(float(np.nansum(panel[:, j])), 2) for j in range(nper)],
@@ -694,8 +838,85 @@ def _comparison(cfg: Config, ws: Workspace, plan: dict[str, Any]) -> dict[str, A
 
 
 # ======================================================================= spustenie
+def assess(cfg: Config, res: dict[str, Any], plan: dict[str, Any], method_errors: list[str],
+           method_warnings: list[str]) -> dict[str, Any]:
+    """Tri osi výsledku z dát (audit 14. 10. 2026, P1 5): (a) splnenie predregistrovanej hypotézy, (b) prínos oproti
+    silnému jednoduchému postupu vybranému na validácii a zmrazenému pred testom, (c) metodická platnosť testu.
+    Štvrtá os – výsledok u používateľa – sa dopĺňa ručne (`verdict`). Najlepší naivný odhad na teste je iba diagnostika."""
+    prim = res.get("hlavné") or {}
+    det = res.get("detaily") or {}
+    strong = res.get("silné_porovnanie")
+    problems = list(method_errors)
+    weak: list[str] = []
+    conc = det.get("koncentrácia_štítku") or {}
+    if conc.get("sústredený") and det.get("jednotka_rozhodnutia", "riadok") == "riadok":
+        problems.append(f"štítok je sústredený na {conc.get('entity_so_štítkom')} z {conc.get('entity')} entít – test "
+                        "meria vlastnosť entity, nie riadku (jednotka rozhodnutia)")
+    if plan.get("task") == "ranking" and det.get("test_pozitívne") is not None \
+            and det["test_pozitívne"] < cfg.experiments.min_positives:
+        weak.append(f"v teste iba {det['test_pozitívne']} pozitívnych prípadov")
+    if plan.get("task") in ("forecast", "anomaly") and len(det.get("testovacie_obdobia") or []) < 4:
+        weak.append(f"iba {len(det.get('testovacie_obdobia') or [])} testovacie obdobia")
+    ci = prim.get("ci95_rozdielu")
+    if ci and ci[0] <= 0 <= ci[1]:
+        weak.append("95 % interval rozdielu proti hlavnému naivnému odhadu obsahuje nulu")
+    test_best = strongest_baseline(res)
+    return {
+        "predregistrácia": {"splnené": prim.get("splnené"), "naivný": prim.get("naivný"),
+                            "zlepšenie_pct": prim.get("zlepšenie_pct"), "prah_pct": prim.get("prah_pct")},
+        "silné_porovnanie": strong or {"prekonal": None, "text": "pre túto úlohu sa nevyhodnocuje"},
+        "metodika": {"platné": not problems, "problémy": problems, "nepresvedčivé": weak, "upozornenia": method_warnings},
+        "diagnostika_test": test_best,  # najlepší naivný odhad na teste – nie nová predregistrácia
+    }
+
+
+def verdict(res: dict[str, Any], flags: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Súhrn štyroch osí; (d) výsledok u používateľa je ručný záznam (pilot, nameraná zmena práce)."""
+    osi = res.get("osi") or {}
+    user = (flags or {}).get("výsledok_používateľa") or {"stav": "chýba",
+                                                          "text": "výsledok u používateľa (pilot) ešte nie je zapísaný"}
+    a = (osi.get("predregistrácia") or {}).get("splnené")
+    b = (osi.get("silné_porovnanie") or {}).get("prekonal")
+    m = osi.get("metodika") or {}
+    reasons = []
+    if not osi:
+        text, go = "staršie vyhodnotenie bez osí – spusti spätný test znova", False
+    elif not m.get("platné", True):
+        text, go = "neplatné – metodika", False
+        reasons += m.get("problémy") or []
+    elif a is False:
+        text, go = "nesplnené – predregistrované pravidlo", False
+    elif b is False:
+        text, go = "neprekonal silné jednoduché porovnanie", False
+        s = osi["silné_porovnanie"]
+        reasons.append(f"{s.get('naivný')}: {s.get('hodnota')} vs. model {s.get('model_hodnota')} "
+                       f"({s.get('zlepšenie_pct')} %)")
+    elif m.get("nepresvedčivé"):
+        text, go = "nepresvedčivé", False
+        reasons += m["nepresvedčivé"]
+    elif user.get("stav") == "potvrdené":
+        text, go = "potvrdené u používateľa", True
+    elif user.get("stav") == "nepotvrdené":
+        text, go = "u používateľa nepotvrdené", False
+    else:
+        text, go = "prínos v dátach – over u používateľa (pilot)", True
+    return {"verdikt": text, "pokračovať": go, "dôvody": reasons, "používateľ": user}
+
+
+def versions(db: DB, exp, plan: dict[str, Any]) -> dict[str, Any]:
+    """Verzie, s ktorými sa experiment počítal: kód, parser, schéma DB, zdrojové dáta (SHA-256) a špecifikácia."""
+    from .datasets import PARSER_VERSION, base_table
+
+    tables = {base_table(plan.get("table", ""))} | {base_table(st.get("table", "")) for st in plan.get("steps") or []
+                                                    if st.get("table")}
+    data = {d["table_name"]: (d["sha256"] or "")[:16] for d in db.datasets_for(exp["hypothesis_id"]) if d["table_name"] in tables}
+    return {"kód": EXPERIMENT_CODE_VERSION, "parser": PARSER_VERSION, "schéma": db.schema_version(), "dáta": data,
+            "špecifikácia": (exp["prereg_hash"] or "")[:16]}
+
+
 def run_experiment(cfg: Config, db: DB, exp, categorize: Callable | None = None,
                    check_categories: Callable | None = None) -> dict[str, Any]:
+    from .exp_plan import methodology
     from .gate2 import data_limits
 
     plan = json.loads(exp["spec_json"])
@@ -705,12 +926,15 @@ def run_experiment(cfg: Config, db: DB, exp, categorize: Callable | None = None,
     try:
         for raw in plan.get("steps") or []:
             ws.apply(Step.model_validate(raw))
+        meth_errors, meth_warnings = methodology(db, hid, plan, ws)
         runner = {"ranking": _ranking, "forecast": _forecast, "threshold": _threshold, "comparison": _comparison,
                   "anomaly": lambda c, w, p: _forecast(c, w, p, anomaly=True)}[plan["task"]]
         out = runner(cfg, ws, plan)
         out["protokol"] = ws.protocol
         out["task"] = plan["task"]
         out["rozsah_dát"] = ws.limits
+        out["osi"] = assess(cfg, out, plan, meth_errors, meth_warnings)
+        out["verzie"] = versions(db, exp, plan)
         return out
     finally:
         ws.close()

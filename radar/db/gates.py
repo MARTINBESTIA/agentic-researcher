@@ -8,7 +8,7 @@ from typing import Any
 
 from ..util import utcnow
 
-GATE_STATUSES = ("not_started", "running", "ready", "needs_input", "passed", "paused", "stopped")
+GATE_STATUSES = ("not_started", "running", "ready", "needs_input", "passed", "needs_revalidation", "paused", "stopped")
 
 
 class GatesMixin:
@@ -96,6 +96,19 @@ class GatesMixin:
                              f"VALUES (?, ?, {', '.join('?' * len(cols))})",
                              (to_hid, sources.get(d["source_id"]), *[d[c] for c in cols]))
             datasets[d["id"]] = int(cur.lastrowid)
+        bindings = 0
+        for b in self._all("SELECT * FROM field_bindings WHERE hypothesis_id = ?", (from_hid,)):
+            if b["field_id"] not in fields:
+                continue
+            # Odkaz na dáta sa dedí, potvrdenie významu nie: podhypotéza je iná otázka (audit 14. 10. 2026).
+            status = "code_ok" if b["validation_status"] == "confirmed" else b["validation_status"]
+            cols = [c for c in b.keys() if c not in ("id", "field_id", "hypothesis_id", "dataset_id", "validation_status",
+                                                     "confirmed_by", "note")]
+            self._exec(f"INSERT INTO field_bindings (field_id, hypothesis_id, dataset_id, validation_status, note, "
+                       f"{', '.join(cols)}) VALUES (?, ?, ?, ?, ?, {', '.join('?' * len(cols))})",
+                       (fields[b["field_id"]], to_hid, datasets.get(b["dataset_id"]), status,
+                        f"zdedené z H{from_hid} – potvrď pre podhypotézu", *[b[c] for c in cols]))
+            bindings += 1
         cov = 0
         for old, new in datasets.items():
             for c in self._all("SELECT * FROM dataset_coverage WHERE dataset_id = ?", (old,)):
@@ -105,7 +118,8 @@ class GatesMixin:
         src = self.get_hypothesis(from_hid)
         self._exec("UPDATE hypotheses SET gate1_json = ?, gate1_started_at = ?, updated_at = ? WHERE id = ?",
                    (src["gate1_json"], src["gate1_started_at"], now, to_hid))
-        return {"fields": len(fields), "sources": len(sources), "datasets": len(datasets), "coverage": cov}
+        return {"fields": len(fields), "sources": len(sources), "datasets": len(datasets), "coverage": cov,
+                "bindings": bindings}
 
     # ---------------------------------------------------------------- vstup človeka (Brána 1)
     def add_gate1_input(self, hid: int, text: str, file_name: str | None = None, dataset_id: int | None = None) -> int:
@@ -115,6 +129,10 @@ class GatesMixin:
 
     def gate1_inputs_for(self, hid: int) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM gate1_inputs WHERE hypothesis_id = ? ORDER BY id DESC", (hid,))
+
+    def gate1_inputs_for_all(self, ids: list[int] | None = None) -> list[sqlite3.Row]:
+        rows = self._all("SELECT * FROM gate1_inputs ORDER BY id")
+        return [r for r in rows if not ids or r["hypothesis_id"] in ids]
 
     def pending_gate1_inputs(self, ids: list[int] | None = None) -> list[sqlite3.Row]:
         rows = self._all("SELECT * FROM gate1_inputs WHERE status = 'pending' ORDER BY id")
@@ -163,7 +181,7 @@ class GatesMixin:
         return self._one("SELECT * FROM data_fields WHERE id = ?", (field_id,))
 
     def update_field(self, field_id: int, **fields: Any) -> None:
-        allowed = {"status", "status_note", "is_key", "description", "edited_by_human"}
+        allowed = {"status", "status_note", "is_key", "description", "edited_by_human", "availability"}
         if set(fields) - allowed:
             raise ValueError(f"Neznáme polia: {sorted(set(fields) - allowed)}")
         fields["updated_at"] = utcnow()
@@ -337,12 +355,51 @@ class GatesMixin:
 
     # ------------------------------------------------------------------ rozhodnutia
     def add_gate_decision(self, gate: int, hid: int, decision: str, reason: str, metrics: dict[str, Any],
-                          org_id: int | None = None) -> None:
+                          org_id: int | None = None, decided_by: str = "human", data_fingerprint: str | None = None) -> None:
         self._exec(
-            "INSERT INTO gate_decisions (gate, hypothesis_id, org_id, decision, reason, metrics_json, decided_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (gate, hid, org_id, decision, reason, json.dumps(metrics, ensure_ascii=False), utcnow()),
+            "INSERT INTO gate_decisions (gate, hypothesis_id, org_id, decision, reason, metrics_json, decided_at, "
+            "decided_by, data_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (gate, hid, org_id, decision, reason, json.dumps(metrics, ensure_ascii=False), utcnow(), decided_by,
+             data_fingerprint),
         )
+
+    # ------------------------------------------------------------------ väzby polí (v12)
+    BINDING_FIELDS = {"dataset_id", "dataset_sha", "table_name", "expression", "unit", "entity_kind", "grain", "meaning",
+                      "evidence", "checks_json", "validation_status", "proposed_by", "confirmed_by", "validated_at",
+                      "inputs_fingerprint", "note"}
+
+    def add_binding(self, field_id: int, hid: int, validation_status: str, **fields: Any) -> int:
+        bad = set(fields) - self.BINDING_FIELDS
+        if bad:
+            raise ValueError(f"Neznáme polia väzby: {bad}")
+        if "checks_json" in fields and not isinstance(fields["checks_json"], (str, type(None))):
+            fields["checks_json"] = json.dumps(fields["checks_json"], ensure_ascii=False, default=str)
+        validated_at = fields.pop("validated_at", None) or utcnow()
+        cols = ["field_id", "hypothesis_id", "validation_status", "created_at", "validated_at"] + list(fields)
+        vals = [field_id, hid, validation_status, utcnow(), validated_at] + list(fields.values())
+        cur = self._exec(f"INSERT INTO field_bindings ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", tuple(vals))
+        return int(cur.lastrowid)
+
+    def update_binding(self, binding_id: int, **fields: Any) -> None:
+        bad = set(fields) - self.BINDING_FIELDS
+        if bad:
+            raise ValueError(f"Neznáme polia väzby: {bad}")
+        if "checks_json" in fields and not isinstance(fields["checks_json"], (str, type(None))):
+            fields["checks_json"] = json.dumps(fields["checks_json"], ensure_ascii=False, default=str)
+        if fields:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            self._exec(f"UPDATE field_bindings SET {sets} WHERE id = ?", (*fields.values(), binding_id))
+
+    def get_binding(self, binding_id: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM field_bindings WHERE id = ?", (binding_id,))
+
+    def bindings_for(self, hid: int) -> list[sqlite3.Row]:
+        return self._all(
+            """SELECT b.*, f.name AS field_name, f.is_key FROM field_bindings b JOIN data_fields f ON f.id = b.field_id
+               WHERE b.hypothesis_id = ? ORDER BY f.is_key DESC, f.id, b.id DESC""", (hid,))
+
+    def bindings_for_field(self, field_id: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM field_bindings WHERE field_id = ? ORDER BY id DESC", (field_id,))
 
     def gate_decisions_for(self, hid: int, gate: int) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM gate_decisions WHERE hypothesis_id = ? AND gate = ? ORDER BY id DESC", (hid, gate))

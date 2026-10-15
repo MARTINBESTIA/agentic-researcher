@@ -119,10 +119,19 @@ def stage_gate1(step: str) -> Callable[[Any, Deadline], dict]:
             return gate1.run_check(app.cfg, app.db, app.fetcher, deadline, ids)
         if step == "datasets":
             return gate1.run_datasets(app.cfg, app.db, app.fetcher, deadline, ids)
+        if step == "bindings":
+            from .bindings import run_bindings
+
+            return run_bindings(app.cfg, app.db, app.router, deadline, ids)
         if step == "repro":
             return gate1.run_repro(app.cfg, app.db, app.router, deadline, ids)
         if step == "user":
             return gate1.run_user_inputs(app.cfg, app.db, app.router, deadline, ids)
+        if step == "revalidate":
+            return dict(gate1.revalidate_passed(app.cfg, app.db, ids))
+        if step == "reprofile":
+            hyps = ids or [h["id"] for h in app.db.gate1_hypotheses()]
+            return {"reprofiled": sum(gate1.reprofile(app.cfg, app.db, h, force=True) for h in hyps)}
         return gate1.run_finish(app.cfg, app.db, deadline, ids)
 
     return run
@@ -286,9 +295,12 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "gate1-sources": stage_gate1("sources"),
     "gate1-check": stage_gate1("check"),
     "gate1-datasets": stage_gate1("datasets"),
+    "gate1-bindings": stage_gate1("bindings"),
     "gate1-repro": stage_gate1("repro"),
     "gate1-user": stage_gate1("user"),
     "gate1-finish": stage_gate1("finish"),
+    "gate1-revalidate": stage_gate1("revalidate"),
+    "gate1-reprofile": stage_gate1("reprofile"),
     "gate2-cards": stage_gate2("cards"),
     "gate2-plan": stage_gate2("plan"),
     "gate2-conclusion": stage_gate2("conclusion"),
@@ -317,11 +329,17 @@ STAGE_HELP = {
                       "weby overí kód cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu.",
     "gate1-fields": "Brána 1: polia potrebné na riešenie problému (presný model).",
     "gate1-sources": "Brána 1: agent hľadá zdroje dát k poliam (licencia, frekvencia z prečítanej stránky).",
-    "gate1-check": "Brána 1: dostupnosť zdrojov, odkazy na súbory a kvalita (kód).",
-    "gate1-datasets": "Brána 1: stiahnutie, import do DuckDB, profil a pokrytie organizácií (kód).",
+    "gate1-check": "Brána 1: dostupnosť zdrojov – súbory overí skutočná požiadavka (nie prípona), kvalita (kód).",
+    "gate1-datasets": "Brána 1: stiahnutie, import podľa obsahu (HTML sa odmietne, SpreadsheetML, RDF kocky), "
+                      "importný report a kontrola; profil a pokrytie organizácií (kód).",
+    "gate1-bindings": "Brána 1: pole → stĺpec v dátach (presný model navrhne, kód overí pokrytie, typ a pojmy; kľúčové potvrdíš).",
     "gate1-repro": "Brána 1: zreprodukovať známe číslo (model navrhne SQL, počíta DuckDB).",
     "gate1-user": "Brána 1: posúdi tvoje dáta alebo schému (sudca po poliach, vhodnosť počíta kód; ≥ 0,5 → Brána 2).",
-    "gate1-finish": "Brána 1: žiadosti 211/2000, pripravenosť dát; ≥ 0,5 → Brána 2, inak čaká na tvoje dáta (kód).",
+    "gate1-finish": "Brána 1: žiadosti 211/2000, pripravenosť dát; ≥ 0,5 a kľúčové polia s potvrdeným stĺpcom → "
+                    "Brána 2, inak čaká na tvoje dáta (kód); preverí aj prešlé.",
+    "gate1-revalidate": "Brána 1: preverí prešlé hypotézy s aktuálnymi dátami – prechod pravidlom bez platných "
+                        "podmienok dostane „treba znova overiť“, ručný prechod príznak (kód).",
+    "gate1-reprofile": "Brána 1: prepočíta profily datasetov z aktuálneho stavu tabuliek (riadky, stĺpce, IČO) (kód).",
     "gate2-cards": "Problémové karty (problém, kto, rozhodnutie, výstup s citátmi) a rozdelenie širokých hypotéz.",
     "gate2-plan": "Brána 2: návrh experimentov z karty a profilu dát (model), skúšobný beh a oprava (kód).",
     "gate2-conclusion": "Brána 2: záver pre problém z vypočítaných faktov a správa experimentu (HTML).",

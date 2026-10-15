@@ -647,3 +647,38 @@ CREATE TABLE IF NOT EXISTS funnel_log (  -- kroky lievika: ktorá hypotéza, ak�
 );
 CREATE INDEX IF NOT EXISTS idx_funnel_h ON funnel_log(hypothesis_id, step);
 """
+
+# ---------------------------------------------------------------- v12: dôveryhodnosť dát (audit 14. 10. 2026)
+V12_COLUMNS = {
+    "gate_decisions": {
+        "decided_by": "TEXT",                    # rule (pravidlo prechodu) | human (človek)
+        "data_fingerprint": "TEXT",              # odtlačok polí, väzieb a datasetov v čase rozhodnutia
+    },
+    "data_fields": {
+        "availability": "TEXT",                  # public | internal (interné udalosti organizácie → partner, nie web)
+    },
+    "hypotheses": {
+        "business_json": "TEXT",                 # obchodný stav: vlastník procesu, vzorka, úspora, pilot (zapisuje človek)
+    },
+}
+
+SCHEMA_V12 = """
+CREATE TABLE IF NOT EXISTS field_bindings (  -- väzba požiadavky na dáta: pole → verzia datasetu → stĺpec/výraz → význam
+  id INTEGER PRIMARY KEY,
+  field_id INTEGER NOT NULL REFERENCES data_fields(id) ON DELETE CASCADE,
+  hypothesis_id INTEGER NOT NULL,
+  dataset_id INTEGER REFERENCES datasets(id) ON DELETE SET NULL,
+  dataset_sha TEXT,                         -- verzia datasetu (SHA-256 súboru), pre ktorú väzba platí
+  table_name TEXT, expression TEXT,         -- stĺpec alebo výraz nad jednou tabuľkou
+  unit TEXT, entity_kind TEXT, grain TEXT, meaning TEXT,
+  evidence TEXT,                            -- čo podporuje význam (názov stĺpca, vzorka hodnôt, dokumentácia)
+  checks_json TEXT,                         -- kontroly kódom: pokrytie, typ, vzorka, časové pokrytie, pojmy
+  validation_status TEXT NOT NULL,          -- code_ok | code_failed | not_in_data | confirmed | rejected | stale
+  proposed_by TEXT, confirmed_by TEXT, validated_at TEXT,
+  inputs_fingerprint TEXT,                  -- odtlačok datasetov pri návrhu (nový návrh až pri zmene dát alebo parsera)
+  note TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_field_bindings_f ON field_bindings(field_id, id);
+CREATE INDEX IF NOT EXISTS idx_field_bindings_h ON field_bindings(hypothesis_id);
+"""

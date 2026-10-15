@@ -314,6 +314,7 @@ def _experiment_row(e: dict[str, Any]) -> dict[str, Any]:
             "model": prim.get("model"), "hodnota_modelu": prim.get("model_hodnota"),
             "hodnota_naivného": prim.get("naivný_hodnota"), "zlepšenie_pct": prim.get("zlepšenie_pct"),
             "splnené": prim.get("splnené"),
+            "verdikt": flags.get("verdikt") if isinstance(flags, dict) else None,
             "záver": ((concl.get("text") or {}).get("result_for_decision") if isinstance(concl, dict) else None),
             "zdroj_záveru": concl.get("zdroj") if isinstance(concl, dict) else None,
             "upozornenia": " | ".join(flags.get("upozornenia") or []) if isinstance(flags, dict) else "",
@@ -631,7 +632,8 @@ def _readme(cfg: Config, db: DB, dos: Dossier, entries: list[dict[str, Any]], da
         line = f"- **E{e['id']}** (H{e['hypothesis_id']}, {e['úloha']}, {e['stav']}) {_md(e['názov'] or e['výrok'] or '')}"
         if e["hodnota_modelu"] is not None:
             line += (f" – {e['metrika']}: model {e['hodnota_modelu']} vs. naivný {e['hodnota_naivného']}, zlepšenie "
-                     f"{e['zlepšenie_pct']} %, pravidlo {'splnené' if e['splnené'] else 'nesplnené'}")
+                     f"{e['zlepšenie_pct']} %, pravidlo {'splnené' if e['splnené'] else 'nesplnené'}"
+                     + (f"; verdikt: {e['verdikt']}" if e.get("verdikt") else ""))
         out.append(line)
         if e["záver"]:
             out.append(f"  - záver ({e['zdroj_záveru']}): {_md(e['záver'])}")

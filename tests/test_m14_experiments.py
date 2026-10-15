@@ -69,7 +69,7 @@ RANKING_PLAN = {
     "steps": [
         {"op": "link_records", "name": "parent", "column": "subject", "pattern": r"k zmluve č\. (\S+)",
          "target_column": "number", "keys": ["buyer"]},
-        {"op": "linked_agg", "name": "amend_count", "link": "parent", "agg": "count", "days": 365},
+        {"op": "linked_agg", "name": "amend_count", "link": "parent", "agg": "count", "days": 200},  # dodatky do 200 dní
         {"op": "derive", "name": "had_amend", "expr": "amend_count > 0"},
         {"op": "filter", "expr": "subject NOT LIKE 'Dodatok%'"},
         {"op": "prior_agg", "name": "buyer_prior", "keys": ["buyer"], "agg": "count", "days": 90},
@@ -112,7 +112,8 @@ def test_card_cites_own_claims_checks_key_fields_and_splits_hypothesis(tmp_path)
     assert {c["id"] for c in db.evidence_for(c2)} == {ids[3], ids[4]}  # C2 už patrí prvej podhypotéze
     assert {c["id"] for c in db.evidence_for(hid)} == {ids[5]}  # rodičovi ostáva všeobecné
     child = db.get_hypothesis(c1)
-    assert child["parent_id"] == hid and child["gate1_status"] == "passed" and db.get_hypothesis(hid)["split_at"]
+    # dieťa dedí odkazy na dáta, nie prechod (M20, audit H581/H582)
+    assert child["parent_id"] == hid and child["gate1_status"] == "needs_revalidation" and db.get_hypothesis(hid)["split_at"]
     assert "Zdedené z H" in db.gate_decisions_for(c1, 1)[0]["reason"]
     assert hyp_dir(cfg, c1) == hyp_dir(cfg, hid) and run_query(cfg, c1, "SELECT COUNT(*) FROM ds1")[0][0] == 3
     assert [d["table_name"] for d in db.datasets_for(c1)] == ["ds1"] and db.fields_for(c1)[0]["status"] == "found"
@@ -413,7 +414,7 @@ def test_plan_quality_is_measured_and_optional_auto_lock(tmp_path):
     assert exp_plan.plan_quality(db)["uzamknuté_bez_úprav"] == 1  # človek plán nezmenil
     db.set_setting(exp_plan.AUTO_LOCK_KEY, {"enabled": True})
     cfg.experiments.plans_per_hypothesis = 2
-    other = [dict(st, days=200) if st["op"] == "linked_agg" else st for st in RANKING_PLAN["steps"]]  # iný štítok
+    other = [dict(st, days=150) if st["op"] == "linked_agg" else st for st in RANKING_PLAN["steps"]]  # iný štítok
     rec.responses["PlanSet"] = {"experiments": [RANKING_PLAN | {"title": "Druhý", "capacity": 40, "steps": other,
                                                                 "primary_baseline": "entity_rate"}]}  # bez upozornenia
     assert exp_plan.run_plans(cfg, db, router, Deadline(5), [hid])["auto_locked"] == 1

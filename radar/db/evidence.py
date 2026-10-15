@@ -108,7 +108,7 @@ class EvidenceMixin:
     def discovery_outcomes(self) -> list[sqlite3.Row]:
         """Dokumenty z objavovania so známym výsledkom (spracované, bez neoverených tvrdení), ešte nezapočítané v banditovi."""
         return self._all(
-            """SELECT d.id, d.source_category,
+            """SELECT d.id, d.source_category, d.source_type, d.fetched_at,
                       (SELECT COUNT(*) FROM claims c WHERE c.document_id = d.id AND c.status = 'verified') AS verified,
                       (SELECT COUNT(*) FROM claims c WHERE c.document_id = d.id AND c.status = 'pending') AS pending
                FROM documents d
@@ -316,7 +316,7 @@ class EvidenceMixin:
     def set_hypothesis_fields(self, hid: int, **fields: Any) -> None:
         """Ručne upraviteľné polia hypotézy (GUI): founder_fit, payer_confirmed, gate0_status, sector."""
         allowed = {"founder_fit", "payer_confirmed", "gate0_status", "sector", "segment", "title", "description",
-                   "segment_filter_json"}
+                   "segment_filter_json", "business_json"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"Pole {', '.join(sorted(bad))} sa nedá meniť.")

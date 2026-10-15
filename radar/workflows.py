@@ -417,6 +417,8 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
         downloads = max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)
         run("gate1-check", deadline.sub(min(downloads, max(3.0, downloads * 0.3))))
         run("gate1-datasets", deadline.sub(max(0.0, deadline.remaining_minutes() - GATE1_TAIL_MIN)))
+        # pole → stĺpec (presný model navrhne, kód overí): bez väzby pole nie je „nájdené“ (audit 14. 10. 2026)
+        run("gate1-bindings", deadline.sub(max(1.0, (deadline.remaining_minutes() - 3) * 0.6)))
         run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 3)))
     app.gate_ids = app.gate_ids + [h for h in inputs if h not in app.gate_ids]
     run("gate1-user", Deadline(8))  # čakajúce vstupy človeka (bez nich bez modelu)

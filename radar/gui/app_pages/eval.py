@@ -1,6 +1,6 @@
 import streamlit as st
 
-from radar.evals import EVAL_TASKS, MIN_LABELS, eval_ready, sample_for_review
+from radar.evals import EVAL_TASKS, HOLDOUT_PERCENT, MIN_LABELS, eval_ready, reference_status, sample_for_review
 from radar.gui.common import cfg, db, json_or, start_job_button
 
 d, c = db(), cfg()
@@ -16,6 +16,11 @@ with st.container(horizontal=True):
                  help="Vyváži vzorku podľa verdiktu modelu; označíš ju na stránke Kontrola – každá označená položka "
                       "je gold label."):
         st.toast(f"Do Kontroly pridaných: {sample_for_review(d, task, int(n))}", icon=":material/check:")
+st.subheader("Referenčná vzorka")
+st.caption(f"Ručne overené prípady na meranie presnosti výberu zdrojov, kontaktov a mapovania. {HOLDOUT_PERCENT} % je "
+           "kontrolná časť – podľa nej sa neladia prompty ani pravidlá, iba sa na nej meria. Zhoda systému: podiel "
+           "prípadov, v ktorých návrh systému sedel (potvrdená väzba, naozaj zlý import, správny účel kontaktu).")
+st.dataframe(reference_status(d), hide_index=True, alt="Referenčná vzorka: označené prípady, cieľ a zhoda systému")
 ready = eval_ready(d)
 start_job_button("eval", "Spustiť eval presnosti (" + (", ".join(ready) or f"zatiaľ žiadna úloha s {MIN_LABELS} labelmi")
                  + ")", 60, key="ev_run", icon=":material/rule:", disabled=not ready)

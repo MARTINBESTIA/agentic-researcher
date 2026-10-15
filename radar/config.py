@@ -82,6 +82,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "experiment_conclusion": _route("accurate"),  # záver pre problém iba z vypočítaných faktov
     "category_check": _route("fast"),  # kontrola vzorky zatriedenia textov (zatrieďujú embeddingy)  # Brána 1: ktoré polia pokrývajú dáta alebo schéma od človeka (skóre počíta kód)  # Brána 1: aké polia treba na riešenie problému
     "gate1_repro": _route("accurate"),  # Brána 1: SQL na zreprodukovanie známeho čísla (vykoná DuckDB)
+    "field_binding": _route("accurate"),  # Brána 1: pole → stĺpec (overí kód, význam kľúčového poľa potvrdí človek)
     "gate2_prereg": _route("accurate"),  # Brána 2: návrh predregistrácie (hypotéza, metrika, postup)
     "gate2_demo": _route("accurate"),  # Brána 2: text dema iba z vypočítaných faktov
     "org_mentions": _route("fast"),
@@ -302,6 +303,11 @@ class WorkflowsConfig(BaseModel):
     funnel_max_attempts: int = 2  # krok, ktorý toľkokrát nezmení stav hypotézy, sa pre ňu odloží (zaseknutá)
     funnel_max_runs_per_step: int = 4  # najviac behov jedného kroku pre jednu hypotézu (napr. dlhá Brána 1)
     funnel_max_failures: int = 3  # toľko zlyhaných krokov za sebou (napr. nebeží model) → lievik zastaví
+    # Autopilot (audit 14. 10. 2026, P1 6): najprv tvoje vstupy a rozpracované vetvy (najviac N prioritných hypotéz),
+    # nový zber (scout, topics) má pevný podiel času kola; akcia s prácou, ktorá sa N kôl nezmestila, ide dopredu.
+    autopilot_discovery_share: float = 0.25
+    autopilot_max_priorities: int = 3
+    autopilot_aging_rounds: int = 2
 
 
 # ------------------------------------------------------------------ Brána 1 a 2
@@ -378,6 +384,15 @@ class Gate1Config(BaseModel):
     min_wide_periods: int = 3  # široká tabuľka (roky/štvrťroky ako stĺpce) → dlhý tvar dsN_long od 3 období
     max_long_rows: int = 5_000_000  # limit riadkov dlhého tvaru (riadky × obdobia)
     catalog: list[CatalogEntry] = Field(default_factory=lambda: list(DEFAULT_CATALOG))
+    # Kvalita importu (audit 14. 10. 2026): dataset ide na kontrolu (needs_review), keď parser odmietne viac riadkov,
+    # hlavičky sú neznáme alebo formát nemá overený adaptér; do pripravenosti a experimentov sa ráta iba „ok“.
+    max_rejected_share: float = 0.05
+    # Väzba pole → stĺpec: kód overí pokrytie (podiel neprázdnych hodnôt) a typ vzorky; význam kľúčového poľa potvrdí človek.
+    binding_min_coverage: float = 0.5
+    max_bindings_per_run: int = 12  # návrhy väzieb presným modelom na hypotézu a beh
+    # Pôvodné súbory datasetov (podľa SHA-256) na zopakovanie parsera; osobné údaje sa neuchovávajú.
+    raw_cache_gb: float = 5.0
+    raw_cache_max_file_mb: int = 500
 
 
 class CardsConfig(BaseModel):

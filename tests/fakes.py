@@ -88,12 +88,25 @@ class FakeSearx:
 
 
 class FakeFetcher:
-    """Text stránky podľa URL (fetch) a surové HTML (fetch_html)."""
+    """Text stránky podľa URL (fetch), surové HTML (fetch_html) a súbory s dátami (probe – overenie dostupnosti)."""
 
-    def __init__(self, texts: dict[str, str] | None = None, htmls: dict[str, str] | None = None):
+    def __init__(self, texts: dict[str, str] | None = None, htmls: dict[str, str] | None = None,
+                 files: dict[str, bytes] | None = None):
         self.texts = texts or {}
         self.htmls = htmls or {}
+        self.files = files or {}
         self.fetched: list[str] = []
+
+    def probe(self, url: str, max_bytes: int = 65536):
+        from radar.fetch import Probe, looks_like_html
+
+        self.fetched.append(url)
+        if url in self.files:
+            head = self.files[url][:max_bytes]
+            return Probe(url, url, "html" if looks_like_html(head) else "ok", 200, "", head)
+        if url in self.htmls:
+            return Probe(url, url, "html", 200, "text/html", self.htmls[url].encode()[:max_bytes])
+        return Probe(url, url, "error", 404)
 
     def fetch(self, url: str):
         self.fetched.append(url)

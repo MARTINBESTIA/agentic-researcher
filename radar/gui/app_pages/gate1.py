@@ -2,10 +2,13 @@ from datetime import date
 
 import streamlit as st
 
+from radar.bindings import (
+    FIELD_STATUS_LABEL, confirm_binding, current_binding, field_route, manual_binding, reject_binding, usable_datasets,
+)
 from radar.datasets import DatasetError
 from radar.gate1 import (
     REPRO_LABELS, USER_FILE_EXT, add_dataset_url, approve_without_personal, automated_work, decide, eligible, reopen,
-    upload_path,
+    revalidate_passed, review_import, upload_path,
 )
 from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
@@ -13,8 +16,9 @@ from radar.outreach import add_business_days
 d, c = db(), cfg()
 st.caption("Brána 1 – dáta a dataset: aké polia treba, kde sú (licencia, frekvencia, kvalita), dataset, z ktorého "
            "zreprodukuješ známe číslo, a čo treba vyžiadať podľa zákona 211/2000. Beží pre hypotézy vybrané na Bránu 0. "
-           f"Pravidlo prechodu: pripravenosť dát ≥ {c.gate1.auto_gate2_readiness:.2f} → Brána 1 prejde automaticky (Brána 2); "
-           "inak hypotéza čaká na tvoje dáta alebo schému (záložka Tvoje dáta). Nič sa nevyraďuje; tvoje ručné "
+           f"Pravidlo prechodu: pripravenosť dát ≥ {c.gate1.auto_gate2_readiness:.2f} a každé kľúčové pole má stĺpec "
+           "potvrdený tebou na aktuálnej verzii datasetu (záložka Mapovanie polí) → Brána 1 prejde automaticky (Brána 2); "
+           "inak hypotéza čaká na tvoje dáta, schému alebo potvrdenie stĺpcov. Nič sa nevyraďuje; tvoje ručné "
            "rozhodnutie má prednosť.")
 hyps = d.gate1_hypotheses()
 if not hyps:
@@ -22,7 +26,8 @@ if not hyps:
             "hypotézam“.", icon=":material/info:")
     st.stop()
 STATUS = {"not_started": "nezačatá", "running": "rozpracovaná", "ready": "pripravená na rozhodnutie",
-          "needs_input": "čaká na tvoje dáta", "passed": "prešla", "paused": "pozastavená", "stopped": "zastavená"}
+          "needs_input": "čaká na tvoje dáta", "passed": "prešla", "needs_revalidation": "treba znova overiť",
+          "paused": "pozastavená", "stopped": "zastavená"}
 labels = {h["id"]: f"H{h['id']}: {h['title'][:80]} · {STATUS.get(h['gate1_status'], h['gate1_status'])}" for h in hyps}
 hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g1_h")
 h = d.get_hypothesis(hid)
@@ -30,7 +35,9 @@ summary = json_or(h["gate1_json"], {})
 
 with st.container(horizontal=True):
     st.metric("Pripravenosť dát", f"{summary.get('skóre', 0):.2f}" if summary else "–", border=True)
-    st.metric("Kľúčové polia nájdené", f"{summary.get('kľúčové_nájdené', 0)} / {summary.get('kľúčové', 0)}", border=True)
+    st.metric("Kľúčové polia so stĺpcom", f"{summary.get('kľúčové_nájdené', 0)} / {summary.get('kľúčové', 0)}", border=True,
+              help="Stĺpec v stiahnutých dátach overený kódom (existuje, pokrytie, typ, pojem).")
+    st.metric("Kľúčové potvrdené tebou", f"{summary.get('kľúčové_potvrdené', 0)} / {summary.get('kľúčové', 0)}", border=True)
     st.metric("Datasety", summary.get("datasety", 0), border=True)
     st.metric("Organizácie v dátach", summary.get("organizácie_v_dátach", 0), border=True)
     st.metric("Reprodukcia čísla", REPRO_LABELS.get(
@@ -53,9 +60,25 @@ if h["gate1_status"] == "needs_input":
     st.warning(f"Pripravenosť dát je pod {c.gate1.auto_gate2_readiness:.2f} – Brána 2 čaká na tvoje dáta alebo aspoň "
                "schému (záložka Tvoje dáta). Automatický prieskum je hotový a sám sa neopakuje; zdroje znova prehľadá "
                "iba „Prehľadať znova“.", icon=":material/upload:")
+unmet = summary.get("podmienky_prechodu") or []
+if unmet and h["gate1_status"] != "stopped":
+    st.warning("Podmienky prechodu, ktoré ešte chýbajú:\n\n" + "\n".join(f"- {esc(u)}" for u in unmet),
+               icon=":material/rule:")
 last = next(iter(d.gate_decisions_for(hid, 1)), None)
+BY = {"rule": "pravidlo", "human": "ty"}
 if h["gate1_status"] == "passed" and last is not None:
-    st.success(f"Brána 1 prešla ({last['decided_at'][:10]}): {last['reason'] or ''}", icon=":material/check_circle:")
+    st.success(f"Brána 1 prešla ({last['decided_at'][:10]}, rozhodol: {BY.get(last['decided_by'] or '', 'pravidlo/ty – staršie')}): "
+               f"{last['reason'] or ''}", icon=":material/check_circle:")
+if h["gate1_status"] == "needs_revalidation":
+    st.warning("Treba znova overiť: " + (last["reason"] if last is not None else "") + " Potvrď stĺpce kľúčových polí "
+               "(Mapovanie polí) – keď podmienky platia, Brána 1 prejde pravidlom znova.", icon=":material/sync_problem:")
+if h["gate1_status"] == "passed":
+    if st.button("Preveriť prechod s aktuálnymi dátami", icon=":material/fact_check:", key=f"g1_reval_{hid}",
+                 help="Historické rozhodnutie vs. aktuálne dáta: prechod pravidlom bez platných podmienok dostane "
+                      "„treba znova overiť“; tvoje ručné rozhodnutie ostane s príznakom."):
+        res = revalidate_passed(c, d, [hid])
+        st.toast("Podmienky platia." if not res else ", ".join(f"{k}: {v}" for k, v in res.items()))
+        refresh()
 if eligible(h):
     todo = automated_work(c, d, hid)
     if todo:
@@ -72,23 +95,30 @@ elif h["gate1_status"] in ("needs_input", "ready", "passed"):
         refresh()
 jobs_panel(show_last=False)
 
-tab_f, tab_u, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(["Polia", "Tvoje dáta", "Zdroje", "Datasety",
-                                                             "Reprodukcia čísla", "Infozákon", "Rozhodnutie"])
-FIELD_STATUS = ["open", "found", "partial", "requested", "partner", "missing"]
+tab_f, tab_m, tab_u, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(
+    ["Polia", "Mapovanie polí", "Tvoje dáta", "Zdroje", "Datasety", "Reprodukcia čísla", "Infozákon", "Rozhodnutie"])
+FIELD_STATUS = list(FIELD_STATUS_LABEL)
 with tab_f:
     fields = d.fields_for(hid)
     if not fields:
         st.caption("Polia navrhne presný model v prvom kroku prieskumu dát.")
     else:
+        review = any(x["status"] == "needs_review" for x in d.datasets_for(hid))
         rows = [{"id": f["id"], "pole": f["name"], "kľúčové": bool(f["is_key"]), "stav": f["status"],
-                 "popis": f["description"] or "", "prečo": f["rationale"] or "", "poznámka": f["status_note"] or ""}
+                 "význam stavu": FIELD_STATUS_LABEL.get(f["status"], f["status"]), "ďalší krok": field_route(d, f, review),
+                 "dostupnosť": f["availability"] or "", "popis": f["description"] or "", "prečo": f["rationale"] or "",
+                 "poznámka": f["status_note"] or ""}
                 for f in fields]
-        edited = st.data_editor(rows, hide_index=True, key=f"g1_fields_{hid}", disabled=["id", "pole", "prečo"],
+        edited = st.data_editor(rows, hide_index=True, key=f"g1_fields_{hid}",
+                                disabled=["id", "pole", "prečo", "význam stavu", "ďalší krok", "dostupnosť"],
                                 column_config={"stav": st.column_config.SelectboxColumn("stav", options=FIELD_STATUS),
                                                "kľúčové": st.column_config.CheckboxColumn("kľúčové")},
                                 alt="Polia potrebné na riešenie problému")
-        st.caption("Stavy: open = hľadá sa, found = otvorený strojovo čitateľný zdroj, partial = zdroj bez otvoreného "
-                   "prístupu, requested = vyžiadané podľa 211/2000, partner = cez partnera, missing = nenájdené.")
+        st.caption("Rebrík stavov: open (hľadá sa) → partial (iba odkaz na zdroj) → available (súbor overený požiadavkou) "
+                   "→ loaded (dáta načítané, stĺpec neoverený) → found (stĺpec overený kódom). schema_only = iba opis "
+                   "schémy bez nameraných hodnôt; requested = vyžiadané podľa 211/2000; partner = interné dáta od "
+                   "partnera; missing = nenájdené. Ručne zmenený stav kód neprepíše, prechod Bránou 1 však vždy "
+                   "potrebuje stĺpec kľúčového poľa potvrdený v Mapovaní polí.")
         if st.button("Uložiť polia", icon=":material/save:", key="g1_fields_save"):
             for new, old in zip(edited, rows):
                 if (new["kľúčové"], new["stav"], new["popis"], new["poznámka"]) != (old["kľúčové"], old["stav"], old["popis"],
@@ -96,6 +126,78 @@ with tab_f:
                     d.update_field(new["id"], is_key=int(new["kľúčové"]), status=new["stav"], description=new["popis"],
                                    status_note=new["poznámka"] or None, edited_by_human=1)
             refresh()
+BINDING_STATUS = {"code_ok": "overené kódom – potvrď význam", "confirmed": "potvrdené tebou",
+                  "code_failed": "kontrola kódom neprešla", "not_in_data": "v dátach nie je", "rejected": "zamietnuté",
+                  "stale": "stará verzia dát"}
+with tab_m:
+    st.caption("Pole → verzia datasetu → stĺpec alebo výraz → jednotka → význam → dôkaz. Presný model navrhne stĺpec, kód "
+               "overí, že existuje v dátach v stave ok, pokrytie, typ (dátum, suma, IČO) a pojem (napr. „patent“ musí "
+               "byť v stĺpci – dátum exspirácie nie je dátum patentu). Význam kľúčového poľa potvrdzuješ ty; potvrdenie "
+               "sa uloží ako referenčné hodnotenie.")
+    fields = d.fields_for(hid)
+    usable = usable_datasets(d, hid)
+    if not usable:
+        st.caption("Zatiaľ niet datasetu v stave ok – mapovanie začne po stiahnutí dát (alebo schváli import v záložke "
+                   "Datasety).")
+    bindings = d.bindings_for(hid)
+    if fields and usable:
+        rows = []
+        for f in fields:
+            cur = current_binding(d, f["id"], usable)
+            last_b = next((b for b in bindings if b["field_id"] == f["id"]), None)
+            b = cur or last_b
+            checks = json_or(b["checks_json"], {}) if b is not None else {}
+            rows.append({"pole": f["name"], "kľúčové": bool(f["is_key"]),
+                         "väzba": f"{b['table_name']}.{b['expression']}" if b is not None and b["table_name"] else "–",
+                         "stav": BINDING_STATUS.get(b["validation_status"], b["validation_status"]) if b is not None else "bez návrhu",
+                         "jednotka": (b["unit"] if b is not None else "") or "", "význam": (b["meaning"] if b is not None else "") or "",
+                         "pokrytie": checks.get("pokrytie"), "vzorka": ", ".join(checks.get("vzorka") or [])[:120],
+                         "problémy": "; ".join(checks.get("problémy") or []) or ((b["note"] or "") if b is not None else "")})
+        st.dataframe(rows, hide_index=True, alt="Mapovanie polí na stĺpce datasetov",
+                     column_config={"pokrytie": st.column_config.ProgressColumn("pokrytie", min_value=0, max_value=1,
+                                                                                format="%.2f")})
+    todo = [b for b in bindings if b["validation_status"] == "code_ok"]
+    if todo:
+        bid = st.selectbox("Návrh na potvrdenie", [b["id"] for b in todo], key=f"g1_bind_{hid}",
+                           format_func=lambda i: next(f"{b['field_name']}{' (kľúčové)' if b['is_key'] else ''} → "
+                                                      f"{b['table_name']}.{b['expression']}" for b in todo if b["id"] == i))
+        b = d.get_binding(bid)
+        checks = json_or(b["checks_json"], {})
+        st.caption(f"Jednotka: {b['unit'] or 'chýba'} · entita: {b['entity_kind'] or 'chýba'} · granularita: "
+                   f"{b['grain'] or 'chýba'} · pokrytie {checks.get('pokrytie', '–')} · navrhol {b['proposed_by'] or '?'}")
+        if b["meaning"]:
+            st.markdown("**Význam podľa modelu:** " + esc(b["meaning"]))
+        if b["evidence"]:
+            st.html(f"<blockquote>{esc(b['evidence'])}</blockquote>")
+        if checks.get("vzorka"):
+            st.caption("Vzorka hodnôt: " + ", ".join(esc(v) for v in checks["vzorka"]))
+        with st.container(horizontal=True):
+            if st.button("Potvrdiť význam stĺpca", icon=":material/verified:", key=f"g1_bind_ok_{bid}"):
+                confirm_binding(d, bid)
+                refresh()
+            why = st.text_input("Prečo nie (nepovinné)", key=f"g1_bind_why_{bid}")
+            if st.button("Zamietnuť", icon=":material/close:", key=f"g1_bind_no_{bid}"):
+                reject_binding(d, bid, why)
+                refresh()
+    if fields and usable:
+        with st.form(f"g1_manual_bind_{hid}"):
+            st.caption("Poznáš správny stĺpec? Zadaj ho – kód ho overí rovnako (existencia, pokrytie, typ, pojem) a po "
+                       "kontrolách je rovno potvrdený.")
+            fid = st.selectbox("Pole", [f["id"] for f in fields], format_func=lambda i: next(
+                f["name"] for f in fields if f["id"] == i), key=f"g1_mb_f_{hid}")
+            tables = [x["table_name"] for x in usable]
+            table = st.selectbox("Tabuľka", tables, key=f"g1_mb_t_{hid}")
+            expr = st.text_input("Stĺpec alebo výraz (napr. \"suma_eur\" alebo \"suma\" / 1000)", key=f"g1_mb_e_{hid}")
+            unit = st.text_input("Jednotka", key=f"g1_mb_u_{hid}")
+            meaning = st.text_input("Význam", key=f"g1_mb_m_{hid}")
+            if st.form_submit_button("Overiť a uložiť väzbu", icon=":material/link:"):
+                try:
+                    manual_binding(c, d, hid, fid, table, expr.strip(), unit.strip(), meaning.strip())
+                except (ValueError, DatasetError) as exc:
+                    st.error(str(exc))
+                else:
+                    st.toast("Väzba overená a potvrdená.", icon=":material/check:")
+                    refresh()
 COVERAGE = {"yes": "áno", "partial": "čiastočne", "no": "nie", "chýba": "chýba (model nepovedal)"}
 with tab_u:
     st.caption("Máš dáta? Nahraj súbor a opíš ho. Nemáš? Napíš aspoň schému: stĺpce, jednotky, obdobie, podrobnosť "
@@ -220,6 +322,26 @@ with tab_d:
                          "stav": ds["status"], "poznámka": ds["note"] or ""})
         st.dataframe(rows, hide_index=True, alt="Stiahnuté datasety",
                      column_config={"url": st.column_config.LinkColumn("URL")})
+        for ds in [x for x in datasets if x["status"] == "needs_review"]:
+            rep = json_or(ds["profile_json"], {}).get("import") or {}
+            with st.expander(f"Kontrola importu: {ds['table_name']} – " + "; ".join(rep.get("problémy") or [])[:120],
+                             icon=":material/rule:"):
+                st.caption(f"Adaptér: {rep.get('adaptér', '?')} · načítané riadky {rep.get('riadky', '?')} · odmietnuté "
+                           f"{rep.get('odmietnuté_riadky', 0)} · stĺpce {rep.get('stĺpce', '?')} · kľúče "
+                           f"{', '.join(rep.get('kľúče') or []) or 'chýba'} · jednotky "
+                           f"{', '.join(f'{k}: {v}' for k, v in (rep.get('jednotky') or {}).items()) or 'chýba'}")
+                if rep.get("vzorka"):
+                    st.dataframe(rep["vzorka"], hide_index=True, alt="Vzorka riadkov importu")
+                st.caption("Dataset na kontrole sa do pripravenosti, mapovania ani experimentov neráta. Schváľ ho, iba ak "
+                           "riadky sú záznamy s významom (nie formátovanie, graf ani HTML).")
+                note = st.text_input("Poznámka", key=f"g1_rev_n_{ds['id']}")
+                with st.container(horizontal=True):
+                    if st.button("Schváliť import", icon=":material/check:", key=f"g1_rev_ok_{ds['id']}"):
+                        review_import(c, d, ds["id"], True, note)
+                        refresh()
+                    if st.button("Zamietnuť import", icon=":material/delete:", key=f"g1_rev_no_{ds['id']}"):
+                        review_import(c, d, ds["id"], False, note)
+                        refresh()
         for ds in [x for x in datasets if x["status"] == "personal_data_blocked"]:
             cols = json_or(ds["profile_json"], {}).get("personal_columns") or []
             with st.expander(f"Posúdenie GDPR: {ds['table_name']} – osobné údaje v stĺpcoch {', '.join(cols)}",
@@ -303,7 +425,8 @@ with tab_dec:
                                              "stopped": "zastaviť (dáta nezískané)"}.get)
         reason = st.text_area("Zdôvodnenie")
         if st.form_submit_button("Uložiť rozhodnutie", icon=":material/gavel:"):
-            decide(d, hid, 1, decision, reason)
+            decide(d, hid, 1, decision, reason, by="human")
             refresh()
     for r in d.gate_decisions_for(hid, 1):
-        st.caption(f"{r['decided_at'][:16]} · {r['decision']} · {r['reason'] or ''}")
+        st.caption(f"{r['decided_at'][:16]} · {r['decision']} · rozhodol: {BY.get(r['decided_by'] or '', 'staršie')} · "
+                   f"{r['reason'] or ''}")
