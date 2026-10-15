@@ -374,3 +374,28 @@ def test_gate0_shows_whom_to_contact_with_email_reason_and_ask(gui):
     assert row["e-mail"] == "starostka@obec-fikt.sk" and row["odporúčanie"] == "oslov"
     assert "vedenie dotknutej org." in row["dôvody"] and row["čo_žiadať"].startswith("Rozhovor")
     assert at.metric[1].value == "1"  # „Oslov“
+
+
+def test_hypothesis_search_by_h_number_and_text(gui):
+    """Brány 0–2: hľadanie hypotézy podľa „H“ a čísla (presná zhoda prvá) alebo textu, nielen rozbaľovací zoznam."""
+    from radar.gui.common import filter_hypotheses
+
+    labels = {5: "H5: Malé obce", 58: "H58: Zmluvy bez komunikácie", 158: "H158: Lieky", 580: "H580: Účtovníctvo"}
+    assert filter_hypotheses(labels, "H58") == [58, 580, 158] and filter_hypotheses(labels, " 58 ") == [58, 580, 158]
+    assert filter_hypotheses(labels, "h5") == [5, 58, 580, 158] and filter_hypotheses(labels, "") == [5, 58, 158, 580]
+    assert filter_hypotheses(labels, "uctovnictvo") == [580] and filter_hypotheses(labels, "H999") == []
+    from radar.config import load_config
+
+    cfg = load_config(gui / "config.yaml")
+    d = DB(cfg.db_path)
+    other = d.create_hypothesis("Iná hypotéza", "", "x")
+    d.set_people_selection(other, True)
+    d.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/gate0.py").run()
+    at.text_input(key="g0_h_q").set_value(f"H{other}").run()
+    assert not at.exception, at.exception
+    assert at.selectbox(key="g0_h").value == other
+    at.text_input(key="g0_h_q").set_value("H999").run()
+    assert not at.exception and any("Žiadna hypotéza nezodpovedá" in w.value for w in at.warning)
+

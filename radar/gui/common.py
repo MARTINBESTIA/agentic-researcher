@@ -10,6 +10,8 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -399,13 +401,49 @@ def hypothesis_options(d: DB, only_people: bool = False) -> dict[int, str]:
     return {h["id"]: f"H{h['id']}: {h['title'][:90]}" for h in hyps}
 
 
+def _fold(text: str) -> str:
+    return unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+
+
+def filter_hypotheses(labels: dict[int, str], query: str) -> list[int]:
+    """Hľadanie hypotézy: „H58“ alebo „58“ → číslo je podreťazcom ID (presná zhoda prvá, potom ID začínajúce číslom,
+    potom ostatné podľa ID); iný text → podreťazec popisu bez ohľadu na diakritiku a veľké písmená."""
+    q = (query or "").strip()
+    if not q:
+        return list(labels)
+    m = re.fullmatch(r"[hH]\s*(\d+)|(\d+)", q)
+    if m:
+        num = m.group(1) or m.group(2)
+        hits = [i for i in labels if num in str(i)]
+        return sorted(hits, key=lambda i: (str(i) != num, not str(i).startswith(num), i))
+    f = _fold(q)
+    return [i for i, label in labels.items() if f in _fold(label)]
+
+
+def hypothesis_search(labels: dict[int, str], key: str, label: str = "Hypotéza") -> int | None:
+    """Výber hypotézy s vyhľadávaním (H a číslo alebo text názvu) namiesto samotného rozbaľovacieho zoznamu."""
+    cols = st.columns([1, 4], vertical_alignment="bottom")
+    query = cols[0].text_input("Hľadať hypotézu", key=f"{key}_q", placeholder="napr. H58 alebo text",
+                               help="„H58“ alebo „58“ hľadá podľa čísla (presná zhoda prvá), iný text v názve.")
+    ids = filter_hypotheses(labels, query)
+    if not ids:
+        cols[1].warning(f"Žiadna hypotéza nezodpovedá „{query.strip()}“.", icon=":material/search_off:")
+        return None
+    if st.session_state.get(key) not in ids:  # výber mimo filtra → prvá zhoda (pri „H58“ práve H58)
+        st.session_state[key] = ids[0]
+    hid = cols[1].selectbox(label, ids, format_func=labels.get, key=key)
+    if query.strip():
+        st.caption(f"Zodpovedá {len(ids)} z {len(labels)} hypotéz.")
+    return hid
+
+
 def pick_hypothesis(d: DB, key: str, only_people: bool = True) -> int | None:
     options = hypothesis_options(d, only_people)
     if not options:
         st.info("Žiadna hypotéza nie je vybraná na hľadanie ľudí. Zapni ju na stránke Problémy alebo príkazom "
                 "`python -m radar select --hypothesis ID --people on`.", icon=":material/info:")
         return None
-    return st.selectbox("Hypotéza", list(options), format_func=options.get, key=key)
+    return hypothesis_search(options, key)
 
 
 def json_or(value: str | None, default: Any) -> Any:

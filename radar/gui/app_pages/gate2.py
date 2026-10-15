@@ -9,7 +9,7 @@ from radar.exp_plan import AUTO_LOCK_KEY, TASK_LABELS, plan_quality, success_rul
 from radar.gate1 import decide
 from radar.gate2 import complete_periods, data_limits, lock, series
 from radar.gate2_trace import as_markdown, explain
-from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, start_job_button
+from radar.gui.common import cfg, db, esc, hypothesis_search, jobs_panel, json_or, refresh, start_job_button
 
 d, c = db(), cfg()
 st.caption("Brána 2 – experimenty: z problémovej karty (kto má problém a aké rozhodnutie robí) navrhne model experimenty "
@@ -28,7 +28,9 @@ def hyp_label(h) -> str:
 
 
 labels = {h["id"]: hyp_label(h) for h in hyps}
-hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g2_h")
+hid = hypothesis_search(labels, "g2_h")
+if hid is None:
+    st.stop()
 h = d.get_hypothesis(hid)
 with st.container(horizontal=True):
     start_job_button("gate2", "Karta, návrh a test experimentov", 60, [hid], key=f"g2_run_{hid}", icon=":material/science:",

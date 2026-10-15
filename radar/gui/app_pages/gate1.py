@@ -10,7 +10,7 @@ from radar.gate1 import (
     REPRO_LABELS, USER_FILE_EXT, add_dataset_url, approve_without_personal, automated_work, decide, eligible, reopen,
     revalidate_passed, review_import, upload_path,
 )
-from radar.gui.common import cfg, db, esc, jobs_panel, json_or, refresh, safe_url, start_job_button
+from radar.gui.common import cfg, db, esc, hypothesis_search, jobs_panel, json_or, refresh, safe_url, start_job_button
 from radar.outreach import add_business_days
 
 d, c = db(), cfg()
@@ -29,7 +29,9 @@ STATUS = {"not_started": "nezačatá", "running": "rozpracovaná", "ready": "pri
           "needs_input": "čaká na tvoje dáta", "passed": "prešla", "needs_revalidation": "treba znova overiť",
           "paused": "pozastavená", "stopped": "zastavená"}
 labels = {h["id"]: f"H{h['id']}: {h['title'][:80]} · {STATUS.get(h['gate1_status'], h['gate1_status'])}" for h in hyps}
-hid = st.selectbox("Hypotéza", list(labels), format_func=labels.get, key="g1_h")
+hid = hypothesis_search(labels, "g1_h")
+if hid is None:
+    st.stop()
 h = d.get_hypothesis(hid)
 summary = json_or(h["gate1_json"], {})
 
