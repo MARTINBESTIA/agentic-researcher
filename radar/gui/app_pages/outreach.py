@@ -3,6 +3,7 @@ from datetime import date, datetime, timezone
 import streamlit as st
 
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
+from radar.outcomes import FLAGS, RELEVANCE, REPLIES, OutcomeError, outcome_metrics, record_outcome
 from radar.outreach import (
     MODE_LABEL, OutreachError, approve, follow_up_text, mailto_link, mark_follow_up_sent, mark_sent, recheck, set_status,
 )
@@ -24,9 +25,20 @@ if missing:
 hid = pick_hypothesis(d, "out_h")
 if hid is None:
     st.stop()
+metrics = outcome_metrics(d, [hid])
+if metrics["oslovené"]:
+    with st.expander(f"Učenie z odpovedí – po organizáciách (oslovené: {metrics['oslovené']})", icon=":material/school:"):
+        st.dataframe(metrics["riadky"], hide_index=True, alt="Postup po unikátnych organizáciách")
+        if metrics["režimy"]:
+            st.dataframe([{**m, "režim": MODE_LABEL.get(m["režim"], m["režim"])} for m in metrics["režimy"]],
+                         hide_index=True, alt="Oslovené organizácie a relevantné odpovede podľa režimu oslovenia")
+        st.caption(f"Príprava na kontakt (medián): {metrics['príprava_min_medián'] or '–'} min (n = {metrics['príprava_n']}) · "
+                   f"dodanie výstupu (medián): {metrics['dodanie_dni_medián'] or '–'} dní (n = {metrics['dodanie_n']}). "
+                   "Počíta sa po organizáciách, nie po počte správ.")
 STATUS = ["draft", "needs_edit", "approved", "sent", "replied", "scheduled", "interviewed", "no_reply", "declined",
           "bounced", "no_show", "blocked"]
-shown = st.pills("Stav", STATUS, selection_mode="multi", default=["draft", "needs_edit", "approved", "sent", "blocked"], key="out_st")
+shown = st.pills("Stav", STATUS, selection_mode="multi", default=["draft", "needs_edit", "approved", "sent", "replied",
+                                                                  "scheduled", "blocked"], key="out_st")
 items = [o for o in d.outreach_list(hid) if o["status"] in (shown or [])]
 if not items:
     st.caption("Žiadne oslovenia v zvolených stavoch (návrhy vytvorí krok drafts).")
@@ -118,3 +130,37 @@ for o in items:
             if new_status and st.button("Uložiť výsledok", key=key + "rs"):
                 set_status(c, d, o["id"], new_status)
                 refresh()
+        if o["status"] in ("sent", "replied", "scheduled", "interviewed", "no_reply", "declined", "no_show"):
+            past = d.outcomes_of_outreach(o["id"])
+            if past:
+                st.dataframe([{"kedy": r["recorded_at"][:10], "odpoveď": REPLIES.get(r["reply"], r["reply"]),
+                               "problém": RELEVANCE.get(r["problem_relevance"] or "", "–"),
+                               "ďalej": ", ".join(lbl for f, lbl in FLAGS.items() if r[f]) or "–",
+                               "ďalší krok": r["next_action"] or ""} for r in past], hide_index=True,
+                             alt="Zapísané výsledky tohto oslovenia")
+            with st.form(key + "outcome", border=True):
+                st.markdown("**Zapísať výsledok** (učenie z odpovede)")
+                cols = st.columns(2)
+                reply = cols[0].selectbox("Odpoveď", list(REPLIES), format_func=REPLIES.get, key=key + "rep")
+                relevance = cols[1].selectbox("Problém", ["", *RELEVANCE], key=key + "rel",
+                                              format_func=lambda v: RELEVANCE.get(v, "nevieme"))
+                flag_cols = st.columns(len(FLAGS))
+                flags = {f: flag_cols[i].checkbox(lbl, key=key + f) for i, (f, lbl) in enumerate(FLAGS.items())}
+                rejection = st.text_input("Dôvod odmietnutia (ak odmietol)", key=key + "rr")
+                next_step = st.text_input("Ďalší krok", key=key + "nx")
+                note = st.text_area("Poznámka (čo potvrdil alebo vyvrátil – bez citlivých údajov)", key=key + "nt", height=80)
+                cols = st.columns(2)
+                prep = cols[0].number_input("Príprava na kontakt (min)", min_value=0.0, value=None, key=key + "pm")
+                delivery = cols[1].number_input("Dodanie výstupu (dni)", min_value=0.0, value=None, key=key + "dd")
+                if st.form_submit_button("Uložiť výsledok oslovenia", icon=":material/fact_check:"):
+                    try:
+                        res = record_outcome(c, d, outreach_id=o["id"], reply=reply, problem_relevance=relevance or None,
+                                             rejection_reason=rejection, next_action=next_step, note=note,
+                                             prep_minutes=prep, delivery_days=delivery, **flags)
+                        msg = "Výsledok uložený"
+                        if res.get("prehľad_domény"):
+                            msg += " · prehľad domény sa aktualizuje pri najbližšom kroku value"
+                        st.toast(msg, icon=":material/check:")
+                        refresh()
+                    except OutcomeError as exc:
+                        st.error(str(exc))

@@ -162,12 +162,17 @@ def _cards(db: DB, ids: list[int]) -> str:
 
 
 def _need_signals(db: DB, ids: list[int]) -> list[str]:
-    """Výsledky oslovení, ktoré menia stav potreby (potvrdený / vyvrátený problém) – vstup prehľadu aj návrhov."""
+    """Výsledky oslovení, ktoré menia stav potreby (potvrdený / vyvrátený problém) – vstup prehľadu aj návrhov.
+    Poznámka ide do promptu bez mena osoby, e-mailov a telefónov (prompt môže ísť aj do cloudu)."""
+    from .privacy import pseudonymize_text
+
     out = []
     for hid in ids:
         for o in db.outcomes_for(hid):
             if o["problem_relevance"] in ("confirmed", "refuted"):
-                out.append(f"H{hid}: {o['problem_relevance']} – {(o['note'] or '')[:200]}")
+                person = db.get_person(o["person_id"]) if o["person_id"] else None
+                note = pseudonymize_text(o["note"] or "", [person["full_name"]] if person is not None else [])
+                out.append(f"H{hid}: {o['problem_relevance']} – {note[:200]}")
     return out
 
 
@@ -286,6 +291,9 @@ def ensure_brief(cfg: Config, db: DB, llm: Any, hid: int, reason: str | None = N
                    for item in part for c in item.get("claims", [])})
     sources = [{"claim_id": e["id"], "url": e["url"], "domain": e["domain"], "stiahnuté": (e["fetched_at"] or "")[:10]}
                for e in evidence if e["id"] in used]
+    from .outcomes import pending_brief_reason
+
+    reason = reason or pending_brief_reason(db, key, pop=True)
     return db.add_brief(key, title, brief, sources, digest, checks, brief_status(checks), getattr(res, "model", None),
                         reason or ("prvá verzia" if latest is None else "zmena podkladov"))
 
@@ -405,13 +413,16 @@ def ensure_value_proposals(cfg: Config, db: DB, llm: Any, hid: int, kind: str, b
                  f"EVIDENCE:\n<untrusted_document>\n{evidence_text(evidence)}\n</untrusted_document>\n\nITEMS:\n"
                  f"<untrusted_document>\n{json.dumps([d for d, _ in items], ensure_ascii=False)}\n</untrusted_document>",
                  "hypothesis", hid, recipient=KIND_TEXT[kind]) if items else {"verdict": "ok", "problems": []}
+    from .outcomes import need_summary
+
+    need = need_summary(db, hid, kind)["stav"]  # potreba sa mení iba odpoveďami kontaktov, nie modelom
     db.delete_value_proposals(hid, kind)
     for data, problems in items:
         mine = [p for p in rev.get("problems") or [] if p.get("sentence") and any(
             p["sentence"].strip()[:60] in str(v) for v in data.values())] if rev.get("verdict") == "problems" else []
         status = ("needs_edit" if problems or mine else "pending_review" if rev.get("verdict") == "pending"
                   else "checked")
-        db.add_value_proposal(hid, kind, data, need_status="hypothesis", evidence_refs_json=data["evidence_refs"],
+        db.add_value_proposal(hid, kind, data, need_status=need, evidence_refs_json=data["evidence_refs"],
                               checks_json={"kód": problems, "hodnotiteľ": {**rev, "problems": mine}}, status=status,
                               commercial_policy_version=policy_version(cfg), inputs_hash=digest,
                               model=getattr(res, "model", None), brief_id=brief_id)

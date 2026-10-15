@@ -50,6 +50,10 @@ if prog and prog["hypotézy"]:
                          ("rozhovory", "Rozhovory"), ("vzorky", "Vzorky dát"), ("piloty", "Piloty"),
                          ("nameraná_úspora", "Nameraná úspora"), ("ochota_platiť", "Ochota platiť")):
             st.metric(label, tot.get(k, 0), border=True)
+    org = prog.get("organizácie") or {}
+    if org.get("oslovené"):
+        st.caption("Po unikátnych organizáciách (z výsledkov oslovení): " + " · ".join(
+            f"{r['metrika']} {r['organizácie']} ({r['podiel z oslovených']})" for r in org["riadky"] if r["organizácie"]))
     st.caption("Merajú cestu k zákazníkovi pre hypotézy na Bráne 0. Prevádzkové: "
                f"{prog['prevádzkové']['hypotézy']} hypotéz, {prog['prevádzkové']['modelové_rozhodnutia']} modelových "
                "rozhodnutí – to nie je postup.")

@@ -109,6 +109,12 @@ class ValueMixin:
     def delete_outcomes_of_person(self, person_id: int) -> int:
         return self._exec("DELETE FROM outreach_outcomes WHERE person_id = ?", (person_id,)).rowcount
 
+    def delete_outcomes_of_outreach(self, outreach_id: int) -> int:
+        return self._exec("DELETE FROM outreach_outcomes WHERE outreach_id = ?", (outreach_id,)).rowcount
+
+    def outcomes_of_outreach(self, outreach_id: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM outreach_outcomes WHERE outreach_id = ? ORDER BY id", (outreach_id,))
+
     # ------------------------------------------------------------------ cloud: náklady a cache
     def reserve_cloud(self, provider: str, profile: str | None, deployment: str | None, task: str, reserve_eur: float,
                       limits: dict[str, tuple[str, float]], rate: dict[str, Any]) -> int | None:

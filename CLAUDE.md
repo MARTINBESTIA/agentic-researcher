@@ -23,7 +23,8 @@ požiadavkou, import podľa obsahu s kontrolou, väzby pole → stĺpec, pravidl
 prešlých (schéma v12, M20); experimenty bez úniku, so silným porovnaním a štyrmi osami výsledku (M21); priority autopilota, účel kontaktov,
 osi stavu, postup k zákazníkovi a referenčná vzorka (M22); podľa auditu 15. 10. 2026 fronta kontaktov so stavom komunikácie
 (schéma v13, M23), prehľad domény a návrh prínosu (M24), návrhy oslovení pre zákazníka, držiteľa dát, experta a pilot
-s obchodnou politikou (M25), Azure OpenAI pre vybrané roly s nasadeniami v GUI a rozpočtom (M26). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+s obchodnou politikou (M25), Azure OpenAI pre vybrané roly s nasadeniami v GUI a rozpočtom (M26), výsledky oslovení
+a učenie z odpovedí po organizáciách (M27). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -75,6 +76,7 @@ docker compose up -d                     # SearXNG
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
 | `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita; účel kontaktu s dôkazom (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert; politici a členovia orgánov nie) |
+| `radar/outcomes.py` | výsledok oslovenia zapísaný človekom → stav oslovenia, stav potreby návrhov prínosu (po organizáciách a type adresáta), dôvod novej verzie prehľadu domény; metriky po unikátnych organizáciách (čas prípravy, dodania, režimy) |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení podľa režimu (discovery, data_request, expert_review, pilot) s obchodnou politikou `outreach.value_offer`, reťazcom dôvodov (`package_json`) a pripravenosťou; kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |
 | `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson) a referenčná vzorka s kontrolnou časťou (holdout); benchmark a plán behu |
 | `radar/pipeline.py`, `radar/cli.py`, `radar/commands.py` | run-all v poradí podľa modelov; príkazy `python -m radar …` |

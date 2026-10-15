@@ -159,7 +159,11 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    zakázané frázy, potreba podaná ako fakt, čísla mimo faktov, „nejde o ponuku“ pri ponuke, pätička)
    a viet, ktoré hodnotiteľ považuje za nepodložené. Uprav, „Uložiť a skontrolovať“,
    „Schváliť“ (max. 10 denne), „Kopírovať“ / „Otvoriť v pošte“, pošli sám a označ „odoslané“.
-   Follow-up pripadne na 5. pracovný deň. Námietka = okamžitý výmaz a potlačenie.
+   Follow-up pripadne na 5. pracovný deň. Námietka = okamžitý výmaz a potlačenie. Pri odoslanom oslovení
+   **zapíš výsledok**: odpoveď, či kontakt problém potvrdil alebo vyvrátil, vzorka, rozhovor, demo, pilot,
+   hodnota, platba, ďalší krok, čas prípravy a dodania. Potvrdenie mení stav potreby (iba pre danú
+   organizáciu – ostatným ide naďalej podmienená otázka) a pri najbližšom kroku `value` vznikne nová verzia
+   prehľadu domény. Metriky („Učenie z odpovedí“, Prehľad) sa počítajú po organizáciách, nie po správach.
 7. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.
@@ -441,6 +445,7 @@ nepredpokladaj – over ho v podmienkach predplatného.
 | `radar/config.py` | konfigurácia a predvolené hodnoty (roly modelov, ľudia, oslovenia, súkromie, objavovanie) |
 | `radar/db/` | SQLite: `evidence.py` (register dôkazov), `gate0.py` (organizácie, ľudia, oslovenia, rozhovory), `ops.py` (provenance, kontrola, labely, eval), `value.py` (prehľady domén, návrhy prínosu, výsledky oslovení, náklady a cache cloudu), `schema.py` + `migrations.py` |
 | `radar/value.py` | prehľad domény a návrh prínosu (citáty, neznáme, hodnotiteľ, verzie) |
+| `radar/outcomes.py` | výsledky oslovení, stav potreby, metriky po organizáciách |
 | `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |

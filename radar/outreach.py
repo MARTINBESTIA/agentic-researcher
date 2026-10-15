@@ -746,6 +746,7 @@ def set_status(cfg: Config, db: DB, outreach_id: int, status: str) -> dict:
             return forget(cfg, db, person_id=row["person_id"], reason="objection")
         contact = db.get_contact(row["contact_point_id"]) if row["contact_point_id"] else None
         if contact is not None and contact["kind"] == "email":
+            db.delete_outcomes_of_outreach(outreach_id)  # poznámky k funkčnému kontaktu organizácie
             return forget(cfg, db, email=contact["value"], reason="objection")
     db.update_outreach(outreach_id, status=status)
     person_status = PERSON_STATUS_FOR.get(status)
