@@ -109,6 +109,23 @@ def facts(card: dict[str, Any] | None, exp, res: dict[str, Any]) -> list[str]:
     conc = det.get("koncentrácia_štítku") or {}
     if conc.get("sústredený"):
         out.append("F10: " + concentration_text(conc, plan.get("entity_column") or ""))
+    osi = res.get("osi") or {}
+    if osi:  # štyri osi výsledku (audit 14. 10. 2026): predregistrácia, silné porovnanie, metodika, používateľ
+        from .exp_tasks import verdict
+
+        s = osi.get("silné_porovnanie") or {}
+        if s.get("naivný"):
+            out.append(f"F11: Silné jednoduché porovnanie vybrané na validácii pred testom: {s['naivný']} "
+                       f"{_n(s.get('hodnota'), 4)}, model {_n(s.get('model_hodnota'), 4)}, zlepšenie "
+                       f"{_n(s.get('zlepšenie_pct'), 1)} % – {'prekonal' if s.get('prekonal') else 'neprekonal'}.")
+        m = osi.get("metodika") or {}
+        if m.get("problémy"):
+            out.append("F12: Test je metodicky neplatný: " + "; ".join(m["problémy"][:3]) + ".")
+        elif m.get("nepresvedčivé"):
+            out.append("F12: Výsledok je nepresvedčivý: " + "; ".join(m["nepresvedčivé"][:3]) + ".")
+        flags = json.loads(exp["flags_json"] or "{}") if "flags_json" in exp.keys() else {}
+        v = verdict(res, flags)
+        out.append(f"F13: Verdikt: {v['verdikt']}; výsledok u používateľa: {v['používateľ'].get('text', '')}.")
     others = [r for r in res.get("tabuľka") or [] if r["postup"] != prim.get("model") and prim.get("metrika") in r]
     if others:
         out.append("F8: Ďalšie postupy (" + str(prim.get("metrika")) + "): "
@@ -127,10 +144,13 @@ def code_conclusion(card: dict[str, Any] | None, exp, res: dict[str, Any], fact_
     """Záver bez modelu (vždy k dispozícii): fakty v krátkej forme."""
     prim = res.get("hlavné") or {}
     return {"what_tested": fact_list[1][4:] if len(fact_list) > 1 else "",
-            "result_for_decision": next((f[4:] for f in fact_list if f.startswith(("F4", "F6"))), ""),
-            "robustness": " ".join(f[4:] for f in fact_list if f.startswith(("F7", "F9"))) or "interval nie je k dispozícii",
+            "result_for_decision": " ".join(x for x in (
+                next((f[5:] for f in fact_list if f.startswith("F13: ")), ""),
+                next((f[4:] for f in fact_list if f.startswith(("F4", "F6"))), "")) if x),
+            "robustness": " ".join(f[4:] for f in fact_list if f.startswith(("F7", "F9", "F11"))) or
+                          "interval nie je k dispozícii",
             "limits": " ".join(["Štítok je iba náhradný ukazovateľ problému; výsledok platí pre testované obdobie a tieto "
-                                "dáta."] + [f[5:] for f in fact_list if f.startswith("F10: ")]),
+                                "dáta."] + [f[5:] for f in fact_list if f.startswith(("F10: ", "F12: "))]),
             "interview_questions": [], "splnené": prim.get("splnené")}
 
 
@@ -181,12 +201,24 @@ def report_html(exp, res: dict[str, Any], concl: dict[str, Any], hyp_title: str)
     item_tbl = ("<tr>" + "".join(f"<th>{esc(c)}</th>" for c in cols) + "</tr>" + "".join(
         "<tr>" + "".join(f"<td>{esc(str(i.get(c, '')))[:120]}</td>" for c in cols) + "</tr>" for i in items)) if items else ""
     qs = "".join(f"<li>{esc(x)}</li>" for x in t.get("interview_questions") or [])
+    from .exp_tasks import verdict
+
+    v = verdict(res, json.loads(exp["flags_json"] or "{}") if "flags_json" in exp.keys() else {})
+    osi = res.get("osi") or {}
+    axes = "".join(f"<li>{esc(k)}: {esc(str(x))}</li>" for k, x in (
+        ("predregistrácia", {True: "splnená", False: "nesplnená"}.get((osi.get("predregistrácia") or {}).get("splnené"), "–")),
+        ("silné porovnanie (vybrané na validácii)", {True: "prekonal", False: "neprekonal"}.get(
+            (osi.get("silné_porovnanie") or {}).get("prekonal"), "–")),
+        ("metodika", "neplatná" if not (osi.get("metodika") or {}).get("platné", True) else "platná"),
+        ("u používateľa", v["používateľ"].get("text", ""))) if osi)
     return f"""<!doctype html><html lang="sk"><head><meta charset="utf-8"><title>E{exp['id']} – {esc(hyp_title)}</title>
 <style>body{{font-family:system-ui,sans-serif;max-width:960px;margin:24px auto;padding:0 16px;color:#1e293b}}
 table{{border-collapse:collapse;font-size:13px;margin:8px 0}}td,th{{border:1px solid #cbd5e1;padding:4px 8px;text-align:left}}
 .ok{{color:#15803d}}.no{{color:#b91c1c}}</style></head><body>
 <h1>{esc(exp['statement'] or '')}</h1>
 <p><b>Problém a rozhodnutie:</b> {esc(exp['problem_link'] or '')}</p>
+<p><b>Verdikt:</b> <span class="{'ok' if v['pokračovať'] else 'no'}">{esc(v['verdikt'])}</span></p>
+{f'<ul>{axes}</ul>' if axes else ''}
 <p><b>Čo sa testovalo:</b> {esc(t.get('what_tested', ''))}</p>
 <p><b>Výsledok pre rozhodnutie:</b> {esc(t.get('result_for_decision', ''))}
 <span class="{'ok' if t.get('splnené') else 'no'}">({'pravidlo úspechu splnené' if t.get('splnené') else 'pravidlo úspechu nesplnené'})</span></p>

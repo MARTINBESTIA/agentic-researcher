@@ -267,6 +267,13 @@ nižšie skóre a príznak – over, či sa hodia pre tvoj produkt. Vypnutie: `g
 5. **Záver pre problém** – čo výsledok znamená pre rozhodnutie z karty, obmedzenia, otázky do rozhovorov
    Brány 0; čísla iba z faktov (inak záver poskladá kód). Správa HTML.
 
+**Výsledok má štyri osi** (od 15. 10. 2026): (a) predregistrované pravidlo, (b) prínos oproti silnému jednoduchému
+postupu vybranému na validácii pred testom (napr. doterajšia miera entity), (c) metodická platnosť a (d) výsledok
+u používateľa (zapíšeš ho v Bráne 2 po pilote). Verdikt „prínos“ znamená iba prínos v dátach; experiment s metodickou
+chybou (neznámy čas zverejnenia štítka, štítok subjektu pri rozhodovaní o zmluvách, subjekty bez kontroly ako
+negatívne prípady) sa nedá uzamknúť. Príznaky zo štítkov sa počítajú po časových foldoch a štítok sa použije, až keď
+je známy (okno + oneskorenie zverejnenia) – bez úniku validačných a testovacích odpovedí.
+
 Pôvodné experimenty (predpoveď sumy pre organizáciu) ostávajú zobrazené s postupom krok po kroku.
 `python -m radar crz-extend --hypothesis 11 --months 36` doplní staršie dávky CRZ (po blokoch, dá sa prerušiť;
 `--retry` znova stiahne dni, ktoré zlyhali pre výpadok siete).

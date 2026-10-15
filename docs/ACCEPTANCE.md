@@ -209,3 +209,13 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M20 | 13 podhypotéza dedí dáta a návrhy väzieb, nie prechod; lievik čaká na potvrdenie stĺpcov | `test_split_child_inherits_data_and_bindings_not_the_pass` |
 | M20 | 14 interné pole → partner, web sa nehľadá | `test_internal_field_goes_to_partner_not_web_search` |
 | M20 | 15 GUI: potvrdenie stĺpca a schválenie importu | `test_gate1_page_confirms_column_and_approves_import` |
+| M21 | 1 zmena validačných odpovedí nezmení príznaky učenia (sonda z auditu: 200 záznamov, 112/28/60); zmena testovacích nezmení príznaky | `test_m21_experiments.py::test_entity_rate_feature_ignores_validation_and_test_answers` |
+| M21 | 2 zmena testovacích odpovedí nezmení predikcie ani výber modelu; štítky dozreté pred každou hranicou | `test_test_labels_do_not_change_predictions_and_labels_mature_per_boundary` |
+| M21 | 3 silné porovnanie vybrané na validácii; osi, verdikt, verzie, interval po entitách | `test_strong_baseline_is_chosen_on_validation_and_result_has_axes_and_versions`, `test_cluster_bootstrap_and_entity_unit` |
+| M21 | 4 E6: splnená predregistrácia proti slabému porovnaniu nie je prínos | `test_verdict_does_not_claim_benefit_against_weak_baseline_e6` |
+| M21 | 5 štítok z inej tabuľky: neznáma dostupnosť a neohraničený čas blokujú; horizont = okno + oneskorenie zverejnenia | `test_lookup_label_needs_known_availability_and_horizon_includes_publication_delay` |
+| M21 | 6 jednotka štítka, nesprávna entita, nekontrolované subjekty NKÚ blokujú uzamknutie | `test_label_unit_entity_and_uninspected_nku_subjects_block_the_experiment` |
+| M21 | 7 staršie uzamknutý experiment s metodickou chybou → „neplatné – metodika“ | `test_old_locked_experiment_with_methodology_error_is_marked_invalid` |
+| M21 | 8 záver uvádza verdikt a silné porovnanie | `test_conclusion_states_verdict_and_strong_baseline` |
+| M21 | 9 neúspešný návrh sa opakuje iba pri zmene odtlačku vstupov | `test_failed_plan_is_retried_only_when_inputs_change` |
+| M21 | 10 GUI: verdikt, osi (a)–(d), zápis výsledku u používateľa | `test_gate2_page_shows_verdict_axes_and_saves_user_result` |

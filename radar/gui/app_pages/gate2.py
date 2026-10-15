@@ -172,8 +172,10 @@ for e in exps:
                  "názov": plan.get("title") or (e["org_name"] or "celý dataset"),
                  "čomu slúži": (e["problem_link"] or "")[:90], "stav": STATUS.get(e["status"], e["status"]),
                  "zlepšenie %": imp, "pravidlo": {True: "splnené", False: "nesplnené"}.get(met, ""),
+                 "verdikt": flags.get("verdikt", ""),
                  "príznaky": ", ".join(k.replace("_", " ") for k, v in flags.items()
-                                       if v and k not in ("obdobie_upravené", "upozornenia"))})
+                                       if v and k not in ("obdobie_upravené", "upozornenia", "verdikt",
+                                                          "výsledok_používateľa"))})
 st.dataframe(rows, hide_index=True, alt="Experimenty hypotézy",
              column_config={"zlepšenie %": st.column_config.NumberColumn("zlepšenie vs. naivný (%)", format="%.1f")})
 eid = st.selectbox("Experiment", [r["E"] for r in rows],
@@ -191,6 +193,61 @@ def show_lock() -> None:
             st.error(str(exc))
         else:
             refresh()
+
+
+USER_STATES = {"chýba": "ešte nemeraný", "potvrdené": "potvrdený u používateľa", "nepotvrdené": "nepotvrdený u používateľa"}
+
+
+def show_axes() -> None:
+    """Štyri osi výsledku oddelene (audit 14. 10. 2026): predregistrácia, silné porovnanie, metodika, používateľ."""
+    from radar.exp_tasks import verdict
+    from radar.util import utcnow
+
+    osi = res.get("osi") or {}
+    v = verdict(res, flags)
+    with st.container(border=True):
+        (st.success if v["pokračovať"] else st.error)(f"Verdikt: {v['verdikt']}", icon=":material/gavel:")
+        for r in v["dôvody"]:
+            st.caption(f"– {r}")
+        if not osi:
+            return
+        a, b, m = osi.get("predregistrácia") or {}, osi.get("silné_porovnanie") or {}, osi.get("metodika") or {}
+        with st.container(horizontal=True):
+            st.metric("(a) Predregistrácia", {True: "splnená", False: "nesplnená"}.get(a.get("splnené"), "–"),
+                      help=f"proti {a.get('naivný')}: {a.get('zlepšenie_pct')} % (prah {a.get('prah_pct')} %)", border=True)
+            st.metric("(b) Silné porovnanie", {True: "prekonal", False: "neprekonal"}.get(b.get("prekonal"), "–"),
+                      help=(f"{b.get('naivný')} vybraný na validácii pred testom: {b.get('hodnota')} vs. model "
+                            f"{b.get('model_hodnota')} ({b.get('zlepšenie_pct')} %)") if b.get("naivný") else b.get("text"),
+                      border=True)
+            st.metric("(c) Metodika", "neplatná" if not m.get("platné", True) else
+                      ("nepresvedčivá" if m.get("nepresvedčivé") else "platná"), border=True)
+            st.metric("(d) U používateľa", USER_STATES.get(v["používateľ"].get("stav"), "–"), border=True)
+        for p in m.get("problémy") or []:
+            st.error(p, icon=":material/block:")
+        for p in m.get("nepresvedčivé") or []:
+            st.warning(p, icon=":material/help:")
+        diag = osi.get("diagnostika_test") or {}
+        if diag and not diag.get("je_hlavný") and diag.get("naivný") != b.get("naivný"):
+            st.caption(f"Diagnostika: na teste bol najlepší naivný odhad {diag['naivný']} ({diag['hodnota']}) – nie je to "
+                       "nová predregistrácia (vybraný až podľa testu).")
+        ver = res.get("verzie") or {}
+        if ver:
+            st.caption("Verzie: " + ", ".join(f"{k} {v_}" for k, v_ in ver.items() if k != "dáta")
+                       + " · dáta " + ", ".join(f"{t} {h}" for t, h in (ver.get("dáta") or {}).items()))
+        with st.form(f"g2_user_{eid}"):
+            st.caption("(d) Výsledok u používateľa – pilot alebo meranie práce (napr. čas kontroly, nájdené prípady). "
+                       "Zapisuješ ty; bez neho je výsledok iba z dát.")
+            state = st.selectbox("Stav", list(USER_STATES), format_func=USER_STATES.get,
+                                 index=list(USER_STATES).index(v["používateľ"].get("stav", "chýba"))
+                                 if v["používateľ"].get("stav") in USER_STATES else 0, key=f"g2_user_s_{eid}")
+            text = st.text_input("Čo sa nameralo (u koho, metrika, zmena)", value=v["používateľ"].get("text", "")
+                                 if v["používateľ"].get("stav") != "chýba" else "", key=f"g2_user_t_{eid}")
+            if st.form_submit_button("Uložiť výsledok u používateľa", icon=":material/person_check:"):
+                new = dict(flags)
+                new["výsledok_používateľa"] = {"stav": state, "text": text.strip() or USER_STATES[state], "kedy": utcnow()}
+                new["verdikt"] = verdict(res, new)["verdikt"]
+                d.update_experiment(eid, flags_json=new)
+                refresh()
 
 
 def show_task_experiment() -> None:
@@ -262,6 +319,7 @@ def show_task_experiment() -> None:
     if not res:
         return
     prim = res.get("hlavné") or {}
+    show_axes()
     with st.container(border=True):
         st.markdown("**Výsledok spätného testu**")
         with st.container(horizontal=True):

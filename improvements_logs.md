@@ -118,3 +118,10 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   pravidiel kontroly (eval s Wilsonovým intervalom, holdout). · 0,5 dňa.
 - **2026-10-15 – Brána 1 – pojmová poistka zo slovníka domény.** Pojmy (patent, cena, odpoveď …) sú zatiaľ pevný
   zoznam v `bindings.CONCEPTS`; zamietnuté väzby s dôvodom by mohli navrhovať nové pojmy (človek schváli). · 1 deň.
+- **2026-10-15 – Brána 2 – dátum zverejnenia NKÚ a zoznam kontrol bez zistení.** Štítky NKÚ sú od M21 bez
+  `label_population` neplatné. Doplniť adaptér zoznamu kontrolných akcií (subjekty vrátane kontrol bez zistení) a dátum
+  zverejnenia správy (stránka výsledku kontroly) – potom sa dá E6/H582 navrhnúť znova s platným štítkom. · 1–2 dni.
+- **2026-10-15 – Brána 2 – workflow experiment (nie predikcia).** Audit: nie každá hypotéza potrebuje model; pre
+  automatizáciu práce typ úlohy „workflow“ (čas, chybovosť, výsledok práce pred a po) s meraním u používateľa. · 2 dni.
+- **2026-10-15 – Brána 2 – časové bloky aj pre predpoveď.** Bootstrap predpovede je po entitách; pri jednej entite by
+  mal prevzorkovať bloky období. · 0,5 dňa.

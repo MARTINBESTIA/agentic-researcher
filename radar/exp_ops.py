@@ -20,6 +20,11 @@ Operácie:
 - lookup (name, table, keys, target_column, match, other_time, days, agg, other_value, expr) – súhrn riadkov INEJ
   tabuľky hypotézy so zhodným kľúčom (napr. IČO objednávateľa = IČO subjektu kontroly NKÚ): days > 0 = do N dní
   po dátume riadku (štítok), days < 0 = N dní pred (príznak), 0 = kedykoľvek (iba štítok – čas nie je ohraničený).
+
+Dostupnosť štítka (audit 14. 10. 2026): udalosť z inej tabuľky (napr. zistenie NKÚ) je známa až po zverejnení, nie
+v deň udalosti. `lookup` ako štítok preto potrebuje `available_column` (dátum zverejnenia alebo dostupnosti v druhej
+tabuľke – oneskorenie spočíta kód ako 95. percentil) alebo `available_lag_days` (predpoklad človeka). Štítok je
+„dozretý“ až po okne udalosti + oneskorení dostupnosti; bez toho je čas dostupnosti neznámy a experiment neplatný.
 """
 
 from __future__ import annotations
@@ -31,6 +36,7 @@ from datetime import date, timedelta
 from typing import Any, Callable, Literal
 
 import duckdb
+import numpy as np
 from pydantic import BaseModel, Field
 
 from .config import Config
@@ -66,6 +72,8 @@ class Step(BaseModel):
     match: Literal["exact", "ico"] = "exact"
     other_time: str = ""
     other_value: str = ""
+    available_column: str = ""  # lookup: dátum zverejnenia/dostupnosti udalosti v druhej tabuľke
+    available_lag_days: int | None = None  # lookup: predpoklad oneskorenia zverejnenia (dni) – zapíše sa do protokolu
     why: str = ""
 
 
@@ -102,6 +110,8 @@ class Workspace:
         self.n = 0
         self.protocol: list[dict[str, Any]] = []
         self.future: dict[str, int] = {}  # stĺpec → dni budúcnosti, z ktorých vznikol
+        # stĺpec štítka z inej tabuľky → dostupnosť: {"oneskorenie_dní", "spôsob", "tabuľka", "kľúč", "neohraničený"}
+        self.availability: dict[str, dict[str, Any]] = {}
         self.categorize, self.check_categories = categorize, check_categories
         cols = [r[0] for r in self.con.execute(f"DESCRIBE {table}").fetchall()]
         if time_column not in cols:
@@ -178,6 +188,11 @@ class Workspace:
             self._next(f"SELECT *, ({expr}) AS {name} FROM {self.table}")
             if self._uses_future(expr):
                 self.future[step.name] = self._uses_future(expr)
+            used = [c for c in self.availability if re.search(rf"\b{re.escape(c)}\b", expr)]
+            if used:  # odvodený štítok dedí dostupnosť (najhoršiu) zo stĺpcov, z ktorých vznikol
+                worst = max(used, key=lambda c: (self.availability[c]["spôsob"] == "neznámy",
+                                                 self.availability[c].get("oneskorenie_dní") or 0))
+                self.availability[step.name] = dict(self.availability[worst])
             entry["popis"] = f"{step.name} = {expr}"
         elif step.op == "text_category":
             entry |= self._text_category(step)
@@ -347,17 +362,58 @@ class Workspace:
                   GROUP BY r._rid) a ON a.rid = w._rid""")
         if d >= 0:  # budúcnosť alebo neohraničený čas: iba štítok
             self.future[step.name] = max(d, 1)
+            self.availability[step.name] = self._availability(step, other, ocols)
         hit = self.con.execute(f"SELECT COUNT(*) FROM {self.table} WHERE {name} IS NOT NULL AND {name} != 0").fetchone()[0]
         when_txt = ("kedykoľvek (čas neohraničený – iba štítok)" if d == 0 else f"do {d} dní po dátume riadku (štítok)"
                     if d > 0 else f"{-d} dní pred dátumom riadku (príznak)")
         return {"popis": f"{step.name} = {step.agg} riadkov {other} so zhodným {step.keys[0]} = {step.target_column}"
                          f" ({'IČO' if step.match == 'ico' else 'presná zhoda'}), {when_txt}"
-                         + (f", podmienka {step.expr}" if step.expr.strip() else ""), "riadkov_so_zhodou": int(hit)}
+                         + (f", podmienka {step.expr}" if step.expr.strip() else ""), "riadkov_so_zhodou": int(hit),
+                **({"dostupnosť": self.availability[step.name]} if step.name in self.availability else {})}
+
+    def _availability(self, step: Step, other: str, ocols: list[str]) -> dict[str, Any]:
+        """Kedy je udalosť z druhej tabuľky známa: oneskorenie zverejnenia z dát (95. percentil) a/alebo predpoklad."""
+        info: dict[str, Any] = {"tabuľka": other, "kľúč": step.keys[0] if step.keys else "", "match": step.match,
+                                "neohraničený": int(step.days) == 0, "oneskorenie_dní": None, "spôsob": "neznámy"}
+        lag = 0
+        if step.available_column:
+            if step.available_column not in ocols:
+                raise DatasetError(f"lookup: stĺpec dostupnosti {step.available_column!r} nie je v tabuľke {other}")
+            if not step.other_time:
+                raise DatasetError("lookup: available_column potrebuje other_time (dátum udalosti)")
+            av = f"CAST(TRY_CAST({q(step.available_column)} AS TIMESTAMP) AS DATE)"
+            ev = f"CAST(TRY_CAST({q(step.other_time)} AS TIMESTAMP) AS DATE)"
+            p95, n = self.con.execute(f"SELECT quantile_cont(date_diff('day', {ev}, {av}), 0.95), COUNT(*) FROM {other} "
+                                      f"WHERE {ev} IS NOT NULL AND {av} IS NOT NULL").fetchone()
+            if not n:
+                raise DatasetError(f"lookup: stĺpec dostupnosti {step.available_column!r} nemá dátumy")
+            lag = max(0, int(np.ceil(p95 or 0)))
+            info["spôsob"] = f"z dát ({step.available_column}, 95. percentil oneskorenia)"
+        if step.available_lag_days is not None:
+            if step.available_lag_days < 0:
+                raise DatasetError("lookup: available_lag_days nesmie byť záporné")
+            lag += int(step.available_lag_days)
+            info["spôsob"] = (info["spôsob"] + " + " if step.available_column else "") + \
+                f"predpoklad {int(step.available_lag_days)} dní (over pri uzamknutí)"
+        if step.available_column or step.available_lag_days is not None:
+            info["oneskorenie_dní"] = lag
+        return info
 
     # -------------------------------------------------------------- štítky z budúcnosti
-    def matured(self, label: str) -> int:
-        """Riadky, ktorých budúce okno štítka ešte neuplynulo, sa vyradia (štítok by bol neúplný)."""
+    def label_columns(self, label: str) -> list[str]:
+        """Stĺpce štítka z inej tabuľky (lookup), z ktorých štítok vznikol – pre kontrolu dostupnosti a jednotky."""
+        return [c for c in self.availability if c == label or re.search(rf"\b{re.escape(c)}\b", label)]
+
+    def label_horizon(self, label: str) -> int:
+        """Dni od dátumu riadku, kým je štítok známy: budúce okno + oneskorenie dostupnosti (zverejnenia)."""
         days = max(self.future.get(label, 0), self._uses_future(label))
+        lags = [self.availability[c].get("oneskorenie_dní") or 0 for c in self.label_columns(label)]
+        return days + max(lags or [0])
+
+    def matured(self, label: str) -> int:
+        """Riadky, ktorých budúce okno štítka (+ oneskorenie zverejnenia) ešte neuplynulo, sa vyradia (štítok by bol
+        neúplný). Vráti dni do dozretia štítka."""
+        days = self.label_horizon(label)
         if not days:
             return 0
         cutoff = date.fromisoformat(self.limits["do"]) - timedelta(days=days)

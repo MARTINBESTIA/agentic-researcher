@@ -18,7 +18,7 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 hľadanie kontaktov podľa hypotézy a „Koho osloviť“ v Bráne 0 (schéma v10, M18); lievik „hypotéza po hypotéze“
 od testu po Bránu 2, donekonečna (schéma v11, M19); dôvera v dáta Brány 1 podľa auditu 14. 10. 2026 – overenie súborov
 požiadavkou, import podľa obsahu s kontrolou, väzby pole → stĺpec, pravidlo prechodu s potvrdením človeka, preverenie
-prešlých (schéma v12, M20). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+prešlých (schéma v12, M20); experimenty bez úniku, so silným porovnaním a štyrmi osami výsledku (M21). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -51,7 +51,7 @@ docker compose up -d                     # SearXNG
 | `radar/bindings.py` | väzba poľa Brány 1: pole → verzia datasetu → stĺpec/výraz → jednotka → význam → dôkaz; návrh presným modelom (`field_binding`), kontroly kódom (pokrytie, typ, pojmová poistka), potvrdenie človekom, podmienky prechodu (`key_conditions`), odtlačok dát rozhodnutia, smerovanie poľa |
 | `radar/gate1.py`, `radar/gate2.py`, `radar/datasets.py` | Brána 1 (polia s dostupnosťou, zdroje overené požiadavkou, DuckDB, reprodukcia, infozákon, pripravenosť; rebrík stavu poľa; pravidlo prechodu ≥ 0,5 a kľúčové polia s potvrdeným stĺpcom, inak „čaká na tvoje dáta“; `needs_revalidation` a autor rozhodnutia; kontrola importu človekom) a Brána 2 (predregistrácia, spätný test, demo); import podľa obsahu (HTML odmietnuté, SpreadsheetML, RDF/JSON-LD kocky, hlavička výkazu, odmietnuté riadky, importný report, `PARSER_VERSION`, pôvodný súbor podľa SHA-256); DuckDB iba na čítanie bez externého prístupu |
 | `radar/cards.py` | problémová karta (problém, kto, rozhodnutie, výstup, metrika – s citátmi, sudca) a rozdelenie širokej hypotézy na podhypotézy |
-| `radar/exp_ops.py`, `radar/exp_plan.py`, `radar/exp_tasks.py`, `radar/exp_conclude.py` | univerzálne experimenty Brány 2: operácie nad dátami (DuckDB, bez únikov budúcich dát), návrh modelom + skúšobný beh, testy podľa úlohy (poradie, predpoveď, anomália, prah, porovnanie) s výsledkovou tabuľkou, záver pre problém |
+| `radar/exp_ops.py`, `radar/exp_plan.py`, `radar/exp_tasks.py`, `radar/exp_conclude.py` | univerzálne experimenty Brány 2: operácie nad dátami (DuckDB, bez únikov budúcich dát; dostupnosť štítka z inej tabuľky a jeho dozretie), návrh modelom + skúšobný beh + metodické kontroly (jednotka štítka, entita, populácia, dostupnosť), testy podľa úlohy (poradie bez úniku po foldoch, predpoveď, anomália, prah, porovnanie) s výsledkovou tabuľkou, silné porovnanie zmrazené na validácii, štyri osi a verdikt, verzie; záver pre problém |
 | `radar/gate2_trace.py` | postup experimentu Brány 2 krok po kroku (výber organizácie, návrh, uzamknutie, SQL a rad, kolá testu, výber auto, výpočet, demo) – GUI a Markdown |
 | `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
 | `radar/funnel.py` | lievik (akcia `funnel`): ďalší krok hypotézy podľa stavu (test → kontakty → Brána 1 → Brána 2), výber (fokus, rozpracované, fronta testu, hľadanie nových), odloženie zaseknutých, jeden krok na úlohu a ďalšia úloha do poradia; záznam `funnel_log` |
