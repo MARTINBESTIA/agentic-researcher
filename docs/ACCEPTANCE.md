@@ -194,3 +194,18 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M19 | 6 reťaz končí po čase alebo po opakovaných zlyhaniach | `test_funnel_chain_stops_after_time_or_repeated_failures` |
 | M19 | 7 reštart prerušenej úlohy zachová argumenty reťaze | `test_restart_keeps_chain_arguments` |
 | M19 | 8 GUI: posledné kroky lievika a „Čaká na teba“ | `test_actions_page_shows_funnel_log_and_waiting_hypotheses` |
+| M20 | 1 nefunkčný odkaz ani stránka prihlásenia nie je overený zdroj; pole ostane „iba odkaz“ | `test_m20_data_trust.py::test_broken_link_or_login_page_is_not_verified_and_field_stays_partial` |
+| M20 | 2 overenie súboru: presmerovanie, blokovaná doména aj po presmerovaní, HTML namiesto dát | `test_fetcher_probe_follows_redirects_blocks_social_and_detects_html` |
+| M20 | 3 HTML uložené ako CSV sa neimportuje ako tabuľka | `test_html_saved_as_csv_is_rejected_not_imported_as_table` |
+| M20 | 4 SpreadsheetML s 3 riadkami → 3 záznamy, bez stĺpcov formátovania, jednotka z hlavičky | `test_spreadsheetml_rows_become_records_without_formatting_columns` |
+| M20 | 5 RDF kocka: pozorovania s dimenziami (aj cez rdf:nodeID) a jednotkou | `test_rdf_cube_observations_keep_dimensions_and_unit` |
+| M20 | 6 RDF s odpojenými dimenziami alebo bez pozorovaní nie je použiteľné | `test_rdf_with_disconnected_dimensions_or_without_observations_is_not_usable` |
+| M20 | 7 neznáme XML a CSV s odmietnutými riadkami → na kontrolu, nerátajú sa; schválenie/zamietnutie človekom (label) | `test_unknown_xml_and_rejected_csv_rows_go_to_review_and_do_not_count` |
+| M20 | 8 XLSX: nadpis nad tabuľkou a dvojriadková hlavička | `test_xlsx_title_rows_and_two_row_header_are_detected` |
+| M20 | 9 duplikát distribúcie sa ráta raz; pôvodný súbor podľa SHA-256 | `test_duplicate_distribution_counts_once_and_raw_file_is_kept_by_hash` |
+| M20 | 10 register liekov nepokrýva patent ani cenu (exspirácia ≠ patent); vysoké skóre nenahradí kľúčové pole | `test_drug_register_does_not_cover_patent_or_price`, `test_concept_guard_needs_concept_in_column_not_in_model_text` |
+| M20 | 11 stĺpec overený kódom + tvoje potvrdenie → prechod pravidlom; zamietnutie väzby → „treba znova overiť“ | `test_binding_confirmed_by_human_passes_gate_and_rejection_revokes_it` |
+| M20 | 12 ručný prechod ostáva s autorom a príznakom; staré rozhodnutie pravidlom sa preverí | `test_manual_pass_is_kept_with_author_but_flagged` |
+| M20 | 13 podhypotéza dedí dáta a návrhy väzieb, nie prechod; lievik čaká na potvrdenie stĺpcov | `test_split_child_inherits_data_and_bindings_not_the_pass` |
+| M20 | 14 interné pole → partner, web sa nehľadá | `test_internal_field_goes_to_partner_not_web_search` |
+| M20 | 15 GUI: potvrdenie stĺpca a schválenie importu | `test_gate1_page_confirms_column_and_approves_import` |

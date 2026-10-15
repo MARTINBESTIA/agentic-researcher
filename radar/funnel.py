@@ -102,9 +102,17 @@ def step_state(cfg: Config, db: DB, h, step: str) -> tuple[str, str]:
         g1 = h["gate1_status"] or "not_started"
         if g1 in ("not_started", "running", "ready"):
             return "todo", {"not_started": "Brána 1 nezačatá", "running": "Brána 1 rozpracovaná"}.get(g1, "Brána 1")
-        if g1 == "needs_input":
+        if g1 in ("needs_input", "needs_revalidation"):
+            from .gate1 import binding_work
+
             if db.pending_gate1_inputs([hid]):
                 return "todo", "posúdiť tvoje dáta"
+            if binding_work(db, hid):
+                return "todo", "mapovanie polí na stĺpce (nové dáta)"
+            if any(b["validation_status"] == "code_ok" and b["is_key"] for b in db.bindings_for(hid)):
+                return "stop", "Brána 1 čaká na tvoje potvrdenie stĺpcov kľúčových polí (Brána 1 → Mapovanie polí)"
+            if g1 == "needs_revalidation":
+                return "stop", "Brána 1: treba znova overiť – podmienky prechodu už neplatia (Brána 1 → Mapovanie polí)"
             return "stop", "Brána 1 čaká na tvoje dáta (Brána 1 → Tvoje dáta, alebo Prehľadať znova)"
         if g1 == "passed":
             return "done", "Brána 1 prešla"

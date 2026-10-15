@@ -139,7 +139,9 @@ def test_source_agent_keeps_license_only_if_on_page_and_check_finds_files(tmp_pa
              call("record_source", {"field": "Neexistujúce pole", "name": "x", "url": page, "page_url": page,
                                     "access": "open", "evidence_quote": "x"}, "2")),
         step(call("finish", {"summary": "ok"}))]
-    fetcher = FakeFetcher(texts={page: CATALOG_PAGE.replace("<", " <") * 2}, htmls={page: CATALOG_PAGE})
+    # súbor sa overí skutočnou požiadavkou (audit 14. 10. 2026), nie iba podľa prípony v odkaze
+    fetcher = FakeFetcher(texts={page: CATALOG_PAGE.replace("<", " <") * 2}, htmls={page: CATALOG_PAGE},
+                          files={"https://data.obce.sk/files/vydavky.csv": CSV.encode()})
     stats = gate1.run_sources(cfg, db, router, FakeSearx(), fetcher, Deadline(1), [hid])
     src = db.sources_for(hid)[0]
     assert stats["sources"] == 1 and src["license"] == "CC BY 4.0" and src["update_frequency"] == "ročne"
@@ -149,7 +151,7 @@ def test_source_agent_keeps_license_only_if_on_page_and_check_finds_files(tmp_pa
     checks, quality = json.loads(src["checks_json"]), json.loads(src["quality_json"])
     assert checks["súbory"] == ["https://data.obce.sk/files/vydavky.csv"] and src["status"] == "verified"
     assert quality["licencia"] == 1.0 and quality["strojovo_čitateľné"] == 1.0
-    assert db.get_field(fid)["status"] == "found"
+    assert db.get_field(fid)["status"] == "available"  # súbor dostupný; „nájdené“ až so stĺpcom v načítaných dátach
 
     # licencia, ktorá na stránke nie je, sa neuloží (nič sa nehádá)
     fid2 = db.upsert_field(hid, "Počet zákaziek", "", False, "")
@@ -223,7 +225,9 @@ def test_reproduction_of_known_number_scale_and_readiness(tmp_path):
     assert rep["verdict"] == "match" and rep["scale"] == 1e6 and "mierke" in rep["note"]
     assert rec.models_for("ReproSpec") == ["radar-qwen3.6-27b"]
 
-    db.update_field(fid, status="found")
+    from radar.bindings import manual_binding
+
+    manual_binding(cfg, db, hid, fid, table, '"suma"', "EUR", "výdavky obce")  # stĺpec potvrdený človekom (kód overil)
     stats = gate1.run_finish(cfg, db, Deadline(1), [hid])
     h = db.get_hypothesis(hid)
     summary = json.loads(h["gate1_json"])
@@ -291,7 +295,9 @@ def test_user_data_is_imported_judged_per_field_and_scored_by_code(tmp_path):
                 "summary": "Dáta pokrývajú výdavky."}
 
     rec.responses["UserDataEval"] = judge
-    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), None) == {"files": 1, "evaluated": 1, "auto_passed": 1}
+    # posúdenie sudcu samo neprepúšťa (audit 14. 10. 2026): polia z nahraného súboru sú „dáta načítané“
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), None) == {"files": 1, "evaluated": 1, "fields_loaded": 2,
+                                                                         "meets_threshold": 1}
     assert rec.models_for("UserDataEval") == ["radar-qwen3.6-27b"]  # sudca, nie generátor
     assert "<untrusted_document>" in seen[0] and "vydavky_eur" in seen[0]  # model videl aj stĺpce nahranej tabuľky
     inp = db.gate1_inputs_for(hid)[0]
@@ -305,8 +311,9 @@ def test_user_data_is_imported_judged_per_field_and_scored_by_code(tmp_path):
     assert run_query(cfg, hid, f"SELECT SUM(vydavky_eur) FROM {ds['table_name']}")[0][0] == 2500
     assert [c["org_name"] for c in db.coverage_for(hid)] == ["Mesto Fiktívne"]
     assert not path.exists()  # pôvodný súbor sa po importe zmaže
-    assert db.get_hypothesis(hid)["gate1_status"] == "passed"
-    assert "vhodnosť tvojich dát 0,65" in db.gate_decisions_for(hid, 1)[0]["reason"]
+    assert db.get_field(db.fields_for(hid)[0]["id"])["status"] == "loaded"
+    gate1.run_finish(cfg, db, Deadline(1), [hid])
+    assert db.get_hypothesis(hid)["gate1_status"] != "passed" and not db.gate_decisions_for(hid, 1)  # chýbajú potvrdené stĺpce
     assert gate1.run_user_inputs(cfg, db, router, Deadline(1), None) == {}  # nič nečaká
 
 
@@ -324,12 +331,15 @@ def test_user_input_with_personal_data_low_score_and_model_failure(tmp_path):
     seen = []
     rec.responses["UserDataEval"] = lambda m: seen.append(m[-1]["content"]) or {
         "fields": [{"field": "Výdavky obce", "coverage": "partial", "reason": "iba sumy"}], "summary": ""}
-    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), [hid]) == {"evaluated": 1, "auto_passed": 1}  # bez 2. importu
+    # bez 2. importu; iba text → pole má „iba opis schémy“, prechod nie (schéma nie sú namerané hodnoty)
+    assert gate1.run_user_inputs(cfg, db, router, Deadline(1), [hid]) == {"evaluated": 1, "fields_schema_only": 1,
+                                                                          "meets_threshold": 1}
     inp = db.gate1_inputs_for(hid)[0]
     ev = json.loads(inp["evaluation_json"])
     assert inp["score"] == 0.5 and "Nováková" not in seen[0]  # osobné údaje sa k modelu nedostali
     assert any("osobné údaje" in n for n in ev["poznámky"])
-    assert db.get_hypothesis(hid)["gate1_status"] == "passed"  # 0,5 ≥ 0,5 (iba z textu)
+    assert db.get_field(db.fields_for(hid)[0]["id"])["status"] == "schema_only"
+    assert db.get_hypothesis(hid)["gate1_status"] != "passed"
     low = _waiting_hyp(cfg, db, (("Termíny", True),))
     gate1.run_finish(cfg, db, Deadline(1), [low])
     db.add_gate1_input(low, "Nemám nič, iba tušenie.")
@@ -509,12 +519,14 @@ def test_sources_from_read_pages_when_agent_only_reads(tmp_path):
     rec.responses["ExtractedSources"] = {"sources": [
         {"field": "Výdavky obce na obstarávanie", "name": "Rozpočty obcí", "url": page, "access": "open",
          "license": "CC BY 4.0", "formats": "CSV", "evidence_quote": "Dataset obsahuje výdavky obcí na verejné obstarávanie"}]}
-    fetcher = FakeFetcher(texts={page: CATALOG_PAGE.replace("<", " <") * 2}, htmls={page: CATALOG_PAGE})
+    fetcher = FakeFetcher(texts={page: CATALOG_PAGE.replace("<", " <") * 2}, htmls={page: CATALOG_PAGE},
+                          files={"https://data.obce.sk/files/vydavky.csv": CSV.encode()})
     stats = gate1.run_sources(cfg, db, router, FakeSearx(), fetcher, Deadline(1), [hid])
     assert stats["sources_from_pages"] == 1 and db.sources_for(hid)[0]["license"] == "CC BY 4.0"
     assert rec.models_for("ExtractedSources") == ["radar-qwen3.6-27b"]
     gate1.run_check(cfg, db, fetcher, Deadline(1), [hid])
-    assert db.get_field(fid)["status"] == "found" and db.info_requests_for(hid) == []  # návrh žiadosti už netreba
+    # otvorený dostupný súbor (overený požiadavkou) → návrh žiadosti podľa 211/2000 už netreba
+    assert db.get_field(fid)["status"] == "available" and db.info_requests_for(hid) == []
 
 
 def test_field_name_with_description_and_shortened_quote():
@@ -897,7 +909,8 @@ def test_catalog_candidates_become_sources_with_files_and_typed_download(tmp_pat
     kind = db.conn.execute("SELECT source_kind FROM documents WHERE url = ?", (NKOD_DS,)).fetchone()[0]
     assert kind == "gate1"  # metadáta katalógu nejdú do extrakcie dôkazov
 
-    gate1.run_check(cfg, db, FakeFetcher(), Deadline(1), [hid])
+    csv = "ico;rok;vydavky\n00313271;2025;100\n00313271;2026;120\n"
+    gate1.run_check(cfg, db, FakeFetcher(files={NKOD_FILE: csv.encode()}), Deadline(1), [hid])
     checks = json.loads(db.sources_for(hid)[0]["checks_json"])
     assert checks["súbory"] == [NKOD_FILE] and checks["formát_podľa_katalógu"] == {NKOD_FILE: "csv"}
     csv = "ico;rok;vydavky\n00313271;2025;100\n00313271;2026;120\n"

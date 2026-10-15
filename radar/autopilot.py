@@ -46,13 +46,17 @@ def selected_ids(db: DB) -> list[int]:
 
 def gate1_ids(db: DB, k: int = GATE1_PER_JOB) -> list[int]:
     """Vybrané hypotézy s nedokončenou Bránou 1 (nezačaté a rozpracované): najprv rozpracované, potom najdlhšie
-    nespracované. Vyhodnotené („čaká na tvoje dáta“) sa automaticky znova neprehľadávajú (pokyn 14. 10. 2026)."""
+    nespracované. Vyhodnotené („čaká na tvoje dáta“) sa automaticky znova neprehľadávajú (pokyn 14. 10. 2026);
+    pri nových dátach sa iba namapujú polia na stĺpce."""
+    from .gate1 import binding_work
+
     rows = []
     for h in db.people_enabled_hypotheses():
         status = h["gate1_status"] or "not_started"
         when = (json.loads(h["gate1_json"] or "{}") or {}).get("vypočítané") or ""
-        if status in ("not_started", "running"):
-            rows.append((0 if status == "running" else 1, when, h["id"]))
+        if status in ("not_started", "running") or (status in ("needs_input", "needs_revalidation")
+                                                    and binding_work(db, h["id"])):
+            rows.append((0 if status != "not_started" else 1, when, h["id"]))  # nové dáta: mapovanie polí
     return [hid for *_, hid in sorted(rows)[:k]]
 
 

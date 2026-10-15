@@ -112,7 +112,8 @@ def test_card_cites_own_claims_checks_key_fields_and_splits_hypothesis(tmp_path)
     assert {c["id"] for c in db.evidence_for(c2)} == {ids[3], ids[4]}  # C2 už patrí prvej podhypotéze
     assert {c["id"] for c in db.evidence_for(hid)} == {ids[5]}  # rodičovi ostáva všeobecné
     child = db.get_hypothesis(c1)
-    assert child["parent_id"] == hid and child["gate1_status"] == "passed" and db.get_hypothesis(hid)["split_at"]
+    # dieťa dedí odkazy na dáta, nie prechod (M20, audit H581/H582)
+    assert child["parent_id"] == hid and child["gate1_status"] == "needs_revalidation" and db.get_hypothesis(hid)["split_at"]
     assert "Zdedené z H" in db.gate_decisions_for(c1, 1)[0]["reason"]
     assert hyp_dir(cfg, c1) == hyp_dir(cfg, hid) and run_query(cfg, c1, "SELECT COUNT(*) FROM ds1")[0][0] == 3
     assert [d["table_name"] for d in db.datasets_for(c1)] == ["ds1"] and db.fields_for(c1)[0]["status"] == "found"

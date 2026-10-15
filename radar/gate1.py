@@ -40,9 +40,9 @@ from .nku import is_nku_page
 from .config import Config
 from .critic import evidence_block
 from .datasets import (
-    drop_columns,
-    FILE_LINK_RE, DatasetError, coverage, download, download_paginated, drop_table, file_format, hyp_dir, import_table,
-    profile_table, run_query, schema_text, wide_to_long,
+    FILE_LINK_RE, DatasetError, assess_import, coverage, download, download_paginated, drop_columns, drop_table,
+    file_format, hyp_dir, import_table, profile_table, raw_cache_drop, raw_cache_put, run_query, schema_text,
+    wide_to_long,
 )
 from .db import DB
 from .models import as_router
@@ -75,6 +75,10 @@ class DataField(BaseModel):
     is_key: bool = False
     rationale: str = ""
     source_hints: list[str] = Field(default_factory=list)
+    availability: str = "public"  # public | internal (interné udalosti organizácie – od partnera, nie z webu)
+
+
+PARTNER_NOTE = "interné dáta organizácie – vyžiadať od partnera (Brána 0 → Koho osloviť: držiteľ dát); web sa neprehľadáva"
 
 
 class DataFields(BaseModel):
@@ -101,7 +105,14 @@ def define_fields(cfg: Config, db: DB, llm: Any, hyp) -> int:
         if not name:
             continue
         rationale = f.rationale.strip() + (" Kde hľadať: " + "; ".join(f.source_hints[:3]) if f.source_hints else "")
-        db.upsert_field(hyp["id"], name, f.description.strip(), f.is_key, rationale.strip())
+        fid = db.upsert_field(hyp["id"], name, f.description.strip(), f.is_key, rationale.strip())
+        availability = "internal" if f.availability.strip().lower() == "internal" else "public"
+        field = db.get_field(fid)
+        if not field["edited_by_human"]:
+            db.update_field(fid, availability=availability)
+            if availability == "internal" and field["status"] == "open":
+                # Smerovanie podľa otázky (audit): chýbajúce interné udalosti → partner, nie nekonečný webový prieskum.
+                db.update_field(fid, status="partner", status_note=PARTNER_NOTE)
         n += 1
     if n:
         db.start_gate1(hyp["id"])
@@ -123,7 +134,7 @@ def run_fields(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int]
 # Automatický prieskum (polia, zdroje, kontrola, sťahovanie, reprodukcia, pripravenosť) iba pre nezačaté a rozpracované
 # hypotézy; vyhodnotené („čaká na tvoje dáta“, „prešla“, ručné rozhodnutie) iba po „Prehľadať znova“ (pokyn používateľa
 # 14. 10. 2026 – predtým sa prepočítavali a prehľadávali znova pri každom behu).
-ELIGIBLE_STATUSES = ("not_started", "running")
+ELIGIBLE_STATUSES = ("not_started", "running", "needs_revalidation")
 
 
 def eligible(hyp) -> bool:
@@ -172,7 +183,22 @@ def automated_work(cfg: Config, db: DB, hid: int) -> list[str]:
         out.append("zdroje")
     if download_work(cfg, db, hid):
         out.append("kontrola a sťahovanie")
+    if binding_work(db, hid):
+        out.append("mapovanie polí na stĺpce")
     return out
+
+
+def binding_work(db: DB, hid: int) -> bool:
+    """Pole bez návrhu väzby na aktuálne dáta (model ho ešte nenamapoval) – práca pre krok gate1-bindings."""
+    from .bindings import inputs_fingerprint, usable_datasets
+
+    datasets = usable_datasets(db, hid)
+    if not datasets:
+        return False
+    fp = inputs_fingerprint(datasets)
+    return any(f["status"] not in ("requested", "partner")
+               and not any(b["inputs_fingerprint"] == fp for b in db.bindings_for_field(f["id"]))
+               for f in db.fields_for(hid))
 
 
 def reopen(db: DB, hid: int, who: str = "GUI") -> int:
@@ -623,7 +649,31 @@ IMPORTABLE = {"CSV": "csv", "TSV": "csv", "TXT": "csv", "XLSX": "xlsx", "JSON": 
               "PARQUET": "parquet"}
 
 
+MAX_FILE_PROBES = 3  # súbory zdroja overené skutočnou požiadavkou (prvé bajty, nie celé stiahnutie)
+PROBE_LABEL = {"ok": "dáta dostupné", "html": "stránka HTML namiesto dát (prihlásenie, chyba)", "error": "nedostupné",
+               "robots_blocked": "robots.txt nepovoľuje", "blocked_domain": "blokovaná doména"}
+
+
+def probe_files(fetcher, urls: list[str]) -> tuple[list[str], dict[str, str]]:
+    """Súbory, ktoré naozaj vrátia dáta (nie chybu ani stránku HTML), a výsledok overenia každého z nich.
+    Audit 14. 10. 2026: URL s príponou .csv dostala http_ok bez jedinej požiadavky a pole sa označilo ako nájdené."""
+    ok: list[str] = []
+    results: dict[str, str] = {}
+    probe = getattr(fetcher, "probe", None)
+    for url in urls[:MAX_FILE_PROBES]:
+        if probe is None:
+            results[url] = "neoverené"
+            continue
+        p = probe(url)
+        results[url] = PROBE_LABEL.get(p.status, p.status) + (f" (HTTP {p.http_status})" if p.http_status and p.status != "ok" else "")
+        if p.status == "ok":
+            ok.append(url)
+    return ok, results
+
+
 def check_source(fetcher, src, topic: str = "", catalog: NKODClient | None = None) -> dict[str, Any]:
+    """Dostupnosť zdroja: súbory sa overia skutočnou požiadavkou; http_ok iba keď aspoň jeden súbor vráti dáta
+    (pri stránke bez súborov: stránka je dostupná, dáta strojovo nie)."""
     checks = json.loads(src["checks_json"] or "{}")
     url = src["url"]
     nkod_uri = next((u for u in (src["evidence_url"], url) if u and NKOD_DATASET_RE.match(u)), None)
@@ -631,24 +681,28 @@ def check_source(fetcher, src, topic: str = "", catalog: NKODClient | None = Non
         ds = catalog.dataset(nkod_uri)
         if ds is not None:  # súbory priamo z distribúcií v katalógu (stránka katalógu je aplikácia v JavaScripte)
             files = [d for d in ds.distributions if d.format.upper() in IMPORTABLE]
-            checks.update(http_ok=True, http_stav="ok", katalóg=nkod_uri, súbory=[d.url for d in files][:10],
-                          súbory_formáty=sorted({IMPORTABLE[d.format.upper()] for d in files}),
-                          formát_podľa_katalógu={d.url: IMPORTABLE[d.format.upper()] for d in files})
+            ok, results = probe_files(fetcher, [d.url for d in files])
+            checks.update(http_ok=bool(ok), http_stav="ok" if ok else "súbory nedostupné", katalóg=nkod_uri, súbory=ok,
+                          súbory_formáty=sorted({IMPORTABLE[d.format.upper()] for d in files if d.url in ok}),
+                          formát_podľa_katalógu={d.url: IMPORTABLE[d.format.upper()] for d in files if d.url in ok},
+                          overenie_súborov=results)
             if not files:
                 checks["poznámka"] = "v katalógu nie je súbor v podporovanom formáte (" + ", ".join(ds.formats) + ")"
             return checks
     if file_format(url):
-        checks.update(http_ok=True, súbory=[url], súbory_formáty=[file_format(url)])
+        ok, results = probe_files(fetcher, [url])
+        checks.update(http_ok=bool(ok), http_stav="ok" if ok else results.get(url, "nedostupné"), súbory=ok,
+                      súbory_formáty=[file_format(url)] if ok else [], overenie_súborov=results)
         return checks
     page = fetcher.fetch_html(url)
     checks["http_ok"] = page.status == "ok"
     checks["http_stav"] = page.status
+    checks["overenie_súborov"] = {}
     if page.status == "ok":
         from .contacts import extract_contacts
 
         links = [href for href, _ in extract_contacts(page.html, page.final_url or url).links if FILE_LINK_RE.search(href)]
         links = list(dict.fromkeys(links))[:10]
-        formats = sorted({file_format(u) or "?" for u in links})
         low = page.html.lower()
         if not links and ("swagger" in low or "openapi" in low or "api" in (src["formats"] or "").lower()):
             paging: dict[str, Any] = {}
@@ -656,9 +710,14 @@ def check_source(fetcher, src, topic: str = "", catalog: NKODClient | None = Non
             if endpoints:
                 checks["api_endpointy"] = endpoints
                 checks["stránkovanie"] = paging
-                links, formats = endpoints, ["json"]
-        checks["súbory"] = links
-        checks["súbory_formáty"] = formats
+                links = endpoints
+        ok, results = probe_files(fetcher, links)
+        checks["súbory"] = ok
+        checks["súbory_formáty"] = sorted({file_format(u) or ("json" if u in checks.get("api_endpointy", []) else "?")
+                                          for u in ok})
+        checks["overenie_súborov"] = results
+        if links and not ok:
+            checks["poznámka"] = "odkazy na súbory nevrátili dáta – " + "; ".join(sorted(set(results.values())))
     return checks
 
 
@@ -670,9 +729,11 @@ def run_check(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int] |
             if deadline.expired():
                 return dict(stats)
             old = json.loads(src["checks_json"] or "{}")
-            # znova skontrolovať aj API zistené pred stránkovaním (12. 10. 2026), inak sa stiahne iba prvá strana
-            if src["status"] == "rejected" or (old.get("http_stav") and not (old.get("api_endpointy")
-                                                                            and "stránkovanie" not in old)):
+            # znova skontrolovať aj API zistené pred stránkovaním (12. 10. 2026), inak sa stiahne iba prvá strana,
+            # a zdroje overené pred 15. 10. 2026 iba podľa prípony alebo katalógu (bez skutočnej požiadavky)
+            if src["status"] == "rejected" or old.get("pridané_ručne") or (
+                    old.get("http_stav") and "overenie_súborov" in old
+                    and not (old.get("api_endpointy") and "stránkovanie" not in old)):
                 continue
             field = db.get_field(src["field_id"])
             checks = check_source(fetcher, src, f"{field['name']} {field['description'] or ''}" if field else "", catalog)
@@ -684,23 +745,45 @@ def run_check(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int] |
 
 
 def _update_field_statuses(db: DB, hid: int) -> None:
+    """Stav poľa podľa rebríka dôkazov (audit 14. 10. 2026): odkaz na zdroj → súbor dostupný (overený požiadavkou) →
+    dáta načítané (dataset „ok“) → stĺpec overený kódom (väzba). „Nájdené“ už nie je iba existencia otvoreného zdroja."""
+    from .bindings import FIELD_LEVEL, current_binding, usable_datasets
+
     by_field: dict[int, list] = {}
     for s in db.sources_for(hid):
         if s["status"] != "rejected":
             by_field.setdefault(s["field_id"], []).append(s)
+    datasets = usable_datasets(db, hid)
+    loaded_sources = {d["source_id"] for d in datasets}
     for f in db.fields_for(hid):
         if f["edited_by_human"] or f["status"] in ("requested", "partner"):
             continue
         srcs = by_field.get(f["id"], [])
-        if not srcs:
+        bindings = db.bindings_for_field(f["id"])
+        if current_binding(db, f["id"], datasets) is not None:
+            status = "found"
+        elif any(s["id"] in loaded_sources for s in srcs):
+            status = "loaded"
+        elif any(s["status"] == "verified" and json.loads(s["checks_json"] or "{}").get("súbory") for s in srcs):
+            status = "available"
+        elif f["status"] == "schema_only":
             continue
-        good = [s for s in srcs if s["status"] == "verified" and s["access"] in ("open", "registration")
-                and json.loads(s["quality_json"] or "{}").get("strojovo_čitateľné")]
-        status = "found" if good else "partial"
-        if status != f["status"]:
-            db.update_field(f["id"], status=status, status_note=None)
-        if status == "found":
-            db.delete_draft_requests(f["id"])  # otvorený zdroj → žiadosť podľa 211/2000 netreba
+        elif srcs:
+            status = "partial"
+        elif datasets and bindings and all(b["validation_status"] == "not_in_data" for b in bindings[:3]):
+            status = "missing"  # model aj kód: v stiahnutých dátach pole nie je
+        else:
+            continue
+        if (f["status_note"] or "").startswith(USER_INPUT_NOTE) and FIELD_LEVEL.get(status, 0) <= FIELD_LEVEL.get(f["status"], 0):
+            continue  # stav z tvojich dát (schéma alebo nahraný súbor) sa neznižuje
+        note = None
+        if status == "missing":
+            note = "v stiahnutých dátach nie je: " + (bindings[0]["note"] or "")[:200]
+        if status != f["status"] and not (f["status"] == "missing" and FIELD_LEVEL.get(status, 0) == 0):
+            db.update_field(f["id"], status=status, status_note=note)
+        if status in ("available", "loaded", "found") and any(
+                s["access"] in ("open", "registration") for s in srcs):
+            db.delete_draft_requests(f["id"])  # otvorený dostupný zdroj → žiadosť podľa 211/2000 netreba
 
 
 # ======================================================================= 4. datasety (kód)
@@ -733,6 +816,7 @@ def run_datasets(cfg: Config, db: DB, fetcher, deadline: Deadline, ids: list[int
                     return dict(stats)
                 stats.update(_one_dataset(cfg, db, fetcher, hid, src, url, orgs, paging.get(url),
                                           (checks.get("formát_podľa_katalógu") or {}).get(url), deadline, gdpr=gdpr))
+        _update_field_statuses(db, hid)
     return dict(stats)
 
 
@@ -759,6 +843,35 @@ def approve_without_personal(db: DB, dataset_id: int, decision: str) -> list[str
     return cols
 
 
+def review_import(cfg: Config, db: DB, dataset_id: int, approve: bool, note: str = "") -> None:
+    """Tvoja kontrola importu na kontrole (nejasná hlavička, odmietnuté riadky, neznáme XML/RDF): schválený dataset sa
+    ráta do Brány 1, zamietnutý sa zmaže z DuckDB. Rozhodnutie je referenčné hodnotenie (label dataset_import)."""
+    ds = db.get_dataset(dataset_id)
+    if ds is None or ds["status"] != "needs_review":
+        raise ValueError("Dataset nie je na kontrole importu.")
+    prof = json.loads(ds["profile_json"] or "{}")
+    rep = prof.get("import") or {}
+    rep["kontrola_človeka"] = {"schválené": approve, "poznámka": (note or "")[:300], "kedy": utcnow()}
+    prof["import"] = rep
+    twins = [d for h in sharing_hypotheses(db, ds["hypothesis_id"]) for d in db.datasets_for(h)
+             if d["table_name"] == ds["table_name"]]
+    if approve:
+        for d in twins:
+            db.update_dataset(d["id"], status="ok", profile_json=prof,
+                              note=f"import schválený človekom{': ' + note[:200] if note else ''}")
+        for org_id, col, n in coverage(cfg, ds["hypothesis_id"], ds["table_name"], prof.get("ico_columns") or [],
+                                       [(o["id"], o["ico"]) for o in db.organizations_with_ico()]):
+            db.set_coverage(dataset_id, org_id, col, n)
+    else:
+        drop_table(cfg, ds["hypothesis_id"], ds["table_name"])
+        for d in twins:
+            db.update_dataset(d["id"], status="rejected", profile_json=prof,
+                              note=f"import zamietnutý človekom{': ' + note[:200] if note else ''}")
+    db.add_label("dataset_import", "dataset", dataset_id, "approved" if approve else "rejected", note=note or None)
+    for h in {d["hypothesis_id"] for d in twins}:
+        _update_field_statuses(db, h)
+
+
 def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, paging: dict | None = None,
                  fmt_hint: str | None = None, deadline: Deadline | None = None, gdpr: dict | None = None) -> Counter:
     stats: Counter = Counter()
@@ -779,11 +892,14 @@ def _one_dataset(cfg: Config, db: DB, fetcher, hid: int, src, url: str, orgs, pa
         else:
             dl = download(cfg, fetcher, url, hyp_dir(cfg, hid), fetcher.blocked)
             fmt = file_format(dl.final_url, dl.content_type) or fmt_hint or "bin"  # odkaz z katalógu býva bez prípony
-        import_table(cfg, hid, table, dl.path, fmt)
-        dl.path.unlink(missing_ok=True)  # v DuckDB je tabuľka; ostáva URL, čas a SHA-256 súboru
+        import_info = import_table(cfg, hid, table, dl.path, fmt)
+        if not is_crz_export(url):
+            import_info["pôvodný_súbor"] = str(raw_cache_put(cfg, dl.path, dl.sha256) or "") or None
+        dl.path.unlink(missing_ok=True)  # v DuckDB je tabuľka; pôvodný súbor iba v cache podľa SHA-256
         if is_crz_export(url):
             dedupe_latest(cfg, hid, table)
         prof = profile_table(cfg, hid, table)
+        prof["import"] = assess_import(cfg, hid, table, prof, import_info)
         removed: list[str] = []
         for _ in range(3 if gdpr else 0):  # posúdené človekom: osobné stĺpce preč (aj tie, čo detektor nájde navyše)
             cols = list(dict.fromkeys(list(gdpr.get("odstrániť") or []) + prof["personal_columns"]))
@@ -820,6 +936,7 @@ def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: s
     stats: Counter = Counter()
     columns = [c["name"] for c in prof["columns"]]
     if prof["personal_columns"]:
+        raw_cache_drop(cfg, meta.get("sha256") or "")  # osobné údaje: ani pôvodný súbor sa neuchová
         drop_table(cfg, hid, table)
         db.add_dataset(hid, source_id, url, table, **{k: v for k, v in meta.items() if k != "note"}, rows=prof["rows"],
                        columns_json=columns, profile_json=prof, personal_data=1, status="personal_data_blocked",
@@ -830,12 +947,27 @@ def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: s
     if prof.get("period_columns"):
         prof["dlhý_tvar"] = wide_to_long(cfg, hid, table)
         stats["long_tables"] += 1 if (prof["dlhý_tvar"] or {}).get("tabuľka") else 0
+    report = prof.get("import") or {}
+    status = "ok" if report.get("verdikt", "ok") == "ok" else "needs_review"
+    fp = report.get("odtlačok_obsahu")
+    if fp and status == "ok":  # tá istá kocka v inom jazyku alebo formáte nie je nezávislý zdroj dát
+        twin = next((d for d in db.datasets_for(hid, only_ok=True) if d["table_name"] != table and
+                     ((json.loads(d["profile_json"] or "{}").get("import") or {}).get("odtlačok_obsahu") == fp)), None)
+        if twin is not None:
+            report["duplikát_distribúcie"] = twin["table_name"]
+            stats["duplicate_distributions"] += 1
+    if status != "ok":
+        note = "na kontrolu: " + "; ".join(report.get("problémy") or [])
+        meta = {**meta, "note": ((meta.get("note") + " · ") if meta.get("note") else "") + note[:250]}
+        stats["needs_review"] += 1
     db.add_dataset(hid, source_id, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
-                   status="ok", personal_data=0)
+                   status=status, personal_data=0)
     for other in sharing_hypotheses(db, hid):  # rozdelená hypotéza: tabuľka je v spoločnej DuckDB, záznam pre všetky
         if other != hid:
             db.add_dataset(other, None, url, table, **meta, rows=prof["rows"], columns_json=columns, profile_json=prof,
-                           status="ok")
+                           status=status)
+    if status != "ok":
+        return stats
     for org_id, col, n in coverage(cfg, hid, table, prof["ico_columns"], orgs):
         db.set_coverage(dataset_id, org_id, col, n)
         stats["coverage"] += 1
@@ -1020,7 +1152,9 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
         r["claim_id"] == c["id"] and r["verdict"] == "no_target" for r in db.reproductions_for(hid))
         for c in db.number_claims(hid, 20))
     datasets = db.datasets_for(hid)
-    ok = [d for d in datasets if d["status"] == "ok"]
+    from .bindings import usable_datasets
+
+    ok = usable_datasets(db, hid)  # bez datasetov na kontrole a bez duplikátov distribúcií
     comp = {
         "pokrytie_kľúčových": round(len(keys_found) / len(keys), 2) if keys else 0.0,
         "pokrytie_polí": round(len(found) / len(fields), 2) if fields else 0.0,
@@ -1045,11 +1179,21 @@ def readiness(cfg: Config, db: DB, hid: int, now: datetime | None = None) -> dic
             flags.append(f"kľúčové pole nezískané do {cfg.gate1.key_field_weeks} týždňov")
     if any(d["status"] == "personal_data_blocked" for d in datasets):
         flags.append("dataset s osobnými údajmi – posúdenie GDPR")
+    review = [d["table_name"] for d in datasets if d["status"] == "needs_review"]
+    if review:
+        flags.append(f"datasety na kontrole importu ({', '.join(review[:4])}) – nerátajú sa, kým ich neschváliš")
+    dup = [d["table_name"] for d in datasets if d["status"] == "ok" and d not in ok]
+    if dup:
+        flags.append(f"duplikáty distribúcií ({', '.join(dup[:4])}) – rovnaké dáta v inom formáte, rátajú sa raz")
     if repro and best_repro == "mismatch":
         flags.append("známe číslo sa nepodarilo zreprodukovať")
     orgs = {c["org_id"] for c in db.coverage_for(hid)}
+    from .bindings import current_binding
+
+    confirmed = sum(1 for f in keys if (b := current_binding(db, f["id"], ok)) is not None
+                    and b["validation_status"] == "confirmed")
     return {"skóre": score, "zložky": comp, "váhy": weights, "príznaky": flags, "polia": len(fields),
-            "kľúčové": len(keys), "kľúčové_nájdené": len(keys_found), "datasety": len(ok),
+            "kľúčové": len(keys), "kľúčové_nájdené": len(keys_found), "kľúčové_potvrdené": confirmed, "datasety": len(ok),
             "organizácie_v_dátach": len(orgs), "reprodukcia": best_repro, "vypočítané": utcnow()}
 
 
@@ -1074,7 +1218,7 @@ def refresh_coverage(cfg: Config, db: DB, hid: int) -> int:
 
 
 # Stavy, v ktorých smie rozhodnúť pravidlo; „prešla“, „pozastavená“ a „zastavená“ (aj ručné) sa neprepisujú.
-OPEN_STATUSES = ("not_started", "running", "ready", "needs_input")
+OPEN_STATUSES = ("not_started", "running", "ready", "needs_input", "needs_revalidation")
 
 
 def _num(x: float) -> str:
@@ -1082,31 +1226,87 @@ def _num(x: float) -> str:
 
 
 def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -> dict:
+    """Pripravenosť a pravidlo prechodu: skóre ≥ prah A každé kľúčové pole má stĺpec potvrdený človekom na aktuálnej
+    verzii datasetu (audit 14. 10. 2026 – vysoké skóre nenahradí chýbajúce kľúčové pole). Potom preverenie prešlých."""
+    from .bindings import key_conditions
+
     stats: Counter = Counter()
     threshold = cfg.gate1.auto_gate2_readiness
     for hyp in _hypotheses(cfg, db, ids):
-        if not db.fields_for(hyp["id"]):
+        hid = hyp["id"]
+        if not db.fields_for(hid):
             continue
-        stats["info_requests"] += draft_info_requests(cfg, db, hyp["id"])
-        stats["coverage"] += refresh_coverage(cfg, db, hyp["id"])
-        summary = readiness(cfg, db, hyp["id"])
-        db.set_gate1_summary(hyp["id"], summary)
+        _update_field_statuses(db, hid)
+        stats["info_requests"] += draft_info_requests(cfg, db, hid)
+        stats["coverage"] += refresh_coverage(cfg, db, hid)
+        summary = readiness(cfg, db, hid)
+        unmet = key_conditions(db, hid)
+        summary["podmienky_prechodu"] = unmet
+        db.set_gate1_summary(hid, summary)
         stats["hypotheses"] += 1
-        status = (db.get_hypothesis(hyp["id"]) or hyp)["gate1_status"]  # krok gate1-user ju mohol práve posunúť
+        status = (db.get_hypothesis(hid) or hyp)["gate1_status"]
         if status not in OPEN_STATUSES:
             continue
-        if summary["skóre"] >= threshold:
-            decide(db, hyp["id"], 1, "passed", f"Automaticky: pripravenosť dát {_num(summary['skóre'])} ≥ "
-                                               f"{_num(threshold)} (pravidlo prechodu do Brány 2).")
+        if summary["skóre"] >= threshold and not unmet:
+            decide(db, hid, 1, "passed", f"Automaticky: pripravenosť dát {_num(summary['skóre'])} ≥ {_num(threshold)} "
+                                         "a každé kľúčové pole má potvrdený stĺpec (pravidlo prechodu do Brány 2).", by="rule")
             stats["auto_passed"] += 1
-        elif automated_work(cfg, db, hyp["id"]):  # prieskum nedokončený (úloha #75: polia bez hľadania zdrojov)
+        elif status == "needs_revalidation":
+            stats["needs_revalidation"] += 1  # ostáva, kým podmienky znova neplatia (návrhy väzieb, tvoje potvrdenie)
+        elif automated_work(cfg, db, hid):  # prieskum nedokončený (úloha #75: polia bez hľadania zdrojov)
             if status != "running":
-                db.set_gate_status(hyp["id"], 1, "running")
+                db.set_gate_status(hid, 1, "running")
             stats["rozpracované"] += 1
         elif status != "needs_input":
-            db.set_gate_status(hyp["id"], 1, "needs_input")  # čaká na tvoje dáta alebo schému (GUI → Brána 1)
+            db.set_gate_status(hid, 1, "needs_input")  # čaká na tvoje dáta, schému alebo potvrdenie stĺpcov
             stats["needs_input"] += 1
+    stats.update(revalidate_passed(cfg, db, ids))
     return dict(stats)
+
+
+def _rule_decision(row) -> bool:
+    if row is None:
+        return False
+    if row["decided_by"]:
+        return row["decided_by"] == "rule"
+    return (row["reason"] or "").startswith(("Automaticky", "Zdedené"))  # rozhodnutia spred 15. 10. 2026
+
+
+def revalidate_passed(cfg: Config, db: DB, ids: list[int] | None = None) -> Counter:
+    """Historické rozhodnutie vs. aktuálna spôsobilosť dát: prechod pravidlom, ktorého podmienky už neplatia (zamietnutý
+    dataset, väzba, chýbajúce potvrdenie stĺpca), dostane stav „treba znova overiť“; ručný prechod ostáva s autorom
+    a dôvodom, iba dostane príznak, že aktuálne dáta podmienky nespĺňajú."""
+    from .bindings import data_fingerprint, key_conditions
+
+    stats: Counter = Counter()
+    threshold = cfg.gate1.auto_gate2_readiness
+    hyps = [db.get_hypothesis(i) for i in ids] if ids else db.gate1_hypotheses()
+    for h in hyps:
+        if h is None or h["gate1_status"] != "passed":
+            continue
+        hid = h["id"]
+        last = next((r for r in db.gate_decisions_for(hid, 1) if r["decision"] == "passed"), None)
+        summary = readiness(cfg, db, hid)
+        unmet = key_conditions(db, hid) if db.fields_for(hid) else ["bez polí Brány 1"]
+        summary["podmienky_prechodu"] = unmet
+        if last is not None and last["data_fingerprint"] and last["data_fingerprint"] != data_fingerprint(db, hid):
+            summary["príznaky"].append(f"dáta sa zmenili po rozhodnutí z {last['decided_at'][:10]}")
+        if summary["skóre"] >= threshold and not unmet:
+            db.set_gate1_summary(hid, summary)
+            continue
+        why = (f"pripravenosť {_num(summary['skóre'])} < {_num(threshold)}; " if summary["skóre"] < threshold else "") + \
+            "; ".join(unmet[:4])
+        if _rule_decision(last):
+            db.add_gate_decision(1, hid, "needs_revalidation", f"Automaticky: podmienky prechodu už neplatia – {why}",
+                                 summary, decided_by="rule", data_fingerprint=data_fingerprint(db, hid))
+            db.set_gate_status(hid, 1, "needs_revalidation")
+            stats["revalidation_needed"] += 1
+        else:
+            summary["príznaky"].append(f"ručné rozhodnutie z {(last['decided_at'] if last else '')[:10]} platí, "
+                                       f"no aktuálne dáta podmienky nespĺňajú: {why}")
+            stats["manual_pass_flagged"] += 1
+        db.set_gate1_summary(hid, summary)
+    return stats
 
 
 # ======================================================================= 7. vstup človeka (dáta alebo schéma)
@@ -1178,8 +1378,9 @@ def _import_user_file(cfg: Config, db: DB, hid: int, inp, orgs) -> int | None:
             digest.update(chunk)
     size, fmt = path.stat().st_size, file_format(path.name) or "bin"
     try:
-        import_table(cfg, hid, table, path, fmt)
+        import_info = import_table(cfg, hid, table, path, fmt)
         prof = profile_table(cfg, hid, table)
+        prof["import"] = assess_import(cfg, hid, table, prof, import_info)
     except Exception as exc:  # noqa: BLE001 – zlý súbor nezastaví posúdenie textu
         log.warning("Brána 1: súbor zo vstupu %s sa nenaimportoval: %s", inp["id"], exc)
         db.add_dataset(hid, None, url, table, format=fmt, size_bytes=size, sha256=digest.hexdigest(), status="error",
@@ -1197,10 +1398,12 @@ def run_user_inputs(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list
     stats: Counter = Counter()
     router, orgs = None, None
     threshold = cfg.gate1.user_data_threshold
+    touched: set[int] = set()
     for inp in db.pending_gate1_inputs(ids):
         if deadline.expired():
             break
         hid = inp["hypothesis_id"]
+        touched.add(hid)
         hyp, fields = db.get_hypothesis(hid), db.fields_for(hid)
         if hyp is None:
             continue
@@ -1244,20 +1447,39 @@ def run_user_inputs(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list
             "polia": per_field, "zhrnutie": res.value.summary.strip(), "poznámky": notes,
             "dataset": ds["table_name"] if ds is not None and ds["status"] == "ok" else None})
         stats["evaluated"] += 1
-        current = db.get_hypothesis(hid)
-        if score >= threshold and current["gate1_status"] in OPEN_STATUSES:
-            decide(db, hid, 1, "passed", f"Automaticky: vhodnosť tvojich dát {_num(score)} ≥ {_num(threshold)} "
-                                         f"(vstup č. {inp['id']}).")
-            stats["auto_passed"] += 1
+        # Posúdenie sudcu je opis pokrytia, nie dôkaz stĺpca (audit 14. 10. 2026): pole pokryté iba textom je
+        # „iba opis schémy“, pokryté nahraným súborom „dáta načítané“ – stĺpec namapuje krok gate1-bindings a význam
+        # kľúčového poľa potvrdíš ty; o prechode rozhodne gate1-finish (pravidlo s podmienkami).
+        file_ok = ds is not None and ds["status"] == "ok"
+        names = {f["name"]: f for f in fields}
+        for r in per_field:
+            f = names.get(r["pole"])
+            if f is None or f["edited_by_human"] or r["pokrytie"] not in ("yes", "partial"):
+                continue
+            target = "loaded" if file_ok else "schema_only"
+            if f["status"] in ("open", "missing", "partial") or (f["status"] == "schema_only" and file_ok):
+                db.update_field(f["id"], status=target, status_note=f"{USER_INPUT_NOTE} (vstup č. {inp['id']})")
+                stats["fields_" + target] += 1
+        if score >= threshold:
+            stats["meets_threshold"] += 1
+    for hid in touched:
+        _update_field_statuses(db, hid)
     return dict(stats)
 
 
-def decide(db: DB, hid: int, gate: int, decision: str, reason: str, org_id: int | None = None) -> None:
-    """Rozhodnutie brány (človek alebo pravidlo prechodu s dôvodom); uloží sa s aktuálnymi metrikami."""
+USER_INPUT_NOTE = "z tvojich dát"
+
+
+def decide(db: DB, hid: int, gate: int, decision: str, reason: str, org_id: int | None = None, by: str = "human") -> None:
+    """Rozhodnutie brány (človek alebo pravidlo prechodu s dôvodom); uloží sa s aktuálnymi metrikami, autorom
+    (rule | human) a odtlačkom dát – historické rozhodnutie sa tak dá odlíšiť od aktuálnej spôsobilosti dát."""
+    from .bindings import data_fingerprint
+
     if decision not in ("passed", "paused", "stopped"):
         raise ValueError("Rozhodnutie: passed, paused alebo stopped")
     hyp = db.get_hypothesis(hid)
     metrics = json.loads(hyp["gate1_json"] or "{}") if gate == 1 else {}
-    db.add_gate_decision(gate, hid, decision, reason, metrics, org_id)
+    db.add_gate_decision(gate, hid, decision, reason, metrics, org_id, decided_by=by,
+                         data_fingerprint=data_fingerprint(db, hid) if gate == 1 else None)
     if org_id is None:
         db.set_gate_status(hid, gate, decision)

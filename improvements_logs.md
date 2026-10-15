@@ -110,3 +110,11 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-15 – lievik – menej výmen modelov.** Pri jednej hypotéze sa modely striedajú ~6–8× (agent, sudca, presný).
   Zoskupiť kroky s rovnakou rolou (napr. agent testu ďalšej hypotézy hneď po agentovi zdrojov Brány 1) by ušetrilo
   ~5 min na hypotézu; zmerať najprv čas výmen v Správcovi akcií. · 1 deň.
+- **2026-10-15 – Brána 1 – opakovať import z pôvodného súboru po novej verzii parsera.** Pôvodné súbory sa už uchovávajú
+  podľa SHA-256 (`data/datasets/raw`); príkaz `gate1-reimport` by pri zmene `PARSER_VERSION` znova naimportoval
+  datasety bez sťahovania a väzby by sa overili na novej verzii (`refresh_stale`). · 0,5 dňa.
+- **2026-10-15 – Brána 1 – referenčná vzorka väzieb a importov.** Potvrdenia a zamietnutia stĺpcov (`field_binding`) a
+  kontroly importu (`dataset_import`) sú labely; po ~30 väzbách a ~20 importoch zmerať presnosť návrhov modelu a
+  pravidiel kontroly (eval s Wilsonovým intervalom, holdout). · 0,5 dňa.
+- **2026-10-15 – Brána 1 – pojmová poistka zo slovníka domény.** Pojmy (patent, cena, odpoveď …) sú zatiaľ pevný
+  zoznam v `bindings.CONCEPTS`; zamietnuté väzby s dôvodom by mohli navrhovať nové pojmy (človek schváli). · 1 deň.

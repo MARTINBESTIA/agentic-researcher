@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Callable
 
 from .schema import (
-    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, V1_COLUMNS,
-    V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS, V10_COLUMNS,
+    SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12, V1_COLUMNS,
+    V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS, V10_COLUMNS, V12_COLUMNS,
 )
 
 log = logging.getLogger(__name__)
@@ -109,9 +109,15 @@ def migrate_v11(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_V11)
 
 
+def migrate_v12(conn: sqlite3.Connection) -> None:
+    """Dôveryhodnosť dát: väzby polí na stĺpce, autor a odtlačok dát rozhodnutia brány, dostupnosť poľa, obchodný stav."""
+    _add_columns(conn, V12_COLUMNS)
+    conn.executescript(SCHEMA_V12)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
                                                           migrate_v6, migrate_v7, migrate_v8, migrate_v9, migrate_v10,
-                                                          migrate_v11]
+                                                          migrate_v11, migrate_v12]
 LATEST = len(MIGRATIONS)
 
 

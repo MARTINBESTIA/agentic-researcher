@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from io import BytesIO
 import logging
 import re
@@ -146,15 +147,337 @@ def file_format(url: str, content_type: str = "") -> str | None:
     return None
 
 
+PARSER_VERSION = "2026-10-15"  # verzia importu (adaptéry, hlavičky, kontroly) – zapíše sa do profilu datasetu
+# Stĺpce formátovania buniek a grafu (SpreadsheetML, RDF), ktoré nie sú významové dáta (audit: H46/ds36–38, ds31).
+FORMAT_COLUMNS = {"styleid", "mergeacross", "mergedown", "formula", "index", "type", "data", "cell", "row", "nodeid",
+                  "about", "resource", "hasvalue", "datatype", "lang", "href", "hreftooltip", "arrayrange", "ticked"}
+# jednotka v názve stĺpca; podčiarkovník je oddeľovač („suma_eur“), „hodnota“ nie je „hod“
+UNIT_RE = re.compile(r"(?<![^\W_])(€|eur|czk|ks|%|počet|tis|mil|kg|m2|dni|hod|hodín|hodiny)(?![^\W_])", re.I)
+
+
 def sniff_format(path: Path, fmt: str) -> str:
-    """Formát podľa obsahu, keď ho URL ani hlavička neprezradia (napr. ZIP bez prípony)."""
+    """Formát podľa skutočného obsahu, nie podľa prípony: ZIP/XLSX, Parquet, SpreadsheetML, RDF, JSON-LD, XML, JSON.
+    Stránka HTML (prihlásenie, chyba, rozcestník) sa odmietne – nie je to tabuľka (audit: ds52 s hlavičkou DOCTYPE)."""
+    from .fetch import looks_like_html
+
     with open(path, "rb") as fh:
-        head = fh.read(64)
+        head = fh.read(4096)
     if head.startswith(b"PK\x03\x04"):
         return "xlsx" if fmt == "xlsx" else "zip"
-    if fmt in ("bin", "txt") and head.lstrip().startswith(b"<?xml"):
+    if head.startswith(b"PAR1"):
+        return "parquet"
+    if looks_like_html(head):
+        raise DatasetError("namiesto dát stránka HTML (prihlásenie, chyba alebo rozcestník) – nie je to tabuľka")
+    text = head.lstrip(b"\xef\xbb\xbf").lstrip()
+    low = head.lower()
+    if text.startswith(b"<"):
+        if b"urn:schemas-microsoft-com:office:spreadsheet" in low:
+            return "spreadsheetml"
+        if b"22-rdf-syntax-ns" in low or b"<rdf:rdf" in low:
+            return "rdf"
         return "xml"
+    if text.startswith((b"{", b"[")) and fmt in ("json", "bin", "txt", "csv"):
+        return "jsonld" if (b'"@context"' in head or b'"@graph"' in head) else "json"
     return fmt
+
+
+# ---------------------------------------------------------------- tabuľka vo výkaze (XLSX, SpreadsheetML, CSV)
+def _is_number(v: Any) -> bool:
+    if isinstance(v, (int, float)):
+        return True
+    t = str(v).strip().replace("\u00a0", "").replace(" ", "").replace(",", ".")
+    return bool(re.fullmatch(r"[-+]?\d+(\.\d+)?%?", t))
+
+
+def _is_texty(v: Any) -> bool:
+    """Bunka vyzerá ako názov stĺpca: text, nie číslo ani dátum."""
+    if v is None or str(v).strip() == "":
+        return False
+    if _is_number(v) or isinstance(v, (date,)):
+        return False
+    return not re.fullmatch(r"\d{1,4}[./-]\d{1,2}([./-]\d{1,4})?", str(v).strip())
+
+
+def _is_year(v: Any) -> bool:
+    """Rok v druhom riadku hlavičky („výdavky“ nad „2020 | 2021“) – číslo, no názov stĺpca."""
+    return bool(re.fullmatch(r"(19|20)\d\d(\.0)?", str(v).strip()))
+
+
+def detect_table(rows: list[list[Any]], scan: int = 40) -> tuple[list[str], list[list[Any]], dict[str, Any]]:
+    """Riadok hlavičky vo výkaze: prvý riadok, ktorý má aspoň 60 % šírky tabuľky vyplnenej a väčšinou text;
+    riadky nad ním (nadpis, poznámky) sa vynechajú. Ďalší textový riadok pod hlavičkou, po ktorom idú dáta,
+    sa spojí s hlavičkou (viacriadková hlavička; zlúčené bunky sa doplnia zľava)."""
+    rows = [[("" if v is None else v) for v in r] for r in rows]
+    for r in rows:
+        while r and str(r[-1]).strip() == "":
+            r.pop()
+    filled = [sum(1 for v in r if str(v).strip() != "") for r in rows[:scan]]
+    width = max(filled or [0])
+    if width == 0:
+        raise DatasetError("tabuľka je prázdna")
+    header_i = None
+    for i, r in enumerate(rows[:scan]):
+        cells = [v for v in r if str(v).strip() != ""]
+        if len(cells) >= max(2, 0.6 * width) and sum(1 for v in cells if _is_texty(v)) >= 0.6 * len(cells):
+            header_i = i
+            break
+    info: dict[str, Any] = {"riadok_hlavičky": None, "vynechané_riadky_nad_tabuľkou": 0, "viacriadková_hlavička": False}
+    if header_i is None:
+        names = [f"column{j}" for j in range(width)]
+        data = [r for r in rows if any(str(v).strip() for v in r)]
+        return names, data, info
+    header = list(rows[header_i])
+    start = header_i + 1
+    nxt = rows[start] if start < len(rows) else []
+    nxt_cells = [v for v in nxt if str(v).strip() != ""]
+    after = rows[start + 1] if start + 1 < len(rows) else []
+    span = header + [""] * (width - len(header))
+    gaps = [j for j, v in enumerate(span) if str(v).strip() == ""]  # zlúčené bunky hornej hlavičky
+    fills_gaps = any(j < len(nxt) and str(nxt[j]).strip() for j in gaps)
+    if (gaps and fills_gaps and nxt_cells and len(nxt_cells) >= 0.5 * width
+            and sum(1 for v in nxt_cells if _is_texty(v) or _is_year(v)) >= 0.6 * len(nxt_cells)
+            and any(_is_number(v) for v in after)):
+        upper, last = [], ""
+        for v in header + [""] * (len(nxt) - len(header)):
+            last = str(v).strip() or last
+            upper.append(last)
+        header = [" ".join(x for x in (str(u).strip(), str(lw).strip()) if x) for u, lw in
+                  zip(upper, list(nxt) + [""] * (len(upper) - len(nxt)))]
+        start += 1
+        info["viacriadková_hlavička"] = True
+    names, seen = [], Counter()
+    for j, h in enumerate(header + [""] * (width - len(header))):
+        name = " ".join(str(h).split()) or f"stĺpec_{j + 1}"
+        seen[name] += 1
+        names.append(name if seen[name] == 1 else f"{name}_{seen[name]}")
+    data = []
+    for r in rows[start:]:
+        cells = [v for v in r if str(v).strip() != ""]
+        if not cells:
+            continue
+        if len(cells) == 1 and width >= 3 and not _is_number(cells[0]):
+            continue  # poznámka pod tabuľkou („Zdroj: ŠÚ SR“)
+        data.append(list(r[: len(names)]) + [""] * (len(names) - len(r)))
+    info.update(riadok_hlavičky=header_i + 1, vynechané_riadky_nad_tabuľkou=header_i)
+    return names, data, info
+
+
+def _write_csv(path: Path, names: list[str], data: list[list[Any]]) -> Path:
+    import csv
+
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(names)
+        for r in data:
+            w.writerow(["" if v is None else v for v in r])
+    return path
+
+
+def spreadsheetml_to_csv(path: Path) -> tuple[Path, dict[str, Any]]:
+    """Excel 2003 XML (SpreadsheetML): Workbook → Worksheet → Table → Row → Cell → Data. Bunky sa skladajú podľa
+    ss:Index a ss:MergeAcross; tabuľka a hlavička ako pri XLSX (audit: StyleID, MergeAcross a Formula ako stĺpce)."""
+    from lxml import etree
+
+    ns = "urn:schemas-microsoft-com:office:spreadsheet"
+    tree = etree.parse(str(path), etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=True))
+    best: tuple[int, list[str], list[list[Any]], dict[str, Any], str] | None = None
+    for ws in tree.getroot().iter(f"{{{ns}}}Worksheet"):
+        rows = []
+        for row in ws.iter(f"{{{ns}}}Row"):
+            cells: list[Any] = []
+            for cell in row.findall(f"{{{ns}}}Cell"):
+                idx = cell.get(f"{{{ns}}}Index")
+                if idx and idx.isdigit():
+                    cells += [""] * max(0, int(idx) - 1 - len(cells))
+                data = cell.find(f"{{{ns}}}Data")
+                cells.append("".join(data.itertext()).strip() if data is not None else "")
+                cells += [""] * int(cell.get(f"{{{ns}}}MergeAcross") or 0)
+            rows.append(cells)
+        try:
+            names, data, info = detect_table(rows)
+        except DatasetError:
+            continue
+        if best is None or len(data) * len(names) > best[0]:
+            best = (len(data) * len(names), names, data, info, ws.get(f"{{{ns}}}Name") or "")
+    if best is None:
+        raise DatasetError("SpreadsheetML bez tabuľky")
+    _, names, data, info, sheet = best
+    info["hárok"] = sheet
+    return _write_csv(path.with_suffix(".ssml.csv"), names, data), info
+
+
+# ---------------------------------------------------------------- RDF a JSON-LD (štatistické dátové kocky)
+RDF_NS = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+LABEL_PROPS = ("prefLabel", "label", "notation", "name", "title", "hasValue", "value")
+UNIT_PROPS = ("unitMeasure", "unit", "measureUnit", "jednotka", "unitOfMeasure")
+
+
+def _uri_local(uri: str) -> str:
+    return re.split(r"[#/]", uri.rstrip("/#"))[-1] if uri else ""
+
+
+def _resolve(nodes: dict[str, dict[str, Any]], kind: str, value: str, depth: int = 0) -> str:
+    """Hodnota vlastnosti pozorovania: odkaz na uzol → jeho označenie (prefLabel, label, notation, hasValue),
+    URI bez uzla → posledná časť URI; literál ostáva."""
+    if kind == "lit":
+        return value
+    node = nodes.get(value)
+    if node is not None and depth < 3:
+        for prop in LABEL_PROPS:
+            for k, v in node["props"].get(prop, []):
+                got = _resolve(nodes, k, v, depth + 1)
+                if got:
+                    return got
+    return _uri_local(value) if kind == "uri" and not value.startswith("_:") else ""  # prázdny uzol bez označenia
+
+
+TIME_DIM_RE = re.compile(r"(rok|year|period|obdob|time|čas|mesiac|month|kvart|quarter|date|dátum)", re.I)
+
+
+def _cube_records(nodes: dict[str, dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
+    """Pozorovania a vlastnosti, ktoré sú odkazom na iný uzol alebo číselník (dimenzie, nie hodnoty)."""
+    out, linked = [], set()
+    for nid, node in nodes.items():
+        if not (any(t.endswith("Observation") for t in node["types"]) or "dataSet" in node["props"]):
+            continue
+        rec: dict[str, Any] = {}
+        for prop, vals in node["props"].items():
+            if prop in ("type", "dataSet"):
+                continue
+            kind, value = vals[0]
+            if kind != "lit":
+                linked.add(prop)
+            rec[prop] = _resolve(nodes, kind, value)
+        out.append(rec)
+    return out, linked
+
+
+def rdf_nodes(path: Path) -> dict[str, dict[str, Any]]:
+    """RDF/XML → uzly {id: {types, props: {vlastnosť: [(lit|uri|ref, hodnota)]}}}; odkazy rdf:nodeID a rdf:resource
+    sa zachovajú, aby sa dimenzie pozorovania dali pripojiť (audit: odpojené nodeID/hasValue)."""
+    from lxml import etree
+
+    root = etree.parse(str(path), etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False,
+                                                  huge_tree=True)).getroot()
+    nodes: dict[str, dict[str, Any]] = {}
+    counter = [0]
+
+    def walk(el) -> str:
+        nid = el.get(f"{{{RDF_NS}}}about") or (f"_:{el.get(f'{{{RDF_NS}}}nodeID')}" if el.get(f"{{{RDF_NS}}}nodeID") else None)
+        if nid is None:
+            counter[0] += 1
+            nid = f"_:anon{counter[0]}"
+        node = nodes.setdefault(nid, {"types": [], "props": {}})
+        if _local(el.tag) != "Description":
+            node["types"].append(_local(el.tag))
+        for prop in el:
+            name = _local(prop.tag)
+            if not name:
+                continue
+            res, ref = prop.get(f"{{{RDF_NS}}}resource"), prop.get(f"{{{RDF_NS}}}nodeID")
+            if name == "type" and res:
+                node["types"].append(_uri_local(res))
+                continue
+            if res:
+                val = ("uri", res)
+            elif ref:
+                val = ("ref", f"_:{ref}")
+            elif len(prop):
+                val = ("ref", walk(prop[0]))
+            else:
+                val = ("lit", (prop.text or "").strip())
+            node["props"].setdefault(name, []).append(val)
+        return nid
+
+    for el in root:
+        walk(el)
+    for node in nodes.values():  # „ref“ a „uri“ na uzol v dokumente sa riešia rovnako
+        for vals in node["props"].values():
+            for i, (k, v) in enumerate(vals):
+                if k == "ref":
+                    vals[i] = ("uri", v)
+    return nodes
+
+
+def jsonld_nodes(path: Path) -> dict[str, dict[str, Any]]:
+    import json
+
+    data = json.loads(path.read_text(encoding="utf-8-sig"))
+    items = data.get("@graph", []) if isinstance(data, dict) else data
+    if isinstance(data, dict) and not items and "@id" in data:
+        items = [data]
+    nodes: dict[str, dict[str, Any]] = {}
+    for i, item in enumerate(items or []):
+        if not isinstance(item, dict):
+            continue
+        nid = str(item.get("@id") or f"_:j{i}")
+        types = item.get("@type") or []
+        node = nodes.setdefault(nid, {"types": [_uri_local(str(t)) for t in (types if isinstance(types, list) else [types])],
+                                      "props": {}})
+        for key, raw in item.items():
+            if key.startswith("@"):
+                continue
+            name = _uri_local(key.split(":")[-1]) or key
+            for v in (raw if isinstance(raw, list) else [raw]):
+                if isinstance(v, dict):
+                    val = ("uri", str(v["@id"])) if "@id" in v else ("lit", str(v.get("@value", "")))
+                else:
+                    val = ("lit", str(v))
+                node["props"].setdefault(name, []).append(val)
+    return nodes
+
+
+def cube_to_jsonl(path: Path, kind: str) -> tuple[Path, dict[str, Any]]:
+    """Pozorovania dátovej kocky (qb:Observation) s pripojenými dimenziami a jednotkou → JSONL. Bez pozorovaní,
+    bez číselnej hodnoty alebo s prázdnymi dimenziami → chyba (neznámy formát / odpojené dimenzie)."""
+    import json
+
+    nodes = rdf_nodes(path) if kind == "rdf" else jsonld_nodes(path)
+    records, linked = _cube_records(nodes)
+    if not records:
+        raise DatasetError("RDF/JSON-LD bez pozorovaní dátovej kocky (qb:Observation) – neznámy formát, na kontrolu")
+    keys = sorted({k for r in records for k in r})
+    dims = [k for k in keys if k not in UNIT_PROPS and (k in linked or TIME_DIM_RE.search(k))]
+    numeric = [k for k in keys if k not in dims and k not in UNIT_PROPS
+               and sum(1 for r in records if r.get(k) and _is_number(r[k])) >= 0.9 * len(records)]
+    dims += [k for k in keys if k not in dims and k not in numeric and k not in UNIT_PROPS]
+    if not numeric:
+        raise DatasetError("pozorovania nemajú číselnú hodnotu – neznámy formát, na kontrolu")
+    empty = sum(1 for r in records if not any(str(r.get(d) or "").strip() for d in dims))
+    if not dims or empty > 0.1 * len(records):
+        raise DatasetError(f"odpojené dimenzie: {empty} z {len(records)} pozorovaní bez roka, územia či ukazovateľa")
+    out = path.with_suffix(".cube.jsonl")
+    with open(out, "w", encoding="utf-8") as fh:
+        for r in records:
+            fh.write(json.dumps({k: r.get(k, "") for k in keys}, ensure_ascii=False) + "\n")
+    unit = next((u for u in UNIT_PROPS if u in keys), None)
+    values = sorted({str(r.get(unit) or "") for r in records} - {""})[:5] if unit else []
+    return out, {"pozorovania": len(records), "dimenzie": dims, "hodnoty": numeric, "jednotka": unit,
+                 "jednotky_hodnoty": values}
+
+
+def normalize_csv(path: Path) -> tuple[Path, dict[str, Any]]:
+    """CSV s nadpisom alebo poznámkami nad tabuľkou (exporty DATAcube, výkazy): hlavička sa nájde ako pri XLSX."""
+    import csv
+
+    with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+        sample = fh.read(16384)
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t|")
+    except csv.Error:
+        return path, {}
+    with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+        head = [r for _, r in zip(range(40), csv.reader(fh, dialect))]
+    try:
+        names, _, info = detect_table(head)
+    except DatasetError:
+        return path, {}
+    if not info.get("riadok_hlavičky") or (info["riadok_hlavičky"] == 1 and not info["viacriadková_hlavička"]):
+        return path, info
+    with open(path, encoding="utf-8", errors="replace", newline="") as fh:
+        rows = list(csv.reader(fh, dialect))
+    names, data, info = detect_table(rows, scan=40)
+    return _write_csv(path.with_suffix(".table.csv"), names, data), info
 
 
 def unpack_zip(cfg: Config, path: Path) -> tuple[Path, str, str]:
@@ -384,60 +707,97 @@ def _to_utf8(path: Path) -> Path:
     return out
 
 
-def _xlsx_to_csv(path: Path) -> Path:
-    import csv
-
+def _xlsx_to_csv(path: Path) -> tuple[Path, dict[str, Any]]:
+    """Hárok s najväčšou tabuľkou (riadky × stĺpce po nájdení hlavičky), nie s najviac riadkami; nadpis a poznámky
+    nad tabuľkou sa vynechajú, viacriadková hlavička sa spojí (audit: hlavičky „Filter na pozadí“, „column02“)."""
     from openpyxl import load_workbook
 
     with open(path, "rb") as fh:  # súbor ako objekt: openpyxl inak odmietne príponu (stiahnuté .bin/.part)
         wb = load_workbook(BytesIO(fh.read()), read_only=True, data_only=True)
-    best, rows = None, -1
-    for ws in wb.worksheets:  # hárok s najviac riadkami
-        n = ws.max_row or 0
-        if n > rows:
-            best, rows = ws, n
-    out = path.with_suffix(".csv")
-    with open(out, "w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh)
-        for row in best.iter_rows(values_only=True):
-            writer.writerow(["" if v is None else v for v in row])
+    best: tuple[int, list[str], list[list[Any]], dict[str, Any]] | None = None
+    for ws in wb.worksheets:
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+        try:
+            names, data, info = detect_table(rows)
+        except DatasetError:
+            continue
+        info["hárok"] = ws.title
+        size = len(data) * len(names)
+        if best is None or size > best[0]:
+            best = (size, names, data, info)
     wb.close()
-    return out
+    if best is None:
+        raise DatasetError("XLSX bez tabuľky")
+    _, names, data, info = best
+    return _write_csv(path.with_suffix(".csv"), names, data), info
 
 
 def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> None:
+def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> dict[str, Any]:
     """Súbor → tabuľka v DuckDB databáze hypotézy (zápis; pred dotazmi modelu sa otvorí iba na čítanie).
-    ZIP sa rozbalí (najväčší podporovaný súbor), XML sa prevedie na JSONL, XLSX na CSV, CSV v cp1250 na UTF-8;
-    všetky pomocné súbory sa po importe (aj pri chybe) zmažú."""
+    Formát podľa obsahu (HTML sa odmietne); ZIP sa rozbalí (najväčší podporovaný súbor); SpreadsheetML a XLSX na CSV
+    s nájdenou hlavičkou; RDF a JSON-LD dátové kocky na pozorovania s dimenziami; ostatné XML na záznamy (overené
+    kontrolou); CSV v cp1250 na UTF-8 a odmietnuté riadky sa spočítajú. Vráti informácie o importe (adaptér, verzia
+    parsera, odmietnuté riadky, hlavička). Všetky pomocné súbory sa po importe (aj pri chybe) zmažú."""
     if not re.fullmatch(r"ds\d+", table):
         raise DatasetError("neplatný názov tabuľky")
     cleanup: list[Path] = []
+    info: dict[str, Any] = {"verzia_parsera": PARSER_VERSION}
     try:
         src, fmt = path, sniff_format(path, fmt)
         if fmt == "zip":
-            src, fmt, _ = unpack_zip(cfg, path)
+            src, fmt, member = unpack_zip(cfg, path)
             cleanup.append(src)
-        if fmt == "xml":
+            info["súbor_v_zip"] = member
+            fmt = sniff_format(src, fmt)
+        info["adaptér"] = fmt
+        if fmt == "spreadsheetml":
+            try:
+                src, extra = spreadsheetml_to_csv(src)
+            except DatasetError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise DatasetError(f"SpreadsheetML sa nedá spracovať: {str(exc)[:150]}") from exc
+            info["tabuľka"], fmt = extra, "csv"
+            cleanup.append(src)
+        elif fmt in ("rdf", "jsonld"):
+            try:
+                src, extra = cube_to_jsonl(src, fmt)
+            except DatasetError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                raise DatasetError(f"RDF/JSON-LD sa nedá spracovať: {str(exc)[:150]}") from exc
+            info["kocka"], fmt = extra, "json"
+            cleanup.append(src)
+        elif fmt == "xml":
             try:
                 src, fmt = xml_to_jsonl(src), "json"
             except DatasetError:
                 raise
             except Exception as exc:  # noqa: BLE001 – poškodené XML: chyba datasetu, beh pokračuje
                 raise DatasetError(f"XML sa nedá spracovať: {str(exc)[:150]}") from exc
+            info["adaptér"] = "xml_záznamy"
             cleanup.append(src)
         if fmt == "xlsx":
-            src, fmt = _xlsx_to_csv(src), "csv"
+            src, extra = _xlsx_to_csv(src)
+            info["tabuľka"], fmt = extra, "csv"
             cleanup.append(src)
         if fmt == "csv":
             utf8 = _to_utf8(src)
             if utf8 != src:
                 cleanup.append(utf8)
             src = utf8
-            reader = "read_csv(?, auto_detect = true, ignore_errors = true, sample_size = 20000)"
+            if "tabuľka" not in info:
+                normalized, extra = normalize_csv(src)
+                if normalized != src:
+                    cleanup.append(normalized)
+                    src = normalized
+                if extra:
+                    info["tabuľka"] = extra
+            reader = "read_csv(?, auto_detect = true, ignore_errors = true, store_rejects = true, sample_size = 20000)"
         elif fmt == "json":
             # Odpovede API bývajú vnorené (prijimatel.subjekt.ico): rozbalia sa na stĺpce (ico, dic …).
             reader = "(SELECT unnest(j, recursive := true) FROM read_json_auto(?) AS j)"
@@ -454,6 +814,7 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
                     raise
                 con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM read_json_auto(?)", [str(src)])
             if fmt == "csv":
+                info["odmietnuté_riadky"] = _rejected_rows(con)
                 # Hlavička z rokov („2016;2017…“) má rovnaký typ ako číselné dáta, takže ju DuckDB nespozná
                 # (stĺpce column0…); keď prvý riadok vyzerá ako obdobia, načíta sa znova s hlavičkou.
                 names = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
@@ -462,6 +823,7 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
                     if period_columns([str(v) for v in first if v is not None], cfg.gate1.min_wide_periods)[1]:
                         con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM "
                                     f"{reader.replace('auto_detect = true', 'auto_detect = true, header = true')}", [str(src)])
+                        info["odmietnuté_riadky"] = _rejected_rows(con)
         except duckdb.Error as exc:
             raise DatasetError(f"import zlyhal: {str(exc)[:200]}") from exc
         finally:
@@ -471,9 +833,115 @@ def import_table(cfg: Config, hid: int, table: str, path: Path, fmt: str) -> Non
     except Exception as exc:  # noqa: BLE001 – poškodený súbor (napr. XLSX) je chyba datasetu, nie celého kroku
         raise DatasetError(f"súbor sa nedá spracovať: {type(exc).__name__}: {str(exc)[:150]}") from exc
     finally:
-        for extra in cleanup:
-            if extra != path:
-                extra.unlink(missing_ok=True)
+        for extra_path in cleanup:
+            if extra_path != path:
+                extra_path.unlink(missing_ok=True)
+    return info
+
+
+def _rejected_rows(con) -> int:
+    """Riadky CSV, ktoré DuckDB pri ignore_errors vynechal (zlé typy, počet stĺpcov) – podmienka kvality importu."""
+    try:
+        return int(con.execute("SELECT COUNT(DISTINCT (scan_id, line)) FROM reject_errors").fetchone()[0])
+    except duckdb.Error:
+        return 0
+
+
+def assess_import(cfg: Config, hid: int, table: str, prof: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
+    """Importný report: načítané a odmietnuté riadky, stĺpce a typy, kľúče, jednotky, vzorka a problémy. Verdikt
+    „ok“ iba bez problémov; inak „needs_review“ – dataset sa do pripravenosti ani experimentov neráta, kým ho
+    človek neschváli (audit: „ok“ nezaručuje použiteľné dáta)."""
+    import json
+
+    names = [c["name"] for c in prof["columns"]]
+    rows = int(prof.get("rows") or 0)
+    rejected = int(info.get("odmietnuté_riadky") or 0)
+    problems = []
+    if rows == 0:
+        problems.append("tabuľka je prázdna")
+    share = rejected / (rows + rejected) if rows + rejected else 0.0
+    if share > cfg.gate1.max_rejected_share:
+        problems.append(f"parser odmietol {rejected} riadkov ({share:.0%})")
+    unknown = [n for n in names if re.fullmatch(r"(column\d+|unnamed.*|stĺpec_\d+|)", n.strip().lower())]
+    if names and len(unknown) > 0.3 * len(names):
+        problems.append(f"neznáme hlavičky: {len(unknown)} z {len(names)} ({', '.join(unknown[:4])})")
+    if any("<" in n or "doctype" in n.lower() for n in names):
+        problems.append("hlavička obsahuje HTML alebo XML")
+    fmt_cols = [n for n in names if n.strip().lower() in FORMAT_COLUMNS]
+    if len(fmt_cols) >= 2 or (names and len(fmt_cols) >= 0.5 * len(names)):
+        problems.append("stĺpce formátovania buniek alebo grafu (" + ", ".join(fmt_cols[:4]) + ") – nie záznamy s významom")
+    texty_header = [n for n in names if _is_number(n) or re.fullmatch(r"\d{1,4}[./-]\d{1,2}([./-]\d{1,4})?", n.strip())]
+    if names and len(texty_header) > 0.5 * len(names) and not prof.get("period_columns"):
+        problems.append("hlavička vyzerá ako dáta (čísla, dátumy)")
+    if info.get("adaptér") == "xml_záznamy" and len([n for n in names if n.strip().lower() not in FORMAT_COLUMNS]) < 3:
+        problems.append("neznámy formát XML (záznamy s menej ako 3 poľami) – skontroluj vzorku")
+    if info.get("adaptér") == "jsonld":
+        pass  # dátová kocka s pozorovaniami (adaptér overil dimenzie a hodnoty)
+    sample: list[dict[str, Any]] = []
+    keys: list[str] = list(prof.get("ico_columns") or [])
+    sums: list[float] = []
+    if rows:
+        con = connect_ro(duck_path(cfg, hid))
+        try:
+            cur = con.execute(f"SELECT * FROM {table} LIMIT 5")
+            cols = [d[0] for d in cur.description]
+            sample = [{c: (str(v)[:60] if v is not None else None) for c, v in zip(cols, r)} for r in cur.fetchall()]
+            for c in prof["columns"][:60]:
+                qn = _quote(c["name"])
+                if c["type"] == "VARCHAR" and re.search(r"(^|_)(id|kod|kód|číslo|cislo)($|_)", c["name"], re.I):
+                    distinct = con.execute(f"SELECT COUNT(DISTINCT {qn}) FROM {table}").fetchone()[0]
+                    if distinct == rows:
+                        keys.append(c["name"])
+                if any(t in c["type"] for t in ("INT", "DOUBLE", "DECIMAL", "FLOAT")):
+                    total = con.execute(f"SELECT SUM(TRY_CAST({qn} AS DOUBLE)) FROM {table}").fetchone()[0]
+                    sums.append(round(float(total or 0.0), 2))
+            if len(names) == 1 and sample and "<" in str(sample[0].get(names[0]) or ""):
+                problems.append("XML/RDF v jednom textovom stĺpci – nespracovaný register")
+        finally:
+            con.close()
+    units = {n: m.group(1) for n in names if (m := UNIT_RE.search(n))}
+    cube = info.get("kocka") or {}
+    if cube.get("jednotka"):
+        units[cube["jednotka"]] = ", ".join(cube.get("jednotky_hodnoty") or []) or "chýba"
+    fingerprint = hashlib.sha1(json.dumps([rows, sorted(sums)]).encode()).hexdigest()[:16] if sums else None
+    return {**info, "riadky": rows, "odmietnuté_riadky": rejected, "stĺpce": len(names),
+            "typy": {c["name"]: c["type"] for c in prof["columns"][:60]}, "kľúče": list(dict.fromkeys(keys)),
+            "jednotky": units, "vzorka": sample, "problémy": problems, "odtlačok_obsahu": fingerprint,
+            "verdikt": "needs_review" if problems else "ok"}
+
+
+def raw_cache_dir(cfg: Config) -> Path:
+    return cfg.path(cfg.gate1.datasets_dir) / "raw"
+
+
+def raw_cache_put(cfg: Config, path: Path, sha256: str) -> Path | None:
+    """Pôvodný súbor podľa SHA-256 (zopakovanie parsera po oprave); najstaršie sa mažú nad rozpočtom raw_cache_gb."""
+    import shutil
+
+    if not path.exists() or path.stat().st_size > cfg.gate1.raw_cache_max_file_mb * 1024 * 1024 or not sha256:
+        return None
+    folder = raw_cache_dir(cfg)
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{sha256}{path.suffix}"
+    if not target.exists():
+        shutil.copyfile(path, target)
+    files = sorted(folder.iterdir(), key=lambda p: p.stat().st_mtime)
+    total = sum(p.stat().st_size for p in files)
+    budget = cfg.gate1.raw_cache_gb * 1024 ** 3
+    for old in files:
+        if total <= budget or old == target:
+            continue
+        total -= old.stat().st_size
+        old.unlink(missing_ok=True)
+    return target
+
+
+def raw_cache_drop(cfg: Config, sha256: str) -> None:
+    """Dataset s osobnými údajmi: pôvodný súbor sa neuchováva (minimalizácia)."""
+    folder = raw_cache_dir(cfg)
+    if sha256 and folder.exists():
+        for p in folder.glob(f"{sha256}.*"):
+            p.unlink(missing_ok=True)
 
 
 def drop_columns(cfg: Config, hid: int, table: str, columns: list[str]) -> list[str]:

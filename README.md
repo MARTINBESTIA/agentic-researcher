@@ -223,12 +223,24 @@ z prečítanej stránky) → kontrola a kvalita → stiahnutie do DuckDB (`data/
 návrhy žiadostí podľa zákona 211/2000 a pripravenosť dát so zložkami. Chýbajúce dáta sú príznak, nič sa
 nevyraďuje.
 
-**Prechod do Brány 2:** pripravenosť dát ≥ 0,5 → Brána 1 prejde automaticky (rozhodnutie s dôvodom a metrikami).
-Inak hypotéza „čaká na tvoje dáta“: v GUI (Brána 1 → Tvoje dáta) napíš popis dát alebo aspoň schému (stĺpce,
+**Dôvera v dáta (od 15. 10. 2026):** súbor zdroja sa overí skutočnou požiadavkou (nefunkčný odkaz ani stránka
+prihlásenia nie je zdroj); import ide podľa obsahu (HTML sa odmietne; SpreadsheetML, RDF/JSON-LD dátové kocky
+s dimenziami a jednotkou, výkazy XLSX/CSV s nadpisom a dvojriadkovou hlavičkou) a každý dataset má importný report
+(načítané a odmietnuté riadky, typy, kľúče, jednotky, vzorka). Import s problémom čaká **na tvoju kontrolu**
+(Brána 1 → Datasety) a nič sa z neho nepočíta. Stav poľa je rebrík: iba odkaz → súbor dostupný → dáta načítané →
+stĺpec overený kódom. **Mapovanie polí** (Brána 1 → Mapovanie polí, krok `gate1-bindings`): presný model navrhne
+stĺpec, kód overí pokrytie, typ a pojem (dátum exspirácie nie je dátum patentu), význam kľúčového poľa potvrdíš ty
+(alebo zadáš stĺpec sám). Interné dáta organizácie (napr. tikety) sú „od partnera“ – web sa pre ne neprehľadáva.
+
+**Prechod do Brány 2:** pripravenosť dát ≥ 0,5 **a každé kľúčové pole má stĺpec potvrdený tebou** na aktuálnej
+verzii datasetu → Brána 1 prejde automaticky (rozhodnutie s dôvodom, metrikami, autorom a odtlačkom dát). Keď
+podmienky prechodu pravidlom neskôr prestanú platiť (zamietnutý dataset alebo stĺpec), hypotéza dostane „treba znova
+overiť“; tvoje ručné rozhodnutie ostane s príznakom (`python -m radar gate1-revalidate` alebo tlačidlo
+„Preveriť prechod s aktuálnymi dátami“). Podhypotéza dedí dáta, nie prechod. Inak hypotéza „čaká na tvoje dáta“: v GUI (Brána 1 → Tvoje dáta) napíš popis dát alebo aspoň schému (stĺpce,
 jednotky, obdobie, odkiaľ) a prípadne nahraj súbor (CSV, XLSX, JSON, Parquet, ZIP, XML). Akcia „Brána 1: posúdiť tvoje
 dáta“ (aj v autopilotovi) súbor naimportuje do DuckDB (tabuľka s osobnými údajmi sa neuloží, súbor sa zmaže), sudca
-posúdi každé pole (áno / čiastočne / nie) a kód spočíta vhodnosť (kľúčové polia spolu 0,7, ostatné 0,3); ≥ 0,5 →
-Brána 1 prejde. Kedy Brána 2 naozaj beží, určuje akcia, ktorú spustíš ty alebo autopilot. Samotná schéma na prechod
+posúdi každé pole (áno / čiastočne / nie) a kód spočíta vhodnosť (kľúčové polia spolu 0,7, ostatné 0,3); polia
+dostanú stav „dáta načítané“ (súbor) alebo „iba opis schémy“ a prechod ide cez potvrdenie stĺpcov. Kedy Brána 2 naozaj beží, určuje akcia, ktorú spustíš ty alebo autopilot. Samotná schéma na prechod
 stačí, spätný test však potrebuje skutočné dáta. Nevkladaj dáta zamestnávateľa. Prahy: `gate1.auto_gate2_readiness`,
 `gate1.user_data_threshold`; ručné rozhodnutie (prešla, pozastaviť, zastaviť) má vždy prednosť.
 

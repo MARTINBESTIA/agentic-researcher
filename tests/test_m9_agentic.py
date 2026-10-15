@@ -433,7 +433,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "critique": ["critique", "market"],
         "drafts": ["drafts"],
         "contacts": ["contacts", "profiles"],
-        "gate1": ["gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-repro", "gate1-user",
+        "gate1": ["gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-bindings", "gate1-repro", "gate1-user",
                   "gate1-finish"],
         "gate1-input": ["gate1-user", "gate1-finish"],
         "gate2": ["gate2-cards", "gate2-plan", "gate2-backtest", "gate2-conclusion", "gate2-demo"],

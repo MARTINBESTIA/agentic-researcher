@@ -197,7 +197,10 @@ def test_gate1_page_shows_readiness_fields_and_info_request(gui):
     at = AppTest.from_file(APP, default_timeout=30).run()
     at.switch_page("app_pages/gate1.py").run()
     assert not at.exception, at.exception
-    assert any(m.label == "Kľúčové polia nájdené" and m.value == "0 / 1" for m in at.metric)
+    # M20: „nájdené“ = stĺpec v dátach overený kódom; prechod potrebuje aj tvoje potvrdenie stĺpca
+    assert any(m.label == "Kľúčové polia so stĺpcom" and m.value == "0 / 1" for m in at.metric)
+    assert any(m.label == "Kľúčové potvrdené tebou" and m.value == "0 / 1" for m in at.metric)
+    assert any("Podmienky prechodu" in w.value and "Výdavky obce" in w.value for w in at.warning)
     assert any("dáta nenájdené" in w.value for w in at.warning)
     assert any("211/2000" in c.value for c in at.code)
     assert any("Brána 2 čaká na tvoje dáta" in w.value for w in at.warning)  # pripravenosť < 0,5

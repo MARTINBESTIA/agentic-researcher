@@ -27,7 +27,7 @@ FAST_STAGES = ["discover", "scout", "collect", "screen", "extract", "verify-code
                "contact-search", "people", "gate1-sources",
                "gate1-check", "gate1-datasets", "gate2-backtest", "validate-search"]
 ACCURATE_STAGES = ["people-rank", "contacts", "drafts", "verify", "cluster", "validate-finish", "gate1-fields",
-                   "gate1-repro", "gate1-user", "gate1-finish", "gate2-cards", "gate2-plan", "gate2-conclusion",
+                   "gate1-bindings", "gate1-repro", "gate1-user", "gate1-finish", "gate2-cards", "gate2-plan", "gate2-conclusion",
                    "gate2-demo", "prepare-next", "critique", "market"]
 FINAL_STAGES = ["report", "purge"]
 PEOPLE_STAGES = {"orgs", "people", "people-rank", "drafts"}
