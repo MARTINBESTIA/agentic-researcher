@@ -178,7 +178,12 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    hodnota, platba, ďalší krok, čas prípravy a dodania. Potvrdenie mení stav potreby (iba pre danú
    organizáciu – ostatným ide naďalej podmienená otázka) a pri najbližšom kroku `value` vznikne nová verzia
    prehľadu domény. Metriky („Učenie z odpovedí“, Prehľad) sa počítajú po organizáciách, nie po správach.
-7. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
+7. **Event log** (GUI → Event log a procesy, alebo tlačidlo pri oslovení, kde kontakt potvrdil problém): žiadosť
+   o históriu krokov procesu – prečo práve event log, definícia prípadu, minimálna schéma (ID prípadu, udalosť,
+   čas vzniku udalosti; termín pri hypotéze o meškaní), slovník a malá ukážka niekoľkých celých prípadov, čo z toho
+   pripravíš a podmienky bezplatnej skúšky. Správa je pevná šablóna a ide do Oslovení na kontrolu a ručné
+   odoslanie. Ak históriu nemajú: prehliadka prípadu, schéma stavov, agregovaný report alebo manuálne zaznamenávanie.
+8. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.
 
@@ -462,6 +467,7 @@ nepredpokladaj – over ho v podmienkach predplatného.
 | `radar/outcomes.py` | výsledky oslovení, stav potreby, metriky po organizáciách |
 | `radar/domain.py` | stav doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, hlavná otázka |
 | `radar/domain_sources.py` | lokálny ESCO index a fulltext, rola → povolanie, ohraničený doménový výskum (web) |
+| `radar/event_logs.py` | žiadosť o event log (šablóna, minimálna schéma, alternatívy) a import s kontrolou kvality |
 | `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |

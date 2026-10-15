@@ -263,3 +263,7 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M29 | limity dopytov, dokumentov a úryvkov; doslovné úryvky bez kontaktov; útržok vyhľadávača nie je podklad; cudzí text v untrusted_document; rozsah povolania vs. odvetvia | `test_research_respects_limits_stores_verbatim_chunks_without_contacts_and_wraps_untrusted_text`, `test_select_chunks_requires_domain_terms` |
 | M29 | scenár 2: výpadok vyhľadávača a modelu → needs_research s dôvodom, bez opakovania rovnakého vstupu | `test_same_input_is_not_researched_again_and_outages_end_with_reason` |
 | M29 | GUI: stav ESCO, kandidáti povolaní na výber, doménové podklady | `test_gui_shows_esco_status_role_candidates_and_sources` |
+| M30 | scenár 6: žiadosť obsahuje účel, definíciu prípadu, minimálnu schému, malý prvý krok, prínos a podmienky bezplatnej skúšky | `test_m30_eventlog_request.py::test_request_has_purpose_case_schema_small_first_step_output_and_unknowns`, `test_request_message_is_template_with_free_trial_terms_and_needs_manual_send` |
+| M30 | verejný správca: prispôsobená protihodnota bez obchodného odseku; krok 2 až po dohode | `test_public_holder_gets_adapted_return_without_business_terms`, `test_second_step_asks_for_larger_export_only_after_agreement` |
+| M30 | scenár 7 (časť žiadosti): nevhodná hypotéza iba so zdôvodnením; bez event logu alternatívny ďalší krok | `test_unfit_hypothesis_needs_explicit_reason_and_alternatives_when_log_missing` |
+| M30 | GUI: stránka Event log a procesy – žiadosti, vhodnosť | `test_eventlog_page_lists_requests_and_fit` |

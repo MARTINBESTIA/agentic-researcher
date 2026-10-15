@@ -148,6 +148,18 @@ for o in items:
                 refresh()
         if o["status"] in ("sent", "replied", "scheduled", "interviewed", "no_reply", "declined", "no_show"):
             past = d.outcomes_of_outreach(o["id"])
+            if any(r["problem_relevance"] == "confirmed" for r in past) and o["org_id"] and not any(
+                    r["outreach_id"] == o["id"] for r in d.eventlog_requests(o["hypothesis_id"])):
+                from radar.event_logs import EventLogError, build_request
+
+                if st.button("Pripraviť žiadosť o event log (slovník a malá ukážka)", key=key + "elr",
+                             icon=":material/timeline:", help="Kontakt potvrdil problém – ďalší krok môže byť malá "
+                                                              "ukážka histórie krokov. Žiadosť nájdeš na stránke Event log."):
+                    try:
+                        build_request(c, d, o["hypothesis_id"], o["org_id"], outreach_id=o["id"])
+                        st.toast("Žiadosť pripravená – stránka Event log a procesy.", icon=":material/check:")
+                    except EventLogError as exc:
+                        st.warning(str(exc))
             if past:
                 st.dataframe([{"kedy": r["recorded_at"][:10], "odpoveď": REPLIES.get(r["reply"], r["reply"]),
                                "problém": RELEVANCE.get(r["problem_relevance"] or "", "–"),

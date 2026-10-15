@@ -7,6 +7,7 @@
 - dossier.py: čítanie všetkého k hypotéze pre dosiér (export),
 - value.py: prehľady domén, návrhy prínosu, výsledky oslovení, cloudové náklady a cache,
 - domain.py: doménový výskum (stav, podklady, tvrdenia, otázky, mapovanie rolí), lokálny ESCO index,
+- eventlogs.py: žiadosti o event log, importy (udalosti sú v DuckDB organizácie), procesné reporty,
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
 """
 
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from .domain import DomainMixin
 from .dossier import DossierMixin
+from .eventlogs import EventLogMixin
 from .evidence import ACTIVE_STATUSES, ASSIGNABLE_STATUSES, EXTRACTABLE_KINDS, HYPOTHESIS_STATUSES, EvidenceMixin
 from .gate0 import Gate0Mixin
 from .gates import GatesMixin
@@ -37,7 +39,7 @@ __all__ = [
 SCHEMA_VERSION = LATEST
 
 
-class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin):
+class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

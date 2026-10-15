@@ -28,6 +28,7 @@ page = st.navigation(
             st.Page("app_pages/interviews.py", title="Rozhovory", icon=":material/record_voice_over:"),
             st.Page("app_pages/gate0.py", title="Brána 0", icon=":material/flag:"),
             st.Page("app_pages/gate1.py", title="Brána 1 – dáta", icon=":material/database:"),
+            st.Page("app_pages/eventlog.py", title="Event log a procesy", icon=":material/timeline:"),
             st.Page("app_pages/gate2.py", title="Brána 2 – experimenty", icon=":material/science:"),
         ],
         "Kvalita a súkromie": [
