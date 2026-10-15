@@ -4,12 +4,14 @@ import streamlit as st
 
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
 from radar.outreach import (
-    OutreachError, approve, follow_up_text, mailto_link, mark_follow_up_sent, mark_sent, recheck, set_status,
+    MODE_LABEL, OutreachError, approve, follow_up_text, mailto_link, mark_follow_up_sent, mark_sent, recheck, set_status,
 )
 from radar.privacy import sender_placeholders
 
 d, c = db(), cfg()
-st.caption("Systém nič neodosiela. Návrh skontroluj, schváľ, skopíruj alebo otvor v pošte a pošli sám.")
+st.caption("Systém nič neodosiela. Návrh skontroluj, schváľ, skopíruj alebo otvor v pošte a pošli sám. Každý návrh "
+           "má reťazec prečo tento kontakt → predpokladaná potreba → čo môže dostať → čo minimálne potrebuješ; potreba je "
+           "hypotéza, kým ju kontakt nepotvrdí.")
 today = datetime.now(timezone.utc).date().isoformat()
 with st.container(horizontal=True):
     st.metric("Schválené dnes", f"{d.approvals_on(today)}/{c.outreach.daily_cap}", border=True)
@@ -30,13 +32,33 @@ if not items:
     st.caption("Žiadne oslovenia v zvolených stavoch (návrhy vytvorí krok drafts).")
     st.stop()
 
+READY = {"ready": "pripravené", "needs_input": "rozpracované"}
 for o in items:
     checks = json_or(o["checks_json"], {})
-    title = f"{o['full_name']} · {o['org_name'] or ''} · {o['channel']} {o['variant']} · {o['status']}"
+    pkg = json_or(o["package_json"], {})
+    who = o["full_name"] or "funkčný kontakt organizácie"
+    title = (f"{who} · {o['org_name'] or ''} · {MODE_LABEL.get(o['mode'] if pkg else None, o['mode'])} · {o['channel']} "
+             f"{o['variant']} · {o['status']}" + (f" · {READY.get(o['readiness'], o['readiness'])}" if o["readiness"] else ""))
     with st.expander(title, expanded=o["status"] in ("draft", "needs_edit")):
         if o["status"] == "blocked":
             st.warning(o["body"], icon=":material/gavel:")
             continue
+        if pkg:
+            why, need = pkg.get("prečo_tento_kontakt") or {}, pkg.get("potreba") or {}
+            st.dataframe([
+                {"krok": "Prečo tento kontakt", "obsah": f"{why.get('text', '')} – {why.get('dôkaz', '')}",
+                 "zdroj": why.get("zdroj") or "chýba"},
+                {"krok": "Predpokladaná potreba", "obsah": need.get("text", ""),
+                 "zdroj": {"hypothesis": "hypotéza", "confirmed": "potvrdené kontaktom"}.get(need.get("stav"), need.get("stav"))},
+                {"krok": "Čo môže dostať", "obsah": pkg.get("výstup") or "– (iba otázka na skúsenosť)",
+                 "zdroj": f"pomôže: {pkg.get('rozhodnutie') or '–'}"},
+                {"krok": "Čo minimálne potrebujem", "obsah": pkg.get("minimálny_vstup") or "", "zdroj": ""},
+                {"krok": "Čo ešte nevieme", "obsah": pkg.get("čo_nevieme") or "", "zdroj": ""},
+            ], hide_index=True, alt="Reťazec dôvodov návrhu oslovenia")
+            if pkg.get("záväzok"):
+                st.caption(f"Schválený záväzok: {pkg['záväzok']}")
+            for r in pkg.get("pripravenosť") or []:
+                st.warning(r, icon=":material/edit_note:")
         problems = list(checks.get("problems", []))
         model = checks.get("model") or {}
         for p in model.get("problems", []):

@@ -170,7 +170,24 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
     rows.sort(key=lambda r: (TIERS.index(r["odporúčanie"]), -r["väzba_sila"], -(r["kanál"] or 0), -(r["role_fit"] or 0),
                              r["organizácia"], r["osoba"]))
     apply_queue(cfg, db, hid, rows)
+    _value_columns(db, hid, rows)
     return rows
+
+
+def _value_columns(db: DB, hid: int, rows: list[dict[str, Any]]) -> None:
+    """Čo kontakt dostane, čo minimálne potrebujeme a čo ešte nevieme – z návrhu prínosu pre jeho typ."""
+    from .value import best_proposal
+
+    cache: dict[str, Any] = {}
+    for r in rows:
+        group = r["skupina"]
+        if group not in cache:
+            row = best_proposal(db, hid, group)
+            cache[group] = json.loads(row["proposal_json"]) if row is not None else {}
+        p = cache[group]
+        r["čo_dostanú"] = p.get("deliverable") or ""
+        r["potrebný_vstup"] = p.get("minimum_input") or r["čo_žiadať"]
+        r["čo_nevieme"] = p.get("limitations") or ("či problém naozaj majú – potreba je hypotéza" if p else "")
 
 
 def _stage(history: list, person_status: str | None, hid: int, today: date) -> tuple[str, str]:

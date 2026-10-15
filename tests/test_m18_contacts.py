@@ -327,15 +327,22 @@ def test_data_role_fit_uses_whole_words():
     assert data_role_fit("vedúci odboru financií", ["vedúci odboru financií"]) == 1.0  # funkcia z cieľa plánu
 
 
-def test_drafts_skip_data_holders(tmp_path):
+def test_data_holder_gets_data_request_draft(tmp_path):
+    """Pôvodne sa držiteľ dát preskakoval (iba „čo žiadať“); od M25 (audit 15. 10. 2026) dostane úplný návrh
+    v režime data_request – podrobné testy rolí sú v test_m25_outreach_modes.py."""
     from radar.outreach import run_drafts
 
     cfg, db, hid, rec, router = setup(tmp_path)
     db.set_people_selection(hid, True)
-    org, _ = db.upsert_organization("Úrad", "urad", "gate1_source")
+    org, _ = db.upsert_organization("Úrad", "urad", "gate1_source", sector_kind="public")
     pid = db.insert_person(org, "Eva Dátová", "eva datova", "https://urad.sk/k", "x", hid, role_title="analytička dát")
     db.add_contact_point(pid, org, "email", "eva@urad.sk", "https://urad.sk/k", "eva@urad.sk", "regex")
     link = db.upsert_link(pid, hid, "data_holder", None, "https://urad.sk/data")
     db.set_link_priority(link, 0.8, {"skupina": "data_holder"})
-    assert run_drafts(cfg, db, router, Deadline(1), [hid]) == {}  # žiadne volanie modelu, žiadny návrh rozhovoru
-    assert rec.calls == []
+    rec.responses["DraftOut"] = {"subject": "Otázka k vašim dátam", "facts_used": ["F1"],
+                                 "body": "potrebujem pochopiť význam polí v datasete. Mohli by ste vysvetliť stĺpec termínu?"}
+    rec.responses["DraftCheck"] = {"verdict": "ok", "problems": []}
+    stats = run_drafts(cfg, db, router, Deadline(1), [hid])
+    row = db.outreach_for_person(pid, hid)[0]
+    assert stats["mode_data_request"] == 1 and row["mode"] == "data_request"
+    assert "Overujem, či sa dá z dostupných dát" in row["body"] and "Nejde o ponuku" not in row["body"]

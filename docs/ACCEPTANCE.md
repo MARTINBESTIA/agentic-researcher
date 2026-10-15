@@ -238,3 +238,7 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M24 | 4 návrh prínosu: hypotéza potreby, bez sľubov a čísel bez podkladu, malá požiadavka, záväzok iba po potvrdení človekom | `test_value_proposals_are_hypotheses_without_promises_and_commitment_needs_human` |
 | M24 | 5 držiteľ dát nie je nákupca | `test_data_holder_is_not_treated_as_buyer` |
 | M24 | 6 krok value a GUI Brána 0 → Doména a prínos | `test_run_value_stage_and_gui_tab`, `test_gate0_page_shows_domain_brief_and_value_proposals` |
+| M25 | 1 zákazník, držiteľ dát, expert aj funkčný kontakt organizácie dostanú návrh podľa svojej roly; reťazec prečo → potreba → výstup → vstup | `test_m25_outreach_modes.py::test_customer_data_holder_expert_and_mailbox_get_role_specific_drafts`, `test_m18_contacts.py::test_data_holder_gets_data_request_draft` |
+| M25 | 2 potreba ako hypotéza; číselný sľub bez merania a „nejde o ponuku“ pri ponuke sú chyby; demo pri ponuke povolené | `test_need_as_fact_promises_and_not_offer_claims_are_flagged` |
+| M25 | 3 pilot až po potvrdení problému, s obchodným zámerom a podmienkami | `test_pilot_only_after_confirmed_problem_and_says_business_intent` |
+| M25 | 4 zástupné polia = rozpracovaný návrh; export s reťazcom dôvodov a pseudonymizáciou; chýbajúci zdroj dôvodu na doplnenie | `test_placeholders_mark_draft_unfinished_and_export_has_reason_chain`, `test_missing_source_of_reason_marks_draft_for_completion` |

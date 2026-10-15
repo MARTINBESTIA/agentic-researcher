@@ -359,6 +359,7 @@ outreach:
   linkedin_note_max_chars: 200                  # bezplatný účet; Premium 300
   phone_opener_max_words: 80
   forbidden_phrases: [ponúkame, naše riešenie, náš produkt, demo, zľava, akcia, bezplatná konzultácia, cenová ponuka]
+  offer_allowed_phrases: [demo, bezplatná skúška, skúška]   # povolené, keď správa ponúka demo/skúšku (veta o podmienkach)
   exclude_orgs: []                              # IČO alebo domény, ktoré sa nikdy neoslovujú (konflikt záujmov)
   org_cooldown_days: 21                         # organizácia oslovená za posledných 21 dní nedostane ďalšie prvé oslovenie
   # Ponuka dema a skúšky (schválená politika): demo a dohodnutá skúška bezplatne; platené používanie až pri riešení,

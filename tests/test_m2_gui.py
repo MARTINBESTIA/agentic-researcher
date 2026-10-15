@@ -372,5 +372,5 @@ def test_gate0_shows_whom_to_contact_with_email_reason_and_ask(gui):
     table = at.dataframe[0].value
     row = table[table["osoba"] == "Jana Starostová"].iloc[0]
     assert row["e-mail"] == "starostka@obec-fikt.sk" and row["odporúčanie"] == "oslov"
-    assert "vedenie dotknutej org." in row["dôvody"] and row["čo_žiadať"].startswith("Rozhovor")
+    assert "vedenie dotknutej org." in row["dôvody"] and row["potrebný_vstup"].startswith("Rozhovor")  # M25: stĺpec „potrebný vstup“
     assert at.metric[1].value == "1"  # „Oslov“

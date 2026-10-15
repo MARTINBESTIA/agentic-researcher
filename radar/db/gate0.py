@@ -506,6 +506,13 @@ class Gate0Mixin:
             return self._all("SELECT * FROM outreach WHERE person_id = ? ORDER BY id", (person_id,))
         return self._all("SELECT * FROM outreach WHERE person_id = ? AND hypothesis_id = ? ORDER BY id", (person_id, hid))
 
+    def outreach_for_org(self, org_id: int, hid: int | None = None) -> list[sqlite3.Row]:
+        """Oslovenia organizácie cez funkčný kontakt (bez osoby)."""
+        if hid is None:
+            return self._all("SELECT * FROM outreach WHERE org_id = ? AND person_id IS NULL ORDER BY id", (org_id,))
+        return self._all("SELECT * FROM outreach WHERE org_id = ? AND person_id IS NULL AND hypothesis_id = ? ORDER BY id",
+                         (org_id, hid))
+
     def outreach_list(self, hid: int | None = None, statuses: tuple[str, ...] | None = None) -> list[sqlite3.Row]:
         sql = """SELECT x.*, p.full_name, p.role_title, p.titles, p.gender_hint, o.name AS org_name,
                         c.value AS contact_value, c.kind AS contact_kind

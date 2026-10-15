@@ -540,6 +540,8 @@ class OutreachConfig(BaseModel):
             "cenová ponuka",
         ]
     )
+    # Pri ponuke dema alebo skúšky (veta o podmienkach podľa value_offer) sú tieto frázy v texte povolené.
+    offer_allowed_phrases: list[str] = Field(default_factory=lambda: ["demo", "bezplatná skúška", "skúška"])
     exclude_orgs: list[str] = Field(default_factory=list)  # IČO alebo domény, ktoré sa nikdy neoslovujú
     channels: list[str] = Field(default_factory=lambda: ["email", "linkedin", "phone"])
     # Návrh + kontrola presným modelom trvá ~1–2 min; za beh sa pripraví najviac toľko návrhov

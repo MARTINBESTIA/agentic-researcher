@@ -49,7 +49,8 @@ with tab_who:
     shown = [r for r in rows if r["odporúčanie"] in tiers and (kinds in (None, "všetko") or r["typ"] == kinds)
              and (not only_queue or r.get("prvé_oslovenie"))]
     table = [{k: r[k] for k in ("odporúčanie", "stav_komunikácie", "ďalšia_akcia", "typ", "osoba", "funkcia", "účel",
-                                "organizácia", "e-mail", "telefón", "prečo", "čo_žiadať", "dôvody", "dôkaz_účelu")}
+                                "organizácia", "e-mail", "telefón", "prečo", "čo_dostanú", "potrebný_vstup", "čo_nevieme",
+                                "dôvody", "dôkaz_účelu")}
              | {"zdroj": safe_url(r["zdroj_kontaktu"])} for r in shown]
     if not rows:
         st.info("Zatiaľ nikto. Spusti hľadanie: organizácie → plán kontaktov podľa hypotézy (zákazník, držiteľ dát, "
@@ -57,7 +58,7 @@ with tab_who:
     else:
         st.dataframe(table, hide_index=True, height=420, alt="Koho osloviť k hypotéze: odporúčanie, e-mail, prečo a čo žiadať",
                      column_config={"zdroj": st.column_config.LinkColumn("Zdroj kontaktu", display_text="zdroj"),
-                                    "čo_žiadať": st.column_config.TextColumn("Čo žiadať", width="large"),
+                                    "potrebný_vstup": st.column_config.TextColumn("Potrebný vstup", width="large"),
                                     "dôvody": st.column_config.TextColumn("Dôvody", width="medium")})
     start_job_button("people", "Hľadať ďalšie kontakty k tejto hypotéze", 90, [hid], key=f"g0_search_{hid}",
                      icon=":material/person_search:", disabled=not c.privacy.lia_completed,
