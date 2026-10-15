@@ -431,7 +431,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "evidence": ["verify", "embed", "cluster", "validate-finish", "report"],
         "topics": ["collect", "screen", "extract", "verify-code", "source-types", "embed", "verify", "cluster", "report"],
         "critique": ["critique", "market"],
-        "drafts": ["drafts"],
+        "drafts": ["value", "drafts"],
         "contacts": ["contacts", "profiles"],
         "gate1": ["gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-bindings", "gate1-repro", "gate1-user",
                   "gate1-finish"],

@@ -232,3 +232,9 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M23 | 2 oslovenie v inej hypotéze a odstup organizácie | `test_contact_from_other_hypothesis_and_org_cooldown` |
 | M23 | 3 spoločný e-mail a jedna osoba z organizácie vo fronte; súhrn podľa unikátnych organizácií | `test_shared_mailbox_and_one_contact_per_organization_in_queue` |
 | M23 | 4 migrácia v13 zachová oslovenia a umožní oslovenie organizácie bez osoby | `test_migration_v13_keeps_outreach_and_allows_organization_contact` |
+| M24 | 1 prehľad: citáty, tvrdenie bez citátu medzi neznámymi, tri vyvracajúce otázky, hodnotiteľ v roli reviewer, Markdown | `test_m24_value.py::test_brief_cites_evidence_moves_gaps_to_unknowns_and_has_three_questions` |
+| M24 | 2 jeden prehľad pre doménu; nová verzia iba pri zmene podkladov, história ostáva | `test_brief_is_shared_in_domain_and_new_version_only_when_inputs_change` |
+| M24 | 3 zlyhanie hodnotiteľa = čaká na hodnotenie, nie schválenie | `test_reviewer_failure_leaves_brief_pending_not_approved` |
+| M24 | 4 návrh prínosu: hypotéza potreby, bez sľubov a čísel bez podkladu, malá požiadavka, záväzok iba po potvrdení človekom | `test_value_proposals_are_hypotheses_without_promises_and_commitment_needs_human` |
+| M24 | 5 držiteľ dát nie je nákupca | `test_data_holder_is_not_treated_as_buyer` |
+| M24 | 6 krok value a GUI Brána 0 → Doména a prínos | `test_run_value_stage_and_gui_tab`, `test_gate0_page_shows_domain_brief_and_value_proposals` |

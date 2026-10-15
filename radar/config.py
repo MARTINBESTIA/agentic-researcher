@@ -94,8 +94,14 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "contact_plan": _route("fast"),  # koho osloviť k hypotéze a ako ho nájsť (dopyty overuje a vykonáva kód)
     "role_map": _route("accurate", True, 3),
     "role_fit": _route("accurate"),
+    # Oslovenia podľa účelu (audit 15. 10. 2026): prehľad domény a návrh prínosu generuje presný model, kontroluje
+    # rola „reviewer“ (hodnotiteľ; predvolene ten istý lokálny model, v GUI sa dá nastaviť napr. Azure nasadenie).
+    "domain_brief": _route("accurate"),
+    "domain_brief_check": _route("reviewer"),
+    "value_proposal": _route("accurate"),
+    "value_check": _route("reviewer"),
     "draft": _route("accurate"),
-    "draft_check": _route("accurate", True),
+    "draft_check": _route("reviewer", True),
 }
 
 
@@ -104,6 +110,7 @@ def _default_roles() -> dict[str, RoleConfig]:
         "fast": RoleConfig(model="radar-qwen3.5-9b", timeout_s=600, max_tokens=2048),
         "accurate": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=4096),
         "judge": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=2048),
+        "reviewer": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=2048),
         "agent": RoleConfig(model="radar-qwen3.5-9b", timeout_s=900, max_tokens=2048),
         "embed": RoleConfig(model="radar-qwen3-embedding", timeout_s=120),
     }
@@ -502,8 +509,21 @@ class SenderConfig(BaseModel):
     gender: str = ""
 
 
+class ValueOfferConfig(BaseModel):
+    """Obchodná politika ponuky dema a skúšky (schválená používateľom 15. 10. 2026; pri generovaní sa znova nepýta).
+    Konkrétny rozsah, termín a kapacitu individuálneho pilotu dohodne človek zvlášť; návrh nič neodosiela."""
+
+    demo_free: bool = True
+    trial_free: bool = True
+    paid_use_requires: list[str] = Field(default_factory=lambda: [
+        "operational_product", "demonstrated_customer_value", "explicit_paid_agreement"])
+    automatic_paid_conversion: bool = False
+
+
 class OutreachConfig(BaseModel):
     sender: SenderConfig = Field(default_factory=SenderConfig)
+    value_offer: ValueOfferConfig = Field(default_factory=ValueOfferConfig)
+    value_proposals_max: int = 3  # malé výstupy navrhnuté na typ adresáta (generátor; kontroluje kód a hodnotiteľ)
     language: str = "sk"
     daily_cap: int = 10
     follow_up_business_days: list[int] = Field(default_factory=lambda: [5, 7])

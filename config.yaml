@@ -361,6 +361,14 @@ outreach:
   forbidden_phrases: [ponúkame, naše riešenie, náš produkt, demo, zľava, akcia, bezplatná konzultácia, cenová ponuka]
   exclude_orgs: []                              # IČO alebo domény, ktoré sa nikdy neoslovujú (konflikt záujmov)
   org_cooldown_days: 21                         # organizácia oslovená za posledných 21 dní nedostane ďalšie prvé oslovenie
+  # Ponuka dema a skúšky (schválená politika): demo a dohodnutá skúška bezplatne; platené používanie až pri riešení,
+  # ktoré funguje v prevádzke, preukázateľne prináša hodnotu a po výslovnej dohode. Rozsah a termín pilotu dohodneš ty.
+  value_offer:
+    demo_free: true
+    trial_free: true
+    paid_use_requires: [operational_product, demonstrated_customer_value, explicit_paid_agreement]
+    automatic_paid_conversion: false
+  value_proposals_max: 3                        # malé výstupy (návrh prínosu) na typ adresáta
 
 # ---------------------------------------------------------------- súkromie (R-PRIV)
 privacy:

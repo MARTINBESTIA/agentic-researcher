@@ -68,8 +68,9 @@ ACTIONS: dict[str, Action] = {
         needs_lia=True),
     "drafts": Action(
         "Pripraviť návrhy oslovení",
-        "Pre vybraných ľudí napíše presný model návrh e-mailu, poznámky na LinkedIn a telefonický úvod iba z overených "
-        "faktov; kód skontroluje dĺžky, čísla a pätičku. Nič sa neodosiela – posielaš ručne.",
+        "Prehľad domény a návrh prínosu (čo dostanú, čo minimálne potrebuješ) → pre kontakty z fronty prvého "
+        "oslovenia napíše presný model návrh podľa účelu (zákazník, držiteľ dát, expert) iba z overených faktov; kód a "
+        "hodnotiteľ skontrolujú dĺžky, čísla, sľuby a pätičku. Nič sa neodosiela – posielaš ručne.",
         "návrhy oslovení na kontrolu", "presný", 60, "selected", needs_lia=True),
     "evidence": Action(
         "Spracovať zásobník dôkazov",
@@ -351,6 +352,7 @@ def people_stages(app, deadline: Deadline, run) -> None:
 
 def _drafts(app, deadline: Deadline, run, ids, report_progress) -> None:
     app.people_ids = ids
+    run("value", deadline.sub(deadline.remaining_minutes() * 0.4))  # prehľad domény a návrh prínosu (pri zmene)
     run("drafts", deadline)
 
 

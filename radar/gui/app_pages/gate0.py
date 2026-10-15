@@ -13,7 +13,7 @@ if hid is None:
     st.stop()
 h = d.get_hypothesis(hid)
 
-tab_who, tab_metrics = st.tabs(["Koho osloviť", "Metriky a rozhodnutie"])
+tab_who, tab_value, tab_metrics = st.tabs(["Koho osloviť", "Doména a prínos", "Metriky a rozhodnutie"])
 
 with tab_who:
     if not c.privacy.lia_completed:
@@ -149,6 +149,69 @@ with tab_who:
                     st.success(f"Uložené: {out['osoba'] or 'organizácia'} ({out['organizácia']}); kontakty: "
                                f"{', '.join(out['kontakty']) or 'žiadne na stránke'}. Poradie a väzbu doplní krok "
                                "people-rank (akcia „Zbierať ľudí“).")
+
+with tab_value:
+    from radar.value import KIND_TEXT, approve_commitment, brief_inputs, brief_markdown, recipient_kinds
+
+    key, dom_title, members, *_, digest = brief_inputs(d, hid)
+    st.caption(f"Doména: **{esc(dom_title)}** ({len(members)} hypotéz). Prehľad na ~5 minút čítania je spoločný pre "
+               "kontakty domény; tvrdenia sú s citátmi, čo zdroje nehovoria, je medzi neznámymi. Nová verzia vznikne iba "
+               "pri zmene podkladov (tvrdenia, karty, odpovede kontaktov); staršie ostávajú.")
+    history = d.brief_history(key)
+    start_job_button("drafts", "Pripraviť prehľad, návrh prínosu a návrhy oslovení", 60, [hid], key=f"g0_value_{hid}",
+                     icon=":material/menu_book:")
+    if not history:
+        st.info("Prehľad domény ešte nie je – vznikne v akcii „Pripraviť návrhy oslovení“ (krok value).",
+                icon=":material/info:")
+    else:
+        ver = st.selectbox("Verzia prehľadu", [b["id"] for b in history], key=f"g0_brief_{hid}",
+                           format_func=lambda i: next(f"v{b['version']} · {b['created_at'][:10]} · {b['status']} · "
+                                                      f"{b['reason'] or ''}" for b in history if b["id"] == i))
+        brief = d.get_brief(ver)
+        if brief["inputs_hash"] != digest and brief["id"] == history[0]["id"]:
+            st.warning("Podklady sa od tejto verzie zmenili – nová verzia vznikne pri ďalšom kroku value.",
+                       icon=":material/update:")
+        checks = json_or(brief["checks_json"], {})
+        rev = checks.get("hodnotiteľ") or {}
+        if brief["status"] != "ok":
+            st.warning({"needs_review": "Prehľad má výhrady – skontroluj:", "pending_review": "Čaká na hodnotiteľa:"}
+                       .get(brief["status"], brief["status"]) + " " + "; ".join(
+                checks.get("problémy", []) + [f"{p['sentence']} ({p['issue']})" for p in rev.get("problems") or []]),
+                icon=":material/rule:")
+        md = brief_markdown(brief)
+        with st.container(border=True, height=420):
+            st.markdown(md.replace("](", "]\\("))
+        st.download_button("Stiahnuť prehľad (Markdown)", md, file_name=f"prehlad_{key.replace(':', '_')}_v{brief['version']}.md",
+                           mime="text/markdown", icon=":material/download:", key=f"g0_brief_dl_{ver}")
+    st.markdown("**Návrh prínosu podľa typu adresáta** – hypotéza potreby → výstup → podporené rozhodnutie → minimálny vstup")
+    st.caption("Potreba je hypotéza, kým ju nepotvrdí odpoveď kontaktu. Bez meraní žiadne číselné úspory; konkrétny "
+               "rozsah a termín sľúbi návrh až po tvojom potvrdení záväzku.")
+    VSTATUS = {"checked": "skontrolované", "needs_edit": "na úpravu", "pending_review": "čaká na hodnotiteľa",
+               "approved": "záväzok potvrdený"}
+    for kind in recipient_kinds(c, d, hid):
+        props = d.value_proposals_for(hid, kind)
+        st.markdown(f"*{KIND_LABEL.get(kind, kind)}* – {KIND_TEXT[kind]}")
+        if not props:
+            st.caption("Zatiaľ bez návrhu (krok value).")
+            continue
+        st.dataframe([{"id": p["id"], "stav": VSTATUS.get(p["status"], p["status"]), "potreba": p["need_status"],
+                       **{k: json_or(p["proposal_json"], {}).get(k, "") for k in (
+                           "need_statement", "deliverable", "decision_supported", "minimum_input", "limitations")},
+                       "výhrady": "; ".join(json_or(p["checks_json"], {}).get("kód") or [])}
+                      for p in props], hide_index=True, alt=f"Návrhy prínosu – {kind}",
+                     column_config={"need_statement": "hypotéza potreby", "deliverable": "čo dostanú",
+                                    "decision_supported": "pomôže rozhodnúť", "minimum_input": "potrebný vstup",
+                                    "limitations": "čo ešte nevieme"})
+        with st.form(f"g0_commit_{hid}_{kind}"):
+            pid_ = st.selectbox("Návrh", [p["id"] for p in props], key=f"g0_commit_p_{hid}_{kind}")
+            scope = st.text_input("Záväzok, ktorý vieš dodať (rozsah, termín, kapacita)", key=f"g0_commit_s_{hid}_{kind}")
+            if st.form_submit_button("Potvrdiť záväzok", icon=":material/handshake:"):
+                try:
+                    approve_commitment(d, pid_, scope)
+                except ValueError as exc:
+                    st.error(str(exc))
+                else:
+                    refresh()
 
 with tab_metrics:
     m = gate0_metrics(d, hid)

@@ -230,6 +230,13 @@ def stage_drafts(app, deadline: Deadline, hypothesis_ids: list[int] | None = Non
     return run_drafts(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids))
 
 
+def stage_value(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
+    """Prehľad domény a návrhy prínosu (zákazník, držiteľ dát, expert) – iba pri zmene podkladov."""
+    from .value import run_value
+
+    return run_value(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids))
+
+
 def stage_prepare_next(app, deadline: Deadline) -> dict:
     """Presný model pripraví filter segmentu a mapu rolí pre vybrané hypotézy, aby ďalší beh
     nemusel kvôli nim meniť model uprostred fázy rýchleho modelu."""
@@ -312,6 +319,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "contact-search": stage_contact_search,
     "people": stage_people,
     "people-rank": stage_people_rank,
+    "value": stage_value,
     "drafts": stage_drafts,
     "prepare-next": stage_prepare_next,
     "purge": stage_purge,
@@ -325,6 +333,8 @@ STAGE_HELP = {
     "validate-cluster": "Zaradenie iba tvrdení z testu hypotéz (presný model, bez zlučovania).",
     "profiles": "URL profilov LinkedIn z výsledkov vyhľadávania pre vybraných ľudí (nesťahuje sa).",
     "contacts": "E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu).",
+    "value": "Prehľad domény (5 minút čítania, zdieľaný v téme) a návrhy prínosu pre zákazníka, držiteľa dát a experta "
+             "– presný model navrhne, kód a hodnotiteľ skontrolujú; nové iba pri zmene podkladov.",
     "contact-search": "Hľadanie kontaktov podľa hypotézy: plán (zákazník, držiteľ dát, expert) a dopyty – rýchly model; "
                       "weby overí kód cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu.",
     "gate1-fields": "Brána 1: polia potrebné na riešenie problému (presný model).",
