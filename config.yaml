@@ -419,6 +419,18 @@ domain_research:
   esco_fallback_language: en
   max_role_candidates: 5
 
+# ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)
+# Dáta organizácie sú v oddelenom DuckDB súbore (data/eventlogs/org_<id>.duckdb), nikdy spolu s verejným korpusom
+# a predvolene neopúšťajú počítač. Import nič nemaže potichu: problémové riadky sa označia a report kvality povie,
+# ktoré analýzy dáta podporia.
+event_logs:
+  dir: data/eventlogs
+  max_file_mb: 500
+  keep_raw: true                   # pôvodný súbor podľa SHA-256 (rovnaký import sa nezdvojí)
+  default_timezone: ""             # "" = neznáma; Europe/Bratislava iba ak to organizácia potvrdila
+  truncation_window_days: 3        # prípad pri okraji sledovaného obdobia môže byť odrezaný
+  max_followups: 3                 # najviac 3 miesta na ďalšie preverenie v procesnom reporte
+
 # ---------------------------------------------------------------- cloudové modely (Azure OpenAI)
 # Vlastný rozpočet – nie zostatok Azure. Pred každým volaním sa rezervuje horný odhad ceny (vstup + max. výstup),
 # po odpovedi sa vyrovná podľa skutočných tokenov; timeout ostáva započítaný. Bez sadzby nasadenia sa nevolá.

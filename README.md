@@ -183,6 +183,12 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    čas vzniku udalosti; termín pri hypotéze o meškaní), slovník a malá ukážka niekoľkých celých prípadov, čo z toho
    pripravíš a podmienky bezplatnej skúšky. Správa je pevná šablóna a ide do Oslovení na kontrolu a ručné
    odoslanie. Ak históriu nemajú: prehliadka prípadu, schéma stavov, agregovaný report alebo manuálne zaznamenávanie.
+   **Import** (karta „Import a kvalita“): CSV alebo Parquet do oddeleného priestoru organizácie
+   (`data/eventlogs/org_<id>.duckdb`, nič neopúšťa počítač), rovnaký súbor sa nezdvojí. Systém navrhne mapovanie
+   (case_id, activity, timestamp, …; čas exportu ani mená pracovníkov nie), ty ho potvrdíš spolu so zónou, obdobím,
+   začiatočnými a koncovými aktivitami. Report kvality: chýbajúce hodnoty, neplatné časy, prechody letného času,
+   duplicity, zhodné časy, start/complete, otvorené a odrezané prípady, výber, premenovania, snapshot – s počtami,
+   podielmi a rozhodnutím; nič sa nemaže potichu. Tabuľka „dostupná“ povie, ktoré analýzy dáta podporia a prečo.
 8. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.

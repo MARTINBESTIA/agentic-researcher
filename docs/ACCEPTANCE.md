@@ -267,3 +267,11 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M30 | verejný správca: prispôsobená protihodnota bez obchodného odseku; krok 2 až po dohode | `test_public_holder_gets_adapted_return_without_business_terms`, `test_second_step_asks_for_larger_export_only_after_agreement` |
 | M30 | scenár 7 (časť žiadosti): nevhodná hypotéza iba so zdôvodnením; bez event logu alternatívny ďalší krok | `test_unfit_hypothesis_needs_explicit_reason_and_alternatives_when_log_missing` |
 | M30 | GUI: stránka Event log a procesy – žiadosti, vhodnosť | `test_eventlog_page_lists_requests_and_fit` |
+| M31 | scenár 8: opakovaný import nezdvojí dáta; rovnaké case_id v dvoch organizáciách sa nezlúči | `test_m31_eventlog_import.py::test_import_is_idempotent_and_same_case_id_in_two_orgs_is_not_merged` |
+| M31 | návrh mapovania: nie čas exportu, nie stĺpec s menami | `test_mapping_proposal_skips_export_time_and_personal_columns` |
+| M31 | scenár 9: syntetický log (zóny, zhodné časy, duplicity, neúplné prípady) → reprodukovateľný report s vylúčeniami; nič nezmazané | `test_quality_report_lists_counts_shares_decisions_and_is_reproducible`, `test_daylight_saving_transitions_are_flagged_with_documented_zone` |
+| M31 | scenár 10: identické riadky bez event_id sa nezmažú; neznáme poradie sa nevyrieši abecedou | `test_identical_rows_without_event_id_are_flagged_not_deleted`, `test_invalid_time_supports_counts_but_not_time_metrics_and_order_is_not_alphabetic` |
+| M31 | scenár 11: neplatný čas podporí početnosti, nie časové metriky; GUI uvedie dôvod | `test_invalid_time_supports_counts_but_not_time_metrics_and_order_is_not_alphabetic`, `test_eventlog_page_shows_mapping_quality_and_availability` |
+| M31 | scenár 12: start/complete bez jednoznačného párovania → žiadny vymyslený čas aktivity | `test_start_complete_without_unambiguous_pairing_gives_no_activity_time` |
+| M31 | scenár 7: snapshot sa nespracuje ako história | `test_snapshot_is_not_processed_as_event_history` |
+| M31 | Parquet, nepodporovaný formát, výmaz importu | `test_parquet_import_and_unsupported_format`, `test_delete_import_removes_tables_and_raw_file` |

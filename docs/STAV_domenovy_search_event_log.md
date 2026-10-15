@@ -11,8 +11,8 @@ presný zoznam toho, čo chýba.
 | M28 | 1, 4.1, 4.3, 5: stavy doménového výskumu, priority domén, tvrdenia so stavom a rozsahom, otázky s blokovanou akciou a históriou odpovedí, pripravenosť oslovenia nezávislá od karty, jedna hlavná otázka v prvom oslovení; schéma v14 | **hotové** (scenáre 1–5 okrem zdrojov z M29) |
 | M29 | 3, 4.2: lokálny ESCO import, fulltext, kandidáti povolaní, ohraničený doménový výskum (limity, jeden pokus na verziu vstupu), partial / needs_research s dôvodom | **hotové** (konektory O*NET, NSP, MetaIS a online ESCO API zatiaľ nie – pozri nižšie) |
 | M30 | 6: žiadosť o event log (účel, definícia prípadu, minimálna schéma, malý prvý krok, prínos, podmienky skúšky), alternatívy bez event logu | **hotové** |
-| M31 | 7.1–7.2: import CSV/Parquet do priestoru organizácie, idempotentný, mapovanie, povinné kontroly, report kvality, dostupnosť metrík | rozpracované |
-| M32 | 7.3, 8: ProcessReport (počty, frekvencie, varianty, nadväznosti, odstupy, trvanie, opakovanie, čas aktivity, odchýlka od termínu), voliteľný PM4Py adaptér, GUI a akcie | čaká |
+| M31 | 7.1–7.2: import CSV/Parquet do priestoru organizácie, idempotentný, mapovanie, povinné kontroly, report kvality, dostupnosť metrík | **hotové** (XES zatiaľ nie) |
+| M32 | 7.3, 8: ProcessReport (počty, frekvencie, varianty, nadväznosti, odstupy, trvanie, opakovanie, čas aktivity, odchýlka od termínu), voliteľný PM4Py adaptér, GUI a akcie | rozpracované |
 
 ## Ešte nie je implementované
 

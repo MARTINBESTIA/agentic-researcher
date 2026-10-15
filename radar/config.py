@@ -562,6 +562,18 @@ class DomainResearchConfig(BaseModel):
     max_role_candidates: int = 5
 
 
+class EventLogConfig(BaseModel):
+    """Import event logov (dodatok 16. 10. 2026): dáta organizácie v oddelenom priestore (DuckDB súbor na organizáciu),
+    nikdy spolu s verejným korpusom; predvolene iba lokálne."""
+
+    dir: str = "data/eventlogs"  # relatívne k configu; mimo gitu
+    max_file_mb: int = 500
+    keep_raw: bool = True  # pôvodný súbor podľa SHA-256 (reprodukovateľnosť importu)
+    default_timezone: str = ""  # "" = neznáma; napr. Europe/Bratislava, ak to organizácia potvrdila
+    truncation_window_days: int = 3  # prípad začínajúci/končiaci tak blízko okraja obdobia môže byť odrezaný
+    max_followups: int = 3  # najviac 3 miesta na ďalšie preverenie v procesnom reporte
+
+
 class OutreachConfig(BaseModel):
     sender: SenderConfig = Field(default_factory=SenderConfig)
     value_offer: ValueOfferConfig = Field(default_factory=ValueOfferConfig)
@@ -699,6 +711,7 @@ class Config(BaseModel):
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
+    event_logs: EventLogConfig = Field(default_factory=EventLogConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)
     gui: GuiConfig = Field(default_factory=GuiConfig)
@@ -757,6 +770,8 @@ def load_config(path: str | Path) -> Config:
         value = Path(getattr(cfg, field))
         if not value.is_absolute():
             setattr(cfg, field, str(base / value))
+    if not Path(cfg.event_logs.dir).is_absolute():
+        cfg.event_logs.dir = str(base / cfg.event_logs.dir)
     if cfg.privacy.salt_path and not Path(cfg.privacy.salt_path).is_absolute():
         cfg.privacy.salt_path = str(base / cfg.privacy.salt_path)
     for project in cfg.projects:
