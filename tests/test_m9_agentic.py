@@ -452,7 +452,8 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
     app = SimpleNamespace(cfg=cfg, db=db, router=router, collect_budget=None)
     result = run_workflow(app, "run-all", 60, run_stage=lambda a, s, dl: calls.append(s) or {})
     assert calls[0] == "discover" and calls[-2:] == ["report", "purge"] and len(result["stages"]) == len(calls)
-    assert set(ACTIONS) == set(expected) | {"scout", "validate", "people", "run-all", "autopilot"}
+    # lievik (funnel) vyberá krok podľa stavu hypotézy – vlastné testy v test_m19_funnel.py
+    assert set(ACTIONS) == set(expected) | {"scout", "validate", "people", "run-all", "autopilot", "funnel"}
 
     # po skončení úlohy z GUI sa spustí ďalšia z poradia
     started = []

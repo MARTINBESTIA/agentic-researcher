@@ -229,7 +229,8 @@ def stage_prepare_next(app, deadline: Deadline) -> dict:
 
     stats: Counter = Counter()
     finder = OrgFinder(app.cfg, app.db, app.router, app.searx, app.fetcher, None, None, deadline)
-    hyps = app.db.people_enabled_hypotheses()
+    ids = _ids(app, None)  # akcia pre zvolené hypotézy (aj lievik): iba ich, nie všetky na Bráne 0
+    hyps = [h for h in (app.db.get_hypothesis(i) for i in ids) if h is not None] if ids else app.db.people_enabled_hypotheses()
     # Najprv filtre segmentu pre všetky (~50 s, potrebuje ich hneď orgs), potom mapy rolí (~10 min, až people-rank).
     for h in hyps:
         if deadline.expired():

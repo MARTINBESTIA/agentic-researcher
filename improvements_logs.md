@@ -104,3 +104,9 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-14 – dosiér – plán kontaktov a „Koho osloviť“ v ZIP.** Dosiér hypotézy zatiaľ neobsahuje ciele plánu
   (`contact_targets`) ani odporúčania; pseudonymizovaná verzia by mala typ, funkciu, organizáciu, odporúčanie a čo žiadať
   (bez mien a kontaktov). · 0,5 dňa.
+- **2026-10-15 – lievik – voliteľné kroky kritika a návrhy oslovení.** Lievik ide test → kontakty → Brána 1 → Brána 2;
+  kritika (protiargumenty, otázky na rozhovory) a návrhy oslovení pre „oslov najprv“ by sa dali pridať ako kroky
+  (`funnel_steps`) hneď po kontaktoch, aby bola hypotéza pripravená aj na rozhovory Brány 0. · 0,5 dňa.
+- **2026-10-15 – lievik – menej výmen modelov.** Pri jednej hypotéze sa modely striedajú ~6–8× (agent, sudca, presný).
+  Zoskupiť kroky s rovnakou rolou (napr. agent testu ďalšej hypotézy hneď po agentovi zdrojov Brány 1) by ušetrilo
+  ~5 min na hypotézu; zmerať najprv čas výmen v Správcovi akcií. · 1 deň.

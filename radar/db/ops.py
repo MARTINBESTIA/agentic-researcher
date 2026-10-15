@@ -48,6 +48,52 @@ class OpsMixin:
         )
         return int(cur.lastrowid)
 
+    # ------------------------------------------------------------- lievik (v11)
+    def start_funnel_step(self, hid: int | None, step: str, signature: str | None, job_id: int | None) -> int:
+        cur = self._exec(
+            "INSERT INTO funnel_log (hypothesis_id, step, signature, job_id, started_at) VALUES (?, ?, ?, ?, ?)",
+            (hid, step, signature, job_id, utcnow()),
+        )
+        return int(cur.lastrowid)
+
+    def finish_funnel_step(self, row_id: int, outcome: str, next_step: str | None, reason: str, failed: bool,
+                           detail: dict[str, Any] | None = None) -> None:
+        self._exec(
+            """UPDATE funnel_log SET outcome = ?, next_step = ?, reason = ?, failed = ?, detail_json = ?, finished_at = ?
+               WHERE id = ?""",
+            (outcome, next_step, reason, int(failed), _json(detail or {}), utcnow(), row_id),
+        )
+
+    def funnel_log(self, limit: int = 30) -> list[sqlite3.Row]:
+        return self._all(
+            """SELECT f.*, h.title FROM funnel_log f LEFT JOIN hypotheses h ON h.id = f.hypothesis_id
+               ORDER BY f.id DESC LIMIT ?""", (limit,))
+
+    def funnel_last(self) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM funnel_log WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1")
+
+    def funnel_attempts(self, hid: int, step: str, signature: str) -> int:
+        """Koľkokrát už krok bežal pri presne tomto stave hypotézy (bez zmeny = zaseknutá)."""
+        return int(self._one("SELECT COUNT(*) AS n FROM funnel_log WHERE hypothesis_id = ? AND step = ? AND signature = ?",
+                             (hid, step, signature))["n"])
+
+    def funnel_runs(self, hid: int, step: str) -> int:
+        return int(self._one("SELECT COUNT(*) AS n FROM funnel_log WHERE hypothesis_id = ? AND step = ?", (hid, step))["n"])
+
+    def funnel_steps_since_find(self, step: str = "test") -> int:
+        """Počet krokov `step` od posledného hľadania nových hypotéz (find)."""
+        last = self._one("SELECT MAX(id) AS id FROM funnel_log WHERE step = 'find'")["id"] or 0
+        return int(self._one("SELECT COUNT(*) AS n FROM funnel_log WHERE step = ? AND id > ?", (step, last))["n"])
+
+    def funnel_recent_failures(self) -> int:
+        """Zlyhané kroky za sebou (od posledného úspešného)."""
+        n = 0
+        for r in self._all("SELECT failed FROM funnel_log WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 20"):
+            if not r["failed"]:
+                break
+            n += 1
+        return n
+
     def cached_output(self, task: str, object_type: str, object_id: int) -> str | None:
         """Výstup posledného úspešného volania úlohy pre objekt (JSON) – opakovaný beh nevolá model znova."""
         row = self._one(

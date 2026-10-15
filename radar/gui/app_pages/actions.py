@@ -134,6 +134,34 @@ with st.container(border=True):
         hours = st.number_input("Ako dlho (hodiny)", 1, 72, 8, key="am_auto_hours")
         start_job_button("autopilot", ACTIONS_INFO.label, hours * 60, key="am_auto_go", icon=":material/autorenew:")
 
+FUNNEL = ACTIONS["funnel"]
+with st.container(border=True):
+    from radar.funnel import STEP_LABEL, waiting_for_you
+
+    st.markdown(f"**{FUNNEL.label} (donekonečna)**")
+    st.caption(FUNNEL.what)
+    funnel_rows = d.funnel_log(12)
+    if any(j["kind"] == "funnel" for j in list(active) + list(queued)):
+        st.info("Lievik beží" + (f" · posledný krok: {STEP_LABEL.get(funnel_rows[0]['step'], funnel_rows[0]['step'])}"
+                                 + (f" H{funnel_rows[0]['hypothesis_id']}" if funnel_rows[0]["hypothesis_id"] else "")
+                                 if funnel_rows else ""), icon=":material/filter_alt:")
+    if funnel_rows:
+        st.dataframe([{"čas": local(r["started_at"]), "hypotéza": f"H{r['hypothesis_id']}" if r["hypothesis_id"] else "–",
+                       "krok": STEP_LABEL.get(r["step"], r["step"]), "výsledok": r["outcome"] or "beží…",
+                       "ďalej": STEP_LABEL.get(r["next_step"] or "", r["reason"] or ""),
+                       "chyba": "áno" if r["failed"] else ""} for r in funnel_rows],
+                     hide_index=True, alt="Posledné kroky lievika: hypotéza, krok, výsledok a čo ďalej")
+    waiting = waiting_for_you(d)
+    if waiting:
+        st.warning(f"Čaká na teba {len(waiting)} hypotéz (lievik ich preskakuje, kým nerozhodneš alebo nevložíš dáta).",
+                   icon=":material/person_alert:")
+        st.dataframe(waiting, hide_index=True, alt="Hypotézy, pri ktorých lievik čaká na tvoje dáta alebo rozhodnutie")
+    with st.container(horizontal=True, vertical_alignment="bottom"):
+        f_hours = st.number_input("Ako dlho (hodiny, 0 = donekonečna)", 0, 720, 0, key="am_funnel_hours")
+        start_job_button("funnel", FUNNEL.label, f_hours * 60, key="am_funnel_go", icon=":material/filter_alt:",
+                         help="Jedna úloha = jeden krok jednej hypotézy; ďalšia sa zaradí sama. Zastavenie: „Zastaviť "
+                              "úlohu“ pri bežiacom kroku alebo „Zastaviť všetko vrátane poradia“.")
+
 st.subheader("Bežiaca akcia a poradie")
 if queue_stalled(d):
     st.warning(f"Poradie stojí: nič nebeží a {len(queued)} akcií čaká (napr. po reštarte alebo uspatí počítača "

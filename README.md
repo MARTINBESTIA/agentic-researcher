@@ -105,6 +105,7 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
 | `purge`, `privacy [reapply]`, `export --what people --format xlsx [--include-personal]`, `export --person ID` | retencia, stav súkromia, exporty (predvolene pseudonymizované) |
 | `catalog-sync`, `workflow catalog` | lokálny index Národného katalógu (metadáta a vektory; Brána 1 hľadá podľa významu) |
 | `job autopilot --minutes 480 --mode queue --wait --resume` | plánovaný beh; `--resume` najprv dokončí prerušené poradie a úlohy |
+| `job funnel --minutes 0` | lievik: jedna hypotéza po druhej od testu po Bránu 2, donekonečna (0) alebo N minút |
 | `workflow eval`, `eval-all` | eval presnosti profilov modelov na úlohách s ≥ 50 gold labelmi |
 | `dossier --hypothesis 582 [--personal] [--data full\|sample\|none] [--no-related]` | dosiér hypotézy: všetko k hypotéze v jednom ZIP – README, CSV, Excel, JSON, texty zdrojov, Brány 0–2, volania modelov, dáta (Parquet), manifest so SHA-256; predvolene pseudonymizovaný (aj GUI: Problémy → Export všetkého) |
 | `list`, `progress`, `note`, `status`, `merge`, `deep-dive` | ako v0.1 |
@@ -184,7 +185,34 @@ oslovení, LinkedIn profily a celý beh. Naraz beží jedna akcia (GPU); ďalši
 poradia** alebo bežiacu **zastaviť a spustiť inú**. Stránka ukazuje aj model načítaný v GPU (aj
 z iných aplikácií) a históriu. Z príkazového riadku: `python -m radar workflow <akcia> --minutes N`
 (`scout`, `validate`, `people`, `contacts`, `drafts`, `evidence`, `topics`, `critique`, `themes`, `gate1`, `gate1-input`,
-`gate2`, `bench`, `autopilot`, `run-all`).
+`gate2`, `bench`, `autopilot`, `funnel`, `run-all`).
+
+### Lievik: hypotéza po hypotéze (donekonečna)
+
+Na rozdiel od autopilota (kolá akcií pre všetky hypotézy naraz) **lievik** vedie jednu hypotézu čo najďalej a až potom
+berie ďalšiu. Jedna úloha = jeden krok jednej hypotézy; na konci zaradí ďalšiu úlohu, takže beží **donekonečna**
+(alebo do zvoleného času):
+
+```
+nájsť (scout) → otestovať (agent + posúdenie; ďalej iba „podložená“) → kontakty (Brána 0, s LIA)
+            → Brána 1 (dáta; pripravenosť ≥ 0,5 → Brána 2, inak čaká na tvoje dáta) → Brána 2 (karta, experimenty, záver)
+```
+
+- **Ktorú hypotézu:** rozpracovanú (fokus) → tie, čo už prešli testom (najďalej v lieviku najskôr) → neotestované
+  (poradie fronty testu) → keď niet čo testovať, hľadá nové; po každých `workflows.funnel_find_every` (3) testoch hľadá
+  nové aj tak.
+- **Kde zastaví a čaká na teba:** Brána 1 „čaká na tvoje dáta“, návrh experimentu čaká na uzamknutie (ak nemáš zapnuté
+  automatické uzamknutie), v dátach chýba, čo experiment potrebuje, ručne pozastavená brána. Zoznam „Čaká na teba“
+  je v Správcovi akcií. Lievik medzitým pokračuje ďalšou hypotézou.
+- **Zaseknutý krok:** krok, ktorý dvakrát nezmení stav hypotézy (`funnel_max_attempts`) alebo beží 4× (`funnel_max_runs_per_step`),
+  sa pre ňu odloží; lievik sa k nej vráti, keď sa stav zmení (napr. vložíš dáta).
+- **Zastavenie:** „Zastaviť úlohu“ pri bežiacom kroku (ďalší sa nezaradí), čas z „Ako dlho“, alebo 3 zlyhané kroky za
+  sebou (nebeží Ollama alebo SearXNG – `doctor`).
+- Spustenie: Správca akcií → „Lievik: hypotéza po hypotéze“ (0 h = donekonečna), alebo
+  `python -m radar job funnel --minutes 0` (`--minutes 480` = 8 h). Časové limity krokov: `workflows.funnel_minutes`.
+- Každý krok je v tabuľke `funnel_log` (hypotéza, krok, výsledok, čo ďalej) – posledné kroky ukazuje Správca akcií.
+- Na 8 GB VRAM sa modely pri jednej hypotéze striedajú častejšie ako v autopilotovi (rádovo 6–8 výmen na hypotézu,
+  ~1 min každá). Údržbu (index katalógu, témy, kritika, návrhy oslovení) robí autopilot alebo jednotlivé akcie.
 
 ## Brána 1 (dáta) a Brána 2 (experimenty)
 
@@ -317,6 +345,7 @@ Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v sprá
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |
 | `radar/extract.py`, `verify.py`, `cluster.py`, `critic.py`, `market.py`, `report.py` | pipeline dôkazov |
 | `radar/registers.py`, `orgs.py`, `contacts.py`, `names.py`, `people.py` | RPO/RÚZ, organizácie, kontakty, ľudia a priorita |
+| `radar/funnel.py` | lievik: ďalší krok hypotézy podľa jej stavu, výber hypotézy, jeden krok na úlohu, reťaz úloh |
 | `radar/contact_scout.py`, `radar/shortlist.py` | hľadanie kontaktov podľa hypotézy (plán, dopyty, držitelia dát, ručné pridanie zo stránky); Koho osloviť (odporúčanie s dôvodmi, čo žiadať) |
 | `radar/outreach.py`, `crm.py`, `privacy.py`, `review.py`, `evals.py`, `bench.py` | oslovenia, Brána 0, súkromie, kontrola, eval, benchmark |
 | `radar/pipeline.py`, `cli.py`, `commands.py` | run-all, príkazový riadok |

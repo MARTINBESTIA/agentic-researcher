@@ -11,6 +11,7 @@
 - contacts: e-mail, telefón a LinkedIn k vybraným ľuďom (bez modelu),
 - gate1: Brána 1 – polia, zdroje, datasety (DuckDB), reprodukcia známeho čísla, pripravenosť dát,
 - gate2: Brána 2 – predregistrácia, spätný test, demo pre hypotézu × organizáciu,
+- funnel: lievik – donekonečna jeden krok jednej hypotézy po druhom (test → kontakty → Brána 1 → Brána 2),
 - bench: rýchlosť a schopnosti modelov každej roly,
 - run-all: celý beh ako v noci.
 
@@ -137,6 +138,14 @@ ACTIONS: dict[str, Action] = {
         "Pre každú rolu (rýchly, presný, agent, embeddingy) zmeria načítanie, rýchlosť promptu a generovania a či model "
         "vráti platný JSON a volá nástroje. Pomôže pri výbere modelov.",
         "výsledky v Eval (benchmark)", "všetky roly", 20),
+    "funnel": Action(
+        "Lievik: hypotéza po hypotéze",
+        "Donekonečna (alebo do zvoleného času) jeden krok jednej hypotézy po druhom: nájsť → otestovať (iba „podložená“ "
+        "ide ďalej) → kontakty (Brána 0) → Brána 1 (dáta; ≥ prah → Brána 2, inak čaká na tvoje dáta) → Brána 2 "
+        "(karta, experimenty, spätný test, záver). Najprv dokončí rozpracovanú hypotézu, potom tie, čo už prešli testom, "
+        "potom neotestované; keď niet čo testovať (a po každých 3 testoch), hľadá nové. Krok, ktorý nič nezmení, sa pre "
+        "hypotézu odloží. Zastavíš ho „Zastaviť všetko vrátane poradia“.",
+        "všetko po hypotézach + záznam krokov lievika", "všetky (podľa kroku)", 0),
     "autopilot": Action(
         "Nechať bežať všetko (autopilot)",
         "Kolá akcií v poradí podľa závislostí, kým nevyprší zvolený čas: nové hypotézy → zber k témam → test hypotéz → "
@@ -276,6 +285,13 @@ def _autopilot(app, deadline: Deadline, run, ids, report_progress) -> None:
     report_progress(autopilot=plan_round(app.cfg, app.db, config, until, int(args.get("round") or 1)))
 
 
+def _funnel(app, deadline: Deadline, run, ids, report_progress) -> None:
+    """Jeden krok lievika (jedna hypotéza) a ďalšia úloha `funnel` do poradia – pozri radar/funnel.py."""
+    from .funnel import funnel_job
+
+    funnel_job(app, run, report_progress)
+
+
 def _themes(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("embed", deadline.sub(min(5.0, deadline.remaining_minutes())))
     run("themes", deadline)
@@ -314,6 +330,11 @@ def _people(app, deadline: Deadline, run, ids: list[int] | None, report_progress
         for hid in ids:  # výber na Bránu 0 (osobné údaje iba pre hypotézy, ktoré si zvolil)
             app.db.set_people_selection(hid, True)
     app.people_ids = ids
+    people_stages(app, deadline, run)
+
+
+def people_stages(app, deadline: Deadline, run) -> None:
+    """Kroky zberu ľudí pre app.people_ids (aj lievik): príprava, organizácie, kontakty podľa hypotézy, ľudia, poradie."""
     # prepare-next (presný model): filter segmentu pre orgs a mapa rolí; people-rank na konci hľadá aj LinkedIn.
     run("prepare-next", deadline.sub(deadline.remaining_minutes() * 0.15))
     fast_min = deadline.remaining_minutes() * 0.65
@@ -470,5 +491,5 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
-    "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval,
+    "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval, "funnel": _funnel,
 }

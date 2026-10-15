@@ -121,8 +121,9 @@ def _spawn(cfg: Config, db: DB, job_id: int, popen: Callable[..., Any]) -> int:
 def start_job(cfg: Config, db: DB, config_path: str | Path, kind: str, minutes: float,
               hypothesis_ids: list[int] | None = None, popen: Callable[..., Any] = subprocess.Popen,
               alive: Callable[[int | None], bool] = pid_alive, mode: str = "start",
-              run: Callable[..., Any] = subprocess.run) -> int:
-    """mode: start (iba ak nič nebeží), queue (zaradí do poradia, ak niečo beží), replace (zastaví bežiacu a spustí)."""
+              run: Callable[..., Any] = subprocess.run, extra_args: dict[str, Any] | None = None) -> int:
+    """mode: start (iba ak nič nebeží), queue (zaradí do poradia, ak niečo beží), replace (zastaví bežiacu a spustí).
+    extra_args: ďalšie argumenty úlohy (napr. koniec reťaze autopilota alebo lievika pri reštarte)."""
     if mode not in ("start", "queue", "replace"):
         raise ValueError(f"Neznámy režim {mode!r}")
     refresh_jobs(db, alive)
@@ -131,7 +132,7 @@ def start_job(cfg: Config, db: DB, config_path: str | Path, kind: str, minutes: 
         for job in running:
             stop_job(db, job["id"], run=run)
         running = []
-    args = {"minutes": minutes, "hypotheses": hypothesis_ids or [], "config": str(config_path)}
+    args = {**(extra_args or {}), "minutes": minutes, "hypotheses": hypothesis_ids or [], "config": str(config_path)}
     if running:
         if mode == "queue":
             return db.create_job(kind, args, status="queued")
@@ -193,8 +194,10 @@ def restart_job(cfg: Config, db: DB, config_path: str | Path, job_id: int, popen
     if job is None:
         raise ValueError("Úloha neexistuje.")
     args = json.loads(job["args_json"] or "{}")
-    return start_job(cfg, db, config_path, job["kind"], args.get("minutes") or 60, args.get("hypotheses") or None,
-                     popen=popen, alive=alive, mode="queue")
+    extra = {k: v for k, v in args.items() if k not in ("minutes", "hypotheses", "config")}  # koniec reťaze, kolo…
+    minutes = args.get("minutes")
+    return start_job(cfg, db, config_path, job["kind"], 60 if minutes is None else minutes, args.get("hypotheses") or None,
+                     popen=popen, alive=alive, mode="queue", extra_args=extra)
 
 
 def stop_job(db: DB, job_id: int, run: Callable[..., Any] = subprocess.run) -> bool:

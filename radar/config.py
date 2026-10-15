@@ -293,6 +293,15 @@ class WorkflowsConfig(BaseModel):
     retest_days: int = 90  # po koľkých dňoch sa otestovaná hypotéza otestuje znova
     known_titles_in_prompt: int = 12  # scout dostane názvy podobných známych hypotéz, aby ich neopakoval
     jobs_log_dir: str = "logs/jobs"  # výstup úloh spustených z GUI (logy maskujú e-maily a telefóny)
+    # Lievik (akcia funnel): jedna hypotéza po druhej, donekonečna – test → kontakty → Brána 1 → Brána 2.
+    funnel_steps: list[str] = Field(default_factory=lambda: ["test", "contacts", "gate1", "gate2"])
+    funnel_minutes: dict[str, int] = Field(
+        default_factory=lambda: {"find": 45, "test": 30, "contacts": 60, "gate1": 120, "gate2": 60}
+    )
+    funnel_find_every: int = 3  # po toľkých testoch neotestovaných hypotéz aj hľadanie nových (0 = iba keď niet čo testovať)
+    funnel_max_attempts: int = 2  # krok, ktorý toľkokrát nezmení stav hypotézy, sa pre ňu odloží (zaseknutá)
+    funnel_max_runs_per_step: int = 4  # najviac behov jedného kroku pre jednu hypotézu (napr. dlhá Brána 1)
+    funnel_max_failures: int = 3  # toľko zlyhaných krokov za sebou (napr. nebeží model) → lievik zastaví
 
 
 # ------------------------------------------------------------------ Brána 1 a 2

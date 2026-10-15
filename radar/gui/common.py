@@ -214,6 +214,11 @@ def _render_job(job, live: bool) -> None:
     with st.container(border=True):
         st.markdown(f"**{esc(head)}**")
         bits = [f"krok: {progress['krok']}"] if progress.get("krok") and live else []
+        funnel = progress.get("lievik") or {}
+        if funnel.get("krok") or funnel.get("stop"):
+            bits.append("lievik: " + " ".join(str(x) for x in (funnel.get("krok"), funnel.get("hypotéza")) if x)
+                        + (f" → {funnel['výsledok']}" if funnel.get("výsledok") else f" ({funnel.get('dôvod', '')})")
+                        + (f" · zastavil: {funnel['stop']}" if funnel.get("stop") else ""))
         if progress.get("dávka"):
             bits.append(f"dávka {progress['dávka']}: {', '.join(progress.get('hypotézy') or [])}")
         if live:

@@ -15,7 +15,8 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 **Stav:** verzia 0.2 „Brána 0 agregátor“ podľa `docs/SPEC_brana0.md` je implementovaná (M1–M8,
 11. 10. 2026), rozšírená o Správcu akcií a výber modelov v GUI, LinkedIn a kontakty k osobe, Brány 1 a 2
 (DuckDB; schéma v9 – vstupy človeka pre Bránu 1, problémové karty, podhypotézy, experimenty podľa úlohy, index katalógu) – M9–M13 v `docs/ACCEPTANCE.md`;
-hľadanie kontaktov podľa hypotézy a „Koho osloviť“ v Bráne 0 (schéma v10, M18). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+hľadanie kontaktov podľa hypotézy a „Koho osloviť“ v Bráne 0 (schéma v10, M18); lievik „hypotéza po hypotéze“
+od testu po Bránu 2, donekonečna (schéma v11, M19). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -38,7 +39,7 @@ docker compose up -d                     # SearXNG
 | Súbor | Úloha |
 |---|---|
 | `radar/config.py` | pydantic konfigurácia; `config.yaml` obsahuje len zmeny voči predvoleným hodnotám; `models` (roly, routing úloh, profily), `discovery`, `people`, `outreach`, `privacy`, `gui` |
-| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia; plán kontaktov je v `gate0.py`), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
+| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, nastavenia; plán kontaktov je v `gate0.py`, záznam lievika v `ops.py`), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
 | `radar/models.py` | `ModelRouter`: úloha → rola (fast/accurate), uvažovanie, k hlasov; `run_task` (undecided, kontrola, provenance), `run_samples`; pri výmene modelu uvoľní predošlý z GPU |
 | `radar/llm.py` | klient OpenAI-kompatibilného servera (Ollama); JSON podľa schémy; `LLMTruncated` pri orezaní; `make_exclusive` |
 | `radar/prompts.py` | všetky prompty s verziou (`TASK_PROMPTS`, `prompt_version`); inštrukcie po anglicky, výstup v jazyku `{lang}` |
@@ -50,6 +51,7 @@ docker compose up -d                     # SearXNG
 | `radar/exp_ops.py`, `radar/exp_plan.py`, `radar/exp_tasks.py`, `radar/exp_conclude.py` | univerzálne experimenty Brány 2: operácie nad dátami (DuckDB, bez únikov budúcich dát), návrh modelom + skúšobný beh, testy podľa úlohy (poradie, predpoveď, anomália, prah, porovnanie) s výsledkovou tabuľkou, záver pre problém |
 | `radar/gate2_trace.py` | postup experimentu Brány 2 krok po kroku (výber organizácie, návrh, uzamknutie, SQL a rad, kolá testu, výber auto, výpočet, demo) – GUI a Markdown |
 | `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
+| `radar/funnel.py` | lievik (akcia `funnel`): ďalší krok hypotézy podľa stavu (test → kontakty → Brána 1 → Brána 2), výber (fokus, rozpracované, fronta testu, hľadanie nových), odloženie zaseknutých, jeden krok na úlohu a ďalšia úloha do poradia; záznam `funnel_log` |
 | `radar/nku.py` | NKÚ: otvorené dáta kontrolných zistení + zoznam subjektov (IČO), bez adries – štítky pre experimenty |
 | `radar/eta.py` | odhady časov pre dashboard (história akcií, poradie, miestny čas) |
 | `radar/dossier.py` | dosiér hypotézy: všetko k hypotéze (aj rodič a podhypotézy) v ZIP; predvolene pseudonymizovaný (`Scrubber`), s menami a kontaktmi iba na voľbu so záznamom do poznámok |

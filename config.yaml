@@ -252,6 +252,16 @@ workflows:
   retest_days: 90                  # otestovaná hypotéza sa po 90 dňoch testuje znova
   known_titles_in_prompt: 12       # scout dostane podobné známe hypotézy, aby ich neopakoval
   jobs_log_dir: logs/jobs          # výstup úloh z GUI (maskované e-maily a telefóny)
+  # Lievik (Správca akcií → „Lievik: hypotéza po hypotéze“, `python -m radar job funnel --minutes 0`): jedna úloha
+  # = jeden krok jednej hypotézy, potom ďalšia úloha, donekonečna (0 min) alebo do zvoleného času. Kroky v poradí:
+  # test (agent + posúdenie, iba „podložená“ ide ďalej) → contacts (Brána 0, vyžaduje LIA) → gate1 (dáta) → gate2.
+  # Krok mimo autopilot_hours sa odloží (kontakty sa preskočia, ostatné čakajú na svoj čas).
+  funnel_steps: [test, contacts, gate1, gate2]
+  funnel_minutes: {find: 45, test: 30, contacts: 60, gate1: 120, gate2: 60}   # časový limit jedného kroku
+  funnel_find_every: 3             # po 3 testoch neotestovaných hypotéz aj hľadanie nových (0 = iba keď niet čo testovať)
+  funnel_max_attempts: 2           # krok 2× bez zmeny stavu hypotézy → odloží sa (zaseknutá), lievik ide ďalej
+  funnel_max_runs_per_step: 4      # najviac behov jedného kroku pre jednu hypotézu
+  funnel_max_failures: 3           # 3 zlyhané kroky za sebou (nebeží model, SearXNG) → lievik zastaví
 
 # ---------------------------------------------------------------- Brána 1 (dáta) a Brána 2 (experimenty)
 # Brána 1 beží pre hypotézy vybrané na Bránu 0 (súbežne s rozhovormi): polia → zdroje (licencia, frekvencia,

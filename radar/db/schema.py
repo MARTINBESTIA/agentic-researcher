@@ -629,3 +629,21 @@ CREATE TABLE IF NOT EXISTS contact_targets (  -- koho osloviť k hypotéze: zák
 );
 CREATE INDEX IF NOT EXISTS idx_contact_targets_h ON contact_targets(hypothesis_id, id);
 """
+
+# ---------------------------------------------------------------- v11: lievik (jedna hypotéza po druhej)
+SCHEMA_V11 = """
+CREATE TABLE IF NOT EXISTS funnel_log (  -- kroky lievika: ktorá hypotéza, aký krok, výsledok a čo ďalej
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER REFERENCES hypotheses(id),  -- NULL pri hľadaní nových hypotéz
+  step TEXT NOT NULL,                       -- find | test | contacts | gate1 | gate2
+  signature TEXT,                           -- stav hypotézy pred krokom (rovnaký stav opakovane = zaseknutá)
+  outcome TEXT,                             -- výsledok krátko (verdikt, stav brány, počty)
+  next_step TEXT,                           -- ďalší krok hypotézy po tomto (NULL = lievik pre ňu skončil alebo čaká)
+  reason TEXT,                              -- prečo ďalej / prečo stop
+  failed INTEGER NOT NULL DEFAULT 0,
+  detail_json TEXT,
+  job_id INTEGER,
+  started_at TEXT NOT NULL, finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_funnel_h ON funnel_log(hypothesis_id, step);
+"""

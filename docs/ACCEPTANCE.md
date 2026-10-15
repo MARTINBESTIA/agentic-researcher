@@ -186,3 +186,11 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M18 | 9 krok people navštívi aj stránku výsledku hľadania | `test_website_people_visits_result_page_first` |
 | M18 | 10 bez LIA sa nehľadá; funkcia „práca s dátami“ podľa celých slov; držitelia dát bez návrhu rozhovoru | `test_contact_search_needs_lia`, `test_data_role_fit_uses_whole_words`, `test_drafts_skip_data_holders` |
 | M18 | 11 GUI Brána 0 → Koho osloviť: e-mail, odporúčanie, dôvody, čo žiadať | `test_m2_gui.py::test_gate0_shows_whom_to_contact_with_email_reason_and_ask` |
+| M19 | 1 lievik: ďalší krok podľa stavu – test → kontakty → Brána 1 → Brána 2; čaká na tvoje dáta a na uzamknutie; hotovo | `test_m19_funnel.py::test_next_step_follows_hypothesis_from_test_to_gate2` |
+| M19 | 2 neúspešný test končí; kontakty bez LIA preskočené; krok mimo autopilot_hours čaká | `test_failed_test_stops_and_contacts_skip_without_lia_or_outside_hours` |
+| M19 | 3 výber: fokus → rozpracované → neotestované → hľadanie nových | `test_pick_prefers_focus_then_started_then_untested_then_find` |
+| M19 | 4 hľadanie nových po N testoch; zaseknutý krok (rovnaký stav) sa odloží | `test_find_every_n_tests_and_stuck_step_is_skipped` |
+| M19 | 5 jedna úloha = jeden krok so záznamom; ďalšia úloha do poradia (0 min = donekonečna) pokračuje tou istou hypotézou | `test_funnel_job_runs_one_step_logs_it_and_queues_next` |
+| M19 | 6 reťaz končí po čase alebo po opakovaných zlyhaniach | `test_funnel_chain_stops_after_time_or_repeated_failures` |
+| M19 | 7 reštart prerušenej úlohy zachová argumenty reťaze | `test_restart_keeps_chain_arguments` |
+| M19 | 8 GUI: posledné kroky lievika a „Čaká na teba“ | `test_actions_page_shows_funnel_log_and_waiting_hypotheses` |
