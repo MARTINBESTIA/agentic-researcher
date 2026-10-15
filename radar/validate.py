@@ -21,6 +21,7 @@ from typing import Any
 from openai import APIConnectionError
 
 from .agent import ResearchAgent
+from .search import SearchUnavailable
 from .config import Config
 from .critic import evidence_block
 from .db import DB
@@ -110,8 +111,8 @@ def run_validate_search(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline:
         try:
             summary = agent.run(validation_task(db, hyp), w.validate_max_steps, deadline=deadline)
             db.add_note(hyp["id"], f"Test hypotézy (agent): {summary}", source="agent")
-        except APIConnectionError:
-            raise  # model nebeží: hypotéza ostane vo fronte a test sa zopakuje pri ďalšom behu
+        except (APIConnectionError, SearchUnavailable):
+            raise  # model alebo vyhľadávač nebeží: hypotéza ostane vo fronte nedotknutá a test sa zopakuje
         except Exception as exc:  # noqa: BLE001 – hypotéza sa aj tak posúdi z doterajších dôkazov
             log.warning("Test H%s: agent zlyhal: %s", hyp["id"], exc)
             info = {"ok": False, "chyba": str(exc)[:200]}

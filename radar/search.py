@@ -15,6 +15,11 @@ from .util import canonical_url
 log = logging.getLogger(__name__)
 
 
+class SearchUnavailable(RuntimeError):
+    """SearXNG nepočúva (Docker alebo kontajner nebeží). Krok sa zastaví hneď – agent by inak minul všetky kroky
+    na opakované hľadanie a test hypotézy by sa zarátal ako neúspešný (úloha #108, 15. 10. 2026)."""
+
+
 @dataclass
 class SearchResult:
     url: str
@@ -99,7 +104,11 @@ class SearxClient:
         if engines:
             params["engines"] = ",".join(engines)
             self.stats["s_vynechanými_vyhľadávačmi"] += 1
-        resp = self.http.get(self.cfg.searxng_url.rstrip("/") + "/search", params=params)
+        try:
+            resp = self.http.get(self.cfg.searxng_url.rstrip("/") + "/search", params=params)
+        except httpx.ConnectError as exc:
+            raise SearchUnavailable(f"SearXNG nebeží na {self.cfg.searxng_url} – spusti Docker Desktop a kontajner "
+                                    "radar-searxng (po reštarte najprv scripts\\fix_docker_sockets.ps1)") from exc
         if resp.status_code == 403:
             raise RuntimeError("SearXNG nemá povolený formát JSON – pozri searxng/settings.yml (search.formats).")
         resp.raise_for_status()

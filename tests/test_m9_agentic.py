@@ -788,3 +788,28 @@ def test_autopilot_action_hours_window(tmp_path):
     plan = plan_round(cfg, db, "config.yaml", when + timedelta(minutes=120), 1, now=when)
     assert plan["preskočené"]["scout"].startswith("mimo času") and plan["naplánované"][0]["akcia"] == "topics"
 
+
+def test_search_down_stops_validation_without_counting_attempts(tmp_path):
+    """Úloha #108: Docker nebežal, agent 6× zopakoval hľadanie a hypotéze sa zarátal neúspešný pokus."""
+    import httpx
+
+    from radar.config import SearchConfig
+    from radar.search import SearchUnavailable, SearxClient
+    from radar.validate import run_validate_search
+
+    def refused(request):
+        raise httpx.ConnectError("[WinError 10061] No connection could be made", request=request)
+
+    searx = SearxClient(SearchConfig(delay_s=0), "test")
+    searx.http = httpx.Client(transport=httpx.MockTransport(refused))
+    with pytest.raises(SearchUnavailable, match="SearXNG nebeží"):
+        searx.search("obce obstarávanie")
+    cfg, db, rec, router = setup(tmp_path)
+    hid = db.create_hypothesis("Kapacita obcí na obstarávanie", "", "malé obce")
+    rec.responses["tools"] = [SimpleNamespace(content=None, tool_calls=[SimpleNamespace(
+        id="1", function=SimpleNamespace(name="web_search", arguments='{"query": "obce"}'))])] * 3
+    with pytest.raises(SearchUnavailable):
+        run_validate_search(cfg, db, router, searx, None, Deadline(1), ids=[hid])
+    h = db.get_hypothesis(hid)
+    assert h["validation_runs"] == 0 and h["validation_state"] is None  # nedotknutá, ostáva vo fronte
+

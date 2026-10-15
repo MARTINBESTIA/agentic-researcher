@@ -21,7 +21,7 @@ from .db import DB
 from .fetch import Fetcher
 from .models import ModelRouter, as_router
 from .prompts import AGENT_SYSTEM
-from .search import SearxClient
+from .search import SearchUnavailable, SearxClient
 from .util import PERSONAL_RE, Deadline, chunk_text, strip_thinking
 
 log = logging.getLogger(__name__)
@@ -275,6 +275,8 @@ class ResearchAgent:
                 )
             if name == "finish":
                 return self.finish(str(args.get("summary", "")))
+        except SearchUnavailable:
+            raise  # vyhľadávač nebeží: agent nemá čo robiť, krok sa zastaví (nie „zlyhalo hľadanie“ 6× za sebou)
         except Exception as exc:  # chyba nástroja sa vráti modelu, agent pokračuje
             log.warning("Nástroj %s zlyhal: %s", name, exc)
             return f"Tool {name} failed: {exc}"

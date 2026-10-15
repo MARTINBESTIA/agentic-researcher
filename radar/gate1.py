@@ -536,7 +536,9 @@ def run_sources(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadlin
         except Exception as exc:  # noqa: BLE001 – zlyhanie modelu nezastaví beh (invariant 5)
             from openai import APIConnectionError
 
-            if isinstance(exc, APIConnectionError):
+            from .search import SearchUnavailable
+
+            if isinstance(exc, (APIConnectionError, SearchUnavailable)):
                 raise
             log.warning("Brána 1: agent zdrojov H%s zlyhal: %s", hyp["id"], exc)
             stats["errors"] += 1

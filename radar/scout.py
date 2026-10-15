@@ -18,6 +18,7 @@ from openai import APIConnectionError
 from rapidfuzz import fuzz, process
 
 from .agent import ResearchAgent
+from .search import SearchUnavailable
 from .config import Config
 from .db import DB
 from .discover import matrix_cells
@@ -72,8 +73,8 @@ def run_scout(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline,
                 "Search in Slovak first, then Czech or English.")
         try:
             summary = agent.run(task, w.scout_max_steps, system=system, deadline=deadline)
-        except APIConnectionError:
-            raise  # model nebeží: ďalšie sedenia by zlyhali tiež
+        except (APIConnectionError, SearchUnavailable):
+            raise  # model alebo vyhľadávač nebeží: ďalšie sedenia by zlyhali tiež
         except Exception as exc:  # noqa: BLE001 – zlyhanie modelu nezastaví beh (invariant 5)
             log.warning("Prieskum %s × %s zlyhal: %s", sector, pain, exc)
             stats["errors"] += 1
