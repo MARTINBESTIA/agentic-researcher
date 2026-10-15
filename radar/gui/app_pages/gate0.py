@@ -28,7 +28,11 @@ with tab_who:
                   help="E-mail osoby alebo organizácie (pri generickom požiadaj o nasmerovanie).")
         st.metric("Doplň kontakt", summary["odporúčanie"].get("doplň kontakt", 0), border=True,
                   help="Iba telefón, skrytý e-mail (otvor stránku ručne) alebo LinkedIn.")
-        st.metric("S e-mailom", summary["s_e-mailom"], border=True)
+        st.metric("S e-mailom", summary["s_e-mailom"], border=True, help="Unikátne e-maily (spoločný sa ráta raz), bez uzavretých.")
+        st.metric("Fronta prvého oslovenia", summary["fronta_prvého_oslovenia"], border=True,
+                  help=f"{summary['fronta_organizácie']} organizácií, {summary['fronta_kanály']} kanálov. Bez oslovených "
+                       "a odmietnutých (v ktorejkoľvek hypotéze), jedna osoba na organizáciu, organizácia oslovená "
+                       f"za posledných {c.outreach.org_cooldown_days} dní čaká.")
     st.caption("Odporúčanie je pravidlo, nie hodnotenie človeka: dôvody sú v stĺpci „dôvody“. Typy: **zákazník** "
                "(rozhovor o poslednom prípade problému), **držiteľ dát** (schéma a vzorka), **expert** (posúdenie, "
                "odporúčanie). Účel (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert) má každý "
@@ -39,10 +43,14 @@ with tab_who:
                                      key="g0_kind")
         tiers = st.multiselect("Odporúčanie", list(TIERS), default=[t for t in TIERS if t != "neoslovovať"],
                                key="g0_tiers")
-    shown = [r for r in rows if r["odporúčanie"] in tiers and (kinds in (None, "všetko") or r["typ"] == kinds)]
-    table = [{k: r[k] for k in ("odporúčanie", "typ", "osoba", "funkcia", "účel", "organizácia", "e-mail", "telefón",
-                                "prečo", "čo_žiadať", "dôvody", "dôkaz_účelu", "stav")} | {"zdroj": safe_url(r["zdroj_kontaktu"])}
-             for r in shown]
+        only_queue = st.toggle("Iba fronta prvého oslovenia", key="g0_queue",
+                               help="Noví kontakty bez oslovenia v žiadnej hypotéze; oslovení sú v stave „čaká na "
+                                    "odpoveď“ alebo „nadviazanie“.")
+    shown = [r for r in rows if r["odporúčanie"] in tiers and (kinds in (None, "všetko") or r["typ"] == kinds)
+             and (not only_queue or r.get("prvé_oslovenie"))]
+    table = [{k: r[k] for k in ("odporúčanie", "stav_komunikácie", "ďalšia_akcia", "typ", "osoba", "funkcia", "účel",
+                                "organizácia", "e-mail", "telefón", "prečo", "čo_žiadať", "dôvody", "dôkaz_účelu")}
+             | {"zdroj": safe_url(r["zdroj_kontaktu"])} for r in shown]
     if not rows:
         st.info("Zatiaľ nikto. Spusti hľadanie: organizácie → plán kontaktov podľa hypotézy (zákazník, držiteľ dát, "
                 "expert) → ľudia a kontakty z webov → poradie.", icon=":material/info:")

@@ -228,3 +228,7 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M22 | 7 dokument dodávateľa nie je úspech objavovania | `test_vendor_documents_do_not_reward_discovery` |
 | M22 | 8 kvalita IČO s pôvodnou hodnotou; profil zo snapshotu tabuľky | `test_identifier_quality_keeps_original_and_reprofile_from_snapshot` |
 | M22 | 9 GUI: osi na stránke Problémy, referenčná vzorka v Evale | `test_problems_page_shows_axes_and_eval_page_reference_sample` |
+| M23 | 1 sonda auditu: oslovený, odpovedajúci a odmietnutý kontakt nie je vo fronte prvého oslovenia; odmietnutý sa nepočíta do cieľa | `test_m23_contact_queue.py::test_states_from_audit_probe_and_first_contact_queue` |
+| M23 | 2 oslovenie v inej hypotéze a odstup organizácie | `test_contact_from_other_hypothesis_and_org_cooldown` |
+| M23 | 3 spoločný e-mail a jedna osoba z organizácie vo fronte; súhrn podľa unikátnych organizácií | `test_shared_mailbox_and_one_contact_per_organization_in_queue` |
+| M23 | 4 migrácia v13 zachová oslovenia a umožní oslovenie organizácie bez osoby | `test_migration_v13_keeps_outreach_and_allows_organization_contact` |

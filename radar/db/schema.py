@@ -682,3 +682,104 @@ CREATE TABLE IF NOT EXISTS field_bindings (  -- väzba požiadavky na dáta: pol
 CREATE INDEX IF NOT EXISTS idx_field_bindings_f ON field_bindings(field_id, id);
 CREATE INDEX IF NOT EXISTS idx_field_bindings_h ON field_bindings(hypothesis_id);
 """
+
+# ---------------------------------------------------------------------------------- verzia 13
+# Oslovenia podľa účelu (audit 15. 10. 2026): oslovenie aj organizácie cez funkčný kontakt (bez osoby), režim správy,
+# návrh prínosu a reťazec „prečo → potreba → výstup → vstup“; doménové prehľady, návrhy prínosu, výsledky oslovení;
+# cloudové modely (rezervácia a vyrovnanie nákladov, cache odpovedí).
+OUTREACH_V13_COLUMNS = ("id, person_id, hypothesis_id, contact_point_id, channel, variant, subject, body, facts_json, "
+                        "checks_json, status, approved_at, sent_at, follow_up_due, follow_up_count, created_at, updated_at")
+SCHEMA_V13_OUTREACH = f"""
+CREATE TABLE outreach_v13 (
+  id INTEGER PRIMARY KEY,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,       -- NULL = organizácia cez funkčný kontakt
+  org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id),
+  contact_point_id INTEGER REFERENCES contact_points(id) ON DELETE SET NULL,
+  channel TEXT NOT NULL,                    -- email|linkedin|phone
+  variant TEXT NOT NULL,                    -- A|B
+  subject TEXT, body TEXT NOT NULL,
+  facts_json TEXT NOT NULL, checks_json TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  approved_at TEXT, sent_at TEXT, follow_up_due TEXT,
+  follow_up_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'discovery',   -- discovery|data_request|expert_review|pilot
+  proposal_id INTEGER,                      -- návrh prínosu (value_proposals)
+  package_json TEXT,                        -- prečo tento človek → potreba → výstup → minimálny vstup, politika, stav
+  readiness TEXT,                           -- ready | needs_input (zástupné polia, chýba zdroj dôvodu výberu)
+  message_version INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO outreach_v13 ({OUTREACH_V13_COLUMNS}, org_id)
+  SELECT {OUTREACH_V13_COLUMNS}, (SELECT p.org_id FROM people p WHERE p.id = outreach.person_id) FROM outreach;
+DROP TABLE outreach;
+ALTER TABLE outreach_v13 RENAME TO outreach;
+CREATE INDEX IF NOT EXISTS idx_outreach_person ON outreach(person_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_org ON outreach(org_id);
+"""
+
+SCHEMA_V13 = """
+CREATE TABLE IF NOT EXISTS domain_briefs (  -- päťminútový prehľad domény, zdieľaný kontaktmi domény, s verziami
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,                 -- theme:<id> alebo hypothesis:<id>
+  title TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  brief_json TEXT NOT NULL,                 -- proces, pojmy, roly, rozhodnutie, dnešný postup, dáta, otázky, neznáme
+  sources_json TEXT NOT NULL,               -- citáty, z ktorých prehľad vznikol (claim_id, URL)
+  inputs_hash TEXT NOT NULL,                -- podklady (tvrdenia, karta, odpovede); zmena = nová verzia
+  checks_json TEXT,
+  status TEXT NOT NULL,                     -- ok | needs_review | superseded
+  model TEXT, reason TEXT,                  -- prečo nová verzia (napr. odpoveď kontaktu)
+  created_at TEXT NOT NULL,
+  UNIQUE (domain_key, version)
+);
+CREATE TABLE IF NOT EXISTS value_proposals (  -- návrh prínosu pre typ adresáta (hypotéza potreby → výstup → vstup)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  brief_id INTEGER REFERENCES domain_briefs(id) ON DELETE SET NULL,
+  recipient_kind TEXT NOT NULL,             -- customer | data_holder | expert
+  proposal_json TEXT NOT NULL,
+  need_status TEXT NOT NULL DEFAULT 'hypothesis',  -- hypothesis | confirmed | refuted
+  evidence_refs_json TEXT, checks_json TEXT,
+  status TEXT NOT NULL,                     -- checked | needs_edit | pending_review | approved
+  delivery_commitment_approved INTEGER NOT NULL DEFAULT 0,  -- konkrétny záväzok (rozsah, termín) potvrdil človek
+  commercial_policy_version TEXT,
+  inputs_hash TEXT, model TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_value_proposals_h ON value_proposals(hypothesis_id, recipient_kind);
+CREATE TABLE IF NOT EXISTS outreach_outcomes (  -- výsledok oslovenia (osobné údaje: maže ho forget)
+  id INTEGER PRIMARY KEY,
+  outreach_id INTEGER REFERENCES outreach(id) ON DELETE SET NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  hypothesis_id INTEGER NOT NULL,
+  proposal_id INTEGER,
+  message_version INTEGER,
+  reply TEXT,                               -- none | relevant | redirect | not_relevant | declined
+  problem_relevance TEXT,                   -- confirmed | refuted | unclear
+  sample_obtained INTEGER NOT NULL DEFAULT 0, interview_agreed INTEGER NOT NULL DEFAULT 0,
+  demo_done INTEGER NOT NULL DEFAULT 0, pilot_agreed INTEGER NOT NULL DEFAULT 0,
+  value_shown INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0,
+  rejection_reason TEXT, next_action TEXT, note TEXT,
+  prep_minutes REAL, delivery_days REAL,
+  recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outcomes_h ON outreach_outcomes(hypothesis_id);
+CREATE TABLE IF NOT EXISTS llm_usage (  -- cloudové volania: rezervácia horného odhadu ceny pred volaním, vyrovnanie po
+  id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL, profile TEXT, deployment TEXT, task TEXT,
+  status TEXT NOT NULL,                     -- reserved | settled | failed | uncertain | cached
+  reserved_eur REAL NOT NULL DEFAULT 0, cost_eur REAL,
+  prompt_tokens INTEGER, completion_tokens INTEGER, reasoning_tokens INTEGER,
+  rate_json TEXT, note TEXT,
+  created_at TEXT NOT NULL, settled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_t ON llm_usage(created_at);
+CREATE TABLE IF NOT EXISTS llm_cache (  -- odpoveď cloudového modelu podľa providera, nasadenia, promptu, parametrov a vstupu
+  key TEXT PRIMARY KEY,
+  provider TEXT, deployment TEXT, task TEXT,
+  response TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+"""

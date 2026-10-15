@@ -360,6 +360,7 @@ outreach:
   phone_opener_max_words: 80
   forbidden_phrases: [ponúkame, naše riešenie, náš produkt, demo, zľava, akcia, bezplatná konzultácia, cenová ponuka]
   exclude_orgs: []                              # IČO alebo domény, ktoré sa nikdy neoslovujú (konflikt záujmov)
+  org_cooldown_days: 21                         # organizácia oslovená za posledných 21 dní nedostane ďalšie prvé oslovenie
 
 # ---------------------------------------------------------------- súkromie (R-PRIV)
 privacy:

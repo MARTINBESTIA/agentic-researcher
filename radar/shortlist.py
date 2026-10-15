@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from datetime import date, timedelta
 from typing import Any
 
 from .config import Config
@@ -30,6 +31,12 @@ LINK_LABEL = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlas
               "procurement_contact": "kontakt v obstarávaní", "expert": "expert"}
 STRONG_LINKS = ("quoted_about_problem", "role_owner", "data_holder", "process_user")
 DONE_STATUSES = {"contacted": "oslovený", "replied": "odpovedal", "interviewed": "rozhovor hotový"}
+# Stav komunikácie s kontaktom naprieč hypotézami (audit 15. 10. 2026: odporúčanie nerozlišovalo nové oslovenie od
+# prebiehajúcej komunikácie – oslovený aj odpovedajúci kontakt bol stále „oslov najprv“).
+STAGES = ("nové", "návrh", "pripravené na odoslanie", "čaká na odpoveď", "nadviazanie", "uzavreté")
+CLOSED = {"declined", "objected"}
+ENGAGED = {"replied", "scheduled", "interviewed", "no_show"}
+WAITING = {"sent", "no_reply", "bounced"}
 
 
 def _json(value: str | None) -> dict[str, Any]:
@@ -162,9 +169,105 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
         })
     rows.sort(key=lambda r: (TIERS.index(r["odporúčanie"]), -r["väzba_sila"], -(r["kanál"] or 0), -(r["role_fit"] or 0),
                              r["organizácia"], r["osoba"]))
+    apply_queue(cfg, db, hid, rows)
     return rows
 
 
+def _stage(history: list, person_status: str | None, hid: int, today: date) -> tuple[str, str]:
+    """(stav komunikácie, ďalšia akcia) z oslovení osoby vo všetkých hypotézach a stavu osoby."""
+    statuses = {h["status"] for h in history}
+    other = sorted({h["hypothesis_id"] for h in history if h["hypothesis_id"] != hid})
+    where = f" (H{', H'.join(map(str, other))})" if other else ""
+    if statuses & CLOSED or person_status in ("declined", "excluded"):
+        return "uzavreté", "nič – odmietol(a) alebo vylúčený"
+    if statuses & ENGAGED or person_status in ("replied", "interviewed"):
+        if "interviewed" in statuses or person_status == "interviewed":
+            return "nadviazanie", "zapísať výsledok rozhovoru a dohodnúť ďalší krok" + where
+        return "nadviazanie", "dohodnúť rozhovor alebo ďalší krok" + where
+    waiting = [h for h in history if h["status"] in WAITING]
+    if waiting:
+        if any(h["status"] == "bounced" for h in waiting) and not any(h["status"] != "bounced" for h in waiting):
+            return "čaká na odpoveď", "e-mail sa vrátil – doplň iný kontakt"
+        due = min((h["follow_up_due"] for h in waiting if h["follow_up_due"]), default=None)
+        if due and due <= today.isoformat():
+            return "čaká na odpoveď", f"poslať pripomienku (follow-up od {due})" + where
+        return "čaká na odpoveď", (f"čakať na odpoveď (pripomienka {due})" if due else "čakať na odpoveď") + where
+    if "approved" in statuses:
+        return "pripravené na odoslanie", "odoslať ručne zo svojej schránky" + where
+    if statuses & {"draft", "needs_edit"}:
+        here = [h for h in history if h["hypothesis_id"] == hid and h["status"] in ("draft", "needs_edit")]
+        if here:
+            return "návrh", "upraviť návrh" if any(h["status"] == "needs_edit" for h in here) else "skontrolovať a schváliť návrh"
+        return "návrh", "návrh pripravený v inej hypotéze" + where
+    return "nové", "pripraviť návrh oslovenia"
+
+
+def apply_queue(cfg: Config, db: DB, hid: int, rows: list[dict[str, Any]], today: date | None = None) -> None:
+    """Doplní stav komunikácie, ďalšiu akciu a či kontakt patrí do fronty prvého oslovenia. Do fronty nepatrí
+    oslovený ani odmietnutý kontakt (v ktorejkoľvek hypotéze), kanál už použitý pre iný kontakt (spoločný e-mail),
+    organizácia oslovená v posledných `outreach.org_cooldown_days` dňoch a druhý kontakt tej istej organizácie."""
+    today = today or date.today()
+    history = db.outreach_history()
+    by_person: dict[int, list] = {}
+    by_org: dict[int, list] = {}
+    by_value: dict[str, list] = {}
+    for h in history:
+        if h["person_id"]:
+            by_person.setdefault(h["person_id"], []).append(h)
+        if h["org_id"]:
+            by_org.setdefault(h["org_id"], []).append(h)
+        if h["contact_value"]:
+            by_value.setdefault(h["contact_value"], []).append(h)
+    cooldown = (today - timedelta(days=cfg.outreach.org_cooldown_days)).isoformat()
+    queued_orgs: dict[int, str] = {}
+    queued_channels: dict[str, str] = {}
+    for r in rows:
+        mine = by_person.get(r["person_id"], []) if r["person_id"] else [
+            h for h in by_org.get(r["org_id"], []) if not h["person_id"]]
+        stage, action = _stage(mine, None if not r["person_id"] else _person_status(db, r["person_id"]), hid, today)
+        if r["odporúčanie"] == "neoslovovať" and stage in ("nové", "návrh"):
+            stage, action = "uzavreté", "neoslovovať (" + r["dôvody"].split("⛔ ")[-1] + ")"
+        eligible = stage in ("nové", "návrh") and r["odporúčanie"] in ("oslov najprv", "oslov")
+        channel = (r["e-mail"] or "").lower()
+        if eligible and channel:
+            used = [h for h in by_value.get(channel, []) if h["status"] not in ("draft", "needs_edit", "blocked")
+                    and h["person_id"] != r["person_id"]]
+            if used:
+                eligible, action = False, "kanál už použitý pre iný kontakt (spoločný e-mail) – počkaj na odpoveď"
+            elif channel in queued_channels:
+                eligible, action = False, f"spoločný e-mail – vo fronte už je {queued_channels[channel]}"
+        org_id = r["org_id"]
+        if eligible and org_id:
+            recent = [h for h in by_org.get(org_id, []) if h["status"] not in ("draft", "needs_edit", "blocked")
+                      and (h["sent_at"] or h["approved_at"] or "")[:10] >= cooldown]
+            if recent:
+                last = max((h["sent_at"] or h["approved_at"] or "")[:10] for h in recent)
+                eligible, action = False, (f"organizácia oslovená {last} (H{recent[-1]['hypothesis_id']}) – ďalšie prvé "
+                                           f"oslovenie najskôr po {cfg.outreach.org_cooldown_days} dňoch")
+            elif org_id in queued_orgs:
+                eligible, action = False, f"z organizácie je vo fronte {queued_orgs[org_id]} – jedno prvé oslovenie naraz"
+        if eligible:
+            if org_id:
+                queued_orgs[org_id] = r["osoba"] or r["organizácia"]
+            if channel:
+                queued_channels[channel] = r["osoba"] or r["organizácia"]
+        r["stav_komunikácie"] = stage
+        r["ďalšia_akcia"] = action
+        r["prvé_oslovenie"] = eligible
+
+
+def _person_status(db: DB, pid: int) -> str | None:
+    p = db.get_person(pid)
+    return p["status"] if p is not None else None
+
+
 def shortlist_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Súhrn: fronta prvého oslovenia počíta unikátne kanály a organizácie; odmietnutí a oslovení sa do nej nerátajú."""
+    queue = [r for r in rows if r.get("prvé_oslovenie")]
     return {"odporúčanie": dict(Counter(r["odporúčanie"] for r in rows)), "typ": dict(Counter(r["typ"] for r in rows)),
-            "s_e-mailom": sum(1 for r in rows if r["e-mail"] and r["odporúčanie"] != "neoslovovať")}
+            "s_e-mailom": len({(r["e-mail"] or "").lower() for r in rows if r["e-mail"] and r["odporúčanie"] != "neoslovovať"
+                               and r.get("stav_komunikácie") != "uzavreté"}),
+            "stav": dict(Counter(r.get("stav_komunikácie", "nové") for r in rows)),
+            "fronta_prvého_oslovenia": len(queue),
+            "fronta_organizácie": len({r["org_id"] or -i for i, r in enumerate(queue)}),
+            "fronta_kanály": len({(r["e-mail"] or "").lower() or f"#{i}" for i, r in enumerate(queue)})}

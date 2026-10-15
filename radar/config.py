@@ -526,6 +526,9 @@ class OutreachConfig(BaseModel):
     # (najprv osoby s najvyššou prioritou). 0 = bez limitu.
     max_drafts_per_run: int = 24
     facts_per_draft: int = 3  # koľko overených dôkazov hypotézy dostane generátor ako fakty
+    # Fronta prvého oslovenia (audit 15. 10. 2026): organizácia oslovená v posledných N dňoch (v ktorejkoľvek hypotéze)
+    # nedostane ďalšie prvé oslovenie; z jednej organizácie je vo fronte naraz najviac jeden kontakt.
+    org_cooldown_days: int = 21
 
 
 # ------------------------------------------------------------------ súkromie (R-PRIV)
