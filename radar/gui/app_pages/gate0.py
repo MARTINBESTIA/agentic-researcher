@@ -158,6 +158,38 @@ with tab_value:
     st.caption(f"Doména: **{esc(dom_title)}** ({len(members)} hypotéz). Prehľad na ~5 minút čítania je spoločný pre "
                "kontakty domény; tvrdenia sú s citátmi, čo zdroje nehovoria, je medzi neznámymi. Nová verzia vznikne iba "
                "pri zmene podkladov (tvrdenia, karty, odpovede kontaktov); staršie ostávajú.")
+    from radar.domain import BLOCKS, CLAIM_STATUS, PARTS, STATUS_LABEL, TARGETS, request_research, set_priority, \
+        sync_priorities
+
+    domains = sync_priorities(c, d)
+    state = next((r for r in domains if r["domain_key"] == key), None)
+    with st.container(border=True):
+        cov = json_or(state["coverage_json"], {}) if state is not None else {}
+        st.markdown(f"**Doménové podklady:** {STATUS_LABEL.get(state['status'], state['status']) if state else 'nepožiadané'}"
+                    + (f" · {esc(state['stop_reason'] or '')}" if state and state["stop_reason"] else "")
+                    + (f" · ďalej: {esc(state['next_step'] or '')}" if state and state["next_step"] else ""))
+        if cov:
+            st.caption("Pokrytie: " + " · ".join(f"{PARTS.get(k, k)}: {v}" for k, v in cov.items()))
+        st.caption("Neblokujúce obohatenie: rozhovor stačí s overeným dôvodom výberu kontaktu, zrozumiteľnou hypotézou "
+                   "a jednou otázkou. „Pripravené“ neznamená potvrdený problém firmy a nerozhoduje o bránach.")
+        with st.container(horizontal=True, vertical_alignment="center"):
+            on = bool(state["priority"]) if state else False
+            if st.toggle("Prioritná doména (výskum skôr)", value=on, key=f"g0_prio_{key}",
+                         help=f"Prvá dávka: {c.domain_research.initial_priority_domain_count} domény podľa sily dôkazov; "
+                              "poradie výpočtu, nie právo osloviť kontakt.") != on:
+                set_priority(d, key, dom_title, not on)
+                refresh()
+            if st.button("Obnoviť doménové podklady", key=f"g0_research_{key}", icon=":material/travel_explore:",
+                         help="Nový pokus aj pri rovnakej verzii podkladov (inak sa ten istý vstup neskúša znova)."):
+                request_research(d, key, dom_title)
+                st.toast("Doména zaradená – pokus prebehne v akcii „Pripraviť návrhy oslovení“.", icon=":material/check:")
+                refresh()
+    with st.expander(f"Všetky domény Brány 0 ({len(domains)})", icon=":material/list:"):
+        st.dataframe([{"doména": r["title"], "priorita": ("áno" if r["priority"] else "nie") + (
+            " (ručne)" if (r["priority_source"] or "").startswith("manual") else ""),
+                       "stav": STATUS_LABEL.get(r["status"], r["status"]), "dôvod": r["stop_reason"] or "",
+                       "hypotézy": ", ".join(f"H{x}" for x in r["hypotézy"])} for r in domains],
+                     hide_index=True, alt="Domény Brány 0, priorita a stav podkladov")
     history = d.brief_history(key)
     start_job_button("drafts", "Pripraviť prehľad, návrh prínosu a návrhy oslovení", 60, [hid], key=f"g0_value_{hid}",
                      icon=":material/menu_book:")
@@ -179,11 +211,28 @@ with tab_value:
                        .get(brief["status"], brief["status"]) + " " + "; ".join(
                 checks.get("problémy", []) + [f"{p['sentence']} ({p['issue']})" for p in rev.get("problems") or []]),
                 icon=":material/rule:")
-        md = brief_markdown(brief)
+        md = brief_markdown(brief, d)
         with st.container(border=True, height=420):
             st.markdown(md.replace("](", "]\\("))
         st.download_button("Stiahnuť prehľad (Markdown)", md, file_name=f"prehlad_{key.replace(':', '_')}_v{brief['version']}.md",
                            mime="text/markdown", icon=":material/download:", key=f"g0_brief_dl_{ver}")
+    claims = d.domain_claims(key)
+    if claims:
+        with st.expander(f"Tvrdenia domény so stavom a rozsahom ({len(claims)})", icon=":material/fact_check:"):
+            st.dataframe([{"časť": PARTS.get(x["part"], x["part"]), "tvrdenie": x["text"],
+                           "stav": CLAIM_STATUS.get(x["status"], x["status"]), "platí pre": x["applicability"] or "",
+                           "zdroje": ", ".join([f"[{i}]" for i in json_or(x["evidence_json"], {}).get("claims", [])]
+                                               + [f"[D{i}]" for i in json_or(x["evidence_json"], {}).get("evidence", [])])}
+                          for x in claims], hide_index=True, alt="Tvrdenia domény: stav, rozsah platnosti, zdroje")
+    questions = [q for q in d.domain_questions(key) if q["status"] != "superseded"]
+    if questions:
+        with st.expander(f"Otázky domény ({sum(q['status'] == 'open' for q in questions)} otvorených)",
+                         icon=":material/help:"):
+            st.dataframe([{"otázka": q["question"], "komu": TARGETS.get(q["target_role"], q["target_role"]),
+                           "blokuje": BLOCKS.get(q["blocks_action"], q["blocks_action"]),
+                           "stav": {"open": "otvorená", "answered": "zodpovedaná"}.get(q["status"], q["status"]),
+                           "odpoveď": q["answer"] or "", "zdroj odpovede": q["answer_source"] or ""}
+                          for q in questions], hide_index=True, alt="Otázky domény: komu, čo blokujú, odpovede")
     st.markdown("**Návrh prínosu podľa typu adresáta** – hypotéza potreby → výstup → podporené rozhodnutie → minimálny vstup")
     st.caption("Potreba je hypotéza, kým ju nepotvrdí odpoveď kontaktu. Bez meraní žiadne číselné úspory; konkrétny "
                "rozsah a termín sľúbi návrh až po tvojom potvrdení záväzku.")

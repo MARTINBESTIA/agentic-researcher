@@ -102,4 +102,4 @@ def test_migration_v13_keeps_outreach_and_allows_organization_contact(tmp_path):
     raw = sqlite3.connect(cfg.db_path)
     assert raw.execute("PRAGMA foreign_key_check").fetchall() == []
     raw.close()
-    assert DB(cfg.db_path).migration["to"] == 13
+    assert DB(cfg.db_path).migration["to"] >= 13  # neskoršie migrácie (v14+) ostávajú kompatibilné

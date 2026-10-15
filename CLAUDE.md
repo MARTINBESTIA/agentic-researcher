@@ -24,7 +24,9 @@ prešlých (schéma v12, M20); experimenty bez úniku, so silným porovnaním a 
 osi stavu, postup k zákazníkovi a referenčná vzorka (M22); podľa auditu 15. 10. 2026 fronta kontaktov so stavom komunikácie
 (schéma v13, M23), prehľad domény a návrh prínosu (M24), návrhy oslovení pre zákazníka, držiteľa dát, experta a pilot
 s obchodnou politikou (M25), Azure OpenAI pre vybrané roly s nasadeniami v GUI a rozpočtom (M26), výsledky oslovení
-a učenie z odpovedí po organizáciách (M27). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+a učenie z odpovedí po organizáciách (M27); podľa dodatku 16. 10. 2026 (doménové vyhľadávanie a event log) stavy
+doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, pripravenosť oslovenia (schéma v14, M28).
+Stav dodatku: `docs/STAV_domenovy_search_event_log.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -47,7 +49,7 @@ docker compose up -d                     # SearXNG
 | Súbor | Úloha |
 |---|---|
 | `radar/config.py` | pydantic konfigurácia; `config.yaml` obsahuje len zmeny voči predvoleným hodnotám; `models` (roly, routing úloh, profily), `discovery`, `people`, `outreach`, `privacy`, `gui` |
-| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, väzby polí, nastavenia; plán kontaktov je v `gate0.py`, záznam lievika v `ops.py`), `value.py` (prehľady domén, návrhy prínosu, výsledky oslovení, `llm_usage` a `llm_cache`), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
+| `radar/db/` | SQLite, jediné miesto s SQL: `evidence.py` (dokumenty, tvrdenia, hypotézy), `gate0.py` (organizácie, ľudia, kontakty, väzby, oslovenia, rozhovory, rozhodnutia, potlačenie), `ops.py` (model_judgments, review_queue, labels, bench, query_stats, cache registrov, eval, úlohy), `gates.py` (Brány 1 a 2, väzby polí, nastavenia; plán kontaktov je v `gate0.py`, záznam lievika v `ops.py`), `value.py` (prehľady domén, návrhy prínosu, výsledky oslovení, `llm_usage` a `llm_cache`), `domain.py` (stav a podklady domén, tvrdenia, otázky, mapovanie rolí, ESCO), `dossier.py` (čítanie pre dosiér), `schema.py` + `migrations.py` (PRAGMA user_version, záloha pred migráciou) |
 | `radar/models.py` | `ModelRouter`: úloha → rola (fast/accurate/judge/reviewer/agent), uvažovanie, k hlasov; `run_task` (undecided, kontrola, provenance), `run_samples`; pri výmene modelu uvoľní predošlý z GPU; rola u cloudového poskytovateľa → `CloudLLM`, ochrana súkromia (`cloud_allowed`), cache odpovedí, dôvod prerušenia `cloud_pause` |
 | `radar/cloud.py` | Azure OpenAI v1: `CloudLLM` (názov nasadenia v `model`, parametre podľa schopností, triedenie chýb, obmedzené opakovanie, JSON fallback iba pri nepodpore formátu), `CloudBudget` (rezervácia pred volaním, vyrovnanie, neistý timeout; limity celkom/deň/beh), kľúč cache, nasadenia (čítanie cez ARM, ručné pridanie, overené schopnosti), test pripojenia, nastavenia z GUI bez tajomstiev |
 | `radar/llm.py` | klient OpenAI-kompatibilného servera (Ollama); JSON podľa schémy; `LLMTruncated` pri orezaní; `make_exclusive` |
@@ -76,6 +78,7 @@ docker compose up -d                     # SearXNG
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
 | `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita; účel kontaktu s dôkazom (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert; politici a členovia orgánov nie) |
+| `radar/domain.py` | doménové podklady (neblokujúce obohatenie): priority domén (prvá dávka + ručne), stav `not_requested → queued → researching → ready/partial/needs_research` podľa pokrytia častí, jeden pokus na verziu vstupu, tvrdenia so stavom a rozsahom (opis povolania nie je fakt o firme), otázky s cieľovou rolou a blokovanou akciou, hlavná otázka prvého oslovenia, odpovede s históriou |
 | `radar/outcomes.py` | výsledok oslovenia zapísaný človekom → stav oslovenia, stav potreby návrhov prínosu (po organizáciách a type adresáta), dôvod novej verzie prehľadu domény; metriky po unikátnych organizáciách (čas prípravy, dodania, režimy) |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení podľa režimu (discovery, data_request, expert_review, pilot) s obchodnou politikou `outreach.value_offer`, reťazcom dôvodov (`package_json`) a pripravenosťou; kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |
 | `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson) a referenčná vzorka s kontrolnou časťou (holdout); benchmark a plán behu |

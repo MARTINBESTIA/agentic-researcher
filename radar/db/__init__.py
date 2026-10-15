@@ -6,6 +6,7 @@
 - ops.py: provenance volaní modelov, kontrola, labely, benchmark, štatistiky, cache, eval, úlohy,
 - dossier.py: čítanie všetkého k hypotéze pre dosiér (export),
 - value.py: prehľady domén, návrhy prínosu, výsledky oslovení, cloudové náklady a cache,
+- domain.py: doménový výskum (stav, podklady, tvrdenia, otázky, mapovanie rolí), lokálny ESCO index,
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from .domain import DomainMixin
 from .dossier import DossierMixin
 from .evidence import ACTIVE_STATUSES, ASSIGNABLE_STATUSES, EXTRACTABLE_KINDS, HYPOTHESIS_STATUSES, EvidenceMixin
 from .gate0 import Gate0Mixin
@@ -35,7 +37,7 @@ __all__ = [
 SCHEMA_VERSION = LATEST
 
 
-class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin):
+class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -359,7 +359,8 @@ def draft_messages(cfg: Config, hyp, person, org, link_type: str, variant: str, 
                 f"DELIVERABLE: {pkg.get('výstup') or '-'}\nDECISION IT SUPPORTS: {pkg.get('rozhodnutie') or '-'}\n"
                 f"MINIMUM INPUT (the one next step): {pkg.get('minimálny_vstup') or '-'}\n"
                 f"COMMITMENT: {pkg.get('záväzok') or 'none'}\nWHAT WE DO NOT KNOW: {pkg.get('čo_nevieme') or '-'}\n"
-                f"BUSINESS TERMS SENTENCE ADDED: {'yes' if policy else 'no'}") if mode else ""
+                + (f"MAIN QUESTION: {pkg['hlavná_otázka']['text']}\n" if pkg.get("hlavná_otázka") else "")
+                + f"BUSINESS TERMS SENTENCE ADDED: {'yes' if policy else 'no'}") if mode else ""
     user = (
         f"MODE: {mode or 'discovery'}\nCHANNEL: {channel}\nVARIANT: {variant}\nADDRESSEE: {addressee}\n"
         f"PERSON ROLE: {(person['role_title'] if person is not None else None) or '-'}\n"
@@ -455,6 +456,20 @@ def build_package(cfg: Config, db: DB, hid: int, row: dict[str, Any], mode: str,
         "prehľad_domény": {"id": brief["id"], "verzia": brief["version"]} if brief is not None else None,
         "politika": policy_version(cfg), "veta_o_podmienkach": policy,
     }
+    key = domain_of(db, hid)[0]
+    try:
+        from .domain import BLOCKS, interview_questions, main_question
+
+        state = db.research_get(key)
+        package["stav_podkladov_domény"] = state["status"] if state is not None else "not_requested"
+        main = main_question(db, key, group)
+        if main is not None:
+            package["hlavná_otázka"] = {"id": main["id"], "text": main["question"],
+                                        "blokuje": BLOCKS.get(main["blocks_action"], main["blocks_action"])}
+        package["príprava_rozhovoru"] = [q["question"] for q in interview_questions(
+            db, key, group, skip=main["id"] if main is not None else None)]
+    except Exception as exc:  # noqa: BLE001 – doménové podklady sú obohatenie, návrh nesmú zablokovať
+        log.warning("Doménové otázky pre H%s: %s", hid, exc)
     allowed = " ".join(str(p.get(k) or "") for k in ("need_statement", "deliverable", "decision_supported",
                                                      "minimum_input", "estimate_inputs")) + " " + (commitment or "")
     return package, policy, allowed
@@ -675,9 +690,65 @@ def recheck(cfg: Config, db: DB, outreach_id: int, body: str, subject: str | Non
     return checks
 
 
+SEND_STATES = {"needs_contact_evidence": "chýba podklad o kontakte", "draft_ready": "návrh na tvoju kontrolu",
+               "review_pending": "čaká na hodnotiteľa", "ready_for_manual_send": "pripravené na ručné odoslanie",
+               "suppressed": "blokované"}
+DONE_STATUSES = {"sent", "replied", "scheduled", "interviewed", "no_reply", "no_show", "bounced"}
+
+
+def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
+    """Pripravenosť oslovenia (dodatok 16. 10. 2026), nezávislá od úplnosti doménovej karty:
+    needs_contact_evidence | draft_ready | review_pending | ready_for_manual_send | suppressed; None = už odoslané.
+    Vráti stav a presné dôvody (čo chýba)."""
+    from .orgs import is_excluded
+    from .privacy import Suppression
+
+    status = row["status"]
+    if status in DONE_STATUSES:
+        return None, []
+    if status in ("blocked", "declined"):
+        return "suppressed", [{"blocked": "zablokované (napr. prebiehajúce obstarávanie)",
+                               "declined": "kontakt odmietol"}[status]]
+    person = db.get_person(row["person_id"]) if row["person_id"] else None
+    if person is not None and person["status"] in ("declined", "excluded", "objected"):
+        return "suppressed", [f"kontakt má stav {person['status']} – neoslovovať"]
+    org = db.get_organization(row["org_id"]) if row["org_id"] else None
+    if org is not None and is_excluded(cfg, org["ico"], org["website"]):
+        return "suppressed", ["organizácia je vylúčená (outreach.exclude_orgs)"]
+    contact = db.get_contact(row["contact_point_id"]) if row["contact_point_id"] else None
+    if contact is not None and contact["kind"] == "email" and Suppression(cfg, db).is_suppressed(email=contact["value"]):
+        return "suppressed", ["adresa je v zozname potlačenia (námietka alebo výmaz)"]
+    pkg = json.loads(row["package_json"] or "{}") if row["package_json"] else {}
+    checks = json.loads(row["checks_json"] or "{}")
+    if status == "approved":
+        return "ready_for_manual_send", []
+    if not pkg:  # starší návrh bez balíka
+        return "draft_ready", list(checks.get("problems") or [])
+    why = pkg.get("prečo_tento_kontakt") or {}
+    if not why.get("zdroj"):
+        return "needs_contact_evidence", ["chýba zdroj dôvodu výberu kontaktu: doplň URL a úryvok, kde je zverejnená "
+                                          "jeho funkcia alebo väzba na problém (personalizácia sa nevyrába z domnienky)"]
+    _, reasons = readiness_of(pkg, checks, row["subject"], row["body"])
+    pending = [r for r in reasons if "hodnotiteľ" in r and "čaká" in r]
+    if pending and not checks.get("ručná_kontrola"):
+        return "review_pending", pending + ["návrh môžeš skontrolovať sám a potvrdiť „Skontroloval som ručne“"]
+    return "draft_ready", [r for r in reasons if r not in pending]
+
+
+def confirm_manual_review(db: DB, outreach_id: int) -> None:
+    """Hodnotiteľ nemá výsledok (napr. výpadok cloudu): človek výslovne potvrdí, že návrh skontroloval sám."""
+    row = db.get_outreach(outreach_id)
+    if row is None:
+        raise OutreachError("Oslovenie neexistuje.")
+    checks = json.loads(row["checks_json"] or "{}")
+    checks["ručná_kontrola"] = utcnow()
+    db.update_outreach(outreach_id, checks_json=checks)
+
+
 def approve(cfg: Config, db: DB, outreach_id: int, now: datetime | None = None) -> None:
-    """Schválenie na ručné odoslanie. Zablokované pri placeholderoch v profile odosielateľa (R-OUT-15)
-    a po dennom limite (R-OUT-10)."""
+    """Schválenie na ručné odoslanie. Zablokované pri placeholderoch v profile odosielateľa (R-OUT-15),
+    po dennom limite (R-OUT-10), pri chýbajúcom podklade o kontakte, potlačení a pri hodnotiteľovi bez výsledku
+    (kým ho človek nenahradí ručnou kontrolou)."""
     require_lia(cfg)
     now = now or datetime.now(timezone.utc)
     row = db.get_outreach(outreach_id)
@@ -685,6 +756,9 @@ def approve(cfg: Config, db: DB, outreach_id: int, now: datetime | None = None) 
         raise OutreachError("Oslovenie neexistuje.")
     if row["status"] != "draft":
         raise OutreachError(f"Schváliť sa dá iba návrh bez problémov (stav je {row['status']}).")
+    state, reasons = send_state(cfg, db, row)
+    if state in ("needs_contact_evidence", "suppressed", "review_pending"):
+        raise OutreachError(f"Nedá sa schváliť ({SEND_STATES[state]}): " + "; ".join(reasons))
     missing = sender_placeholders(cfg)
     if missing:
         raise OutreachError("Najprv doplň profil odosielateľa v config.yaml (outreach.sender): " + ", ".join(missing))

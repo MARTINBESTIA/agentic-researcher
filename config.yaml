@@ -400,6 +400,25 @@ privacy:
   # také úlohy čakajú, kým ich rola beží v cloude. Do cloudu idú iba úlohy z cloud.allowed_tasks (verejné zdroje).
   cloud_personal_data: false
 
+# ---------------------------------------------------------------- doménový výskum (dodatok 16. 10. 2026)
+# Ohraničený pokus o doménové podklady pre prioritné domény pred návrhom správy. Neblokuje Bránu 0: neúplný výsledok
+# (partial, needs_research) pokračuje s označenými otázkami; ostatné domény nečakajú. Limity sú prevádzkové nastavenia.
+domain_research:
+  enabled: true
+  initial_priority_domain_count: 3   # prvá dávka; ďalšie domény zaradíš ručne (Brána 0 → Doména a prínos)
+  max_queries_per_domain: 6
+  max_documents_per_domain: 10
+  max_evidence_chunks: 15
+  max_model_calls_per_pass: 2        # syntéza + kontrola hodnotiteľom
+  max_attempts_per_input_version: 1  # ten istý vstup sa znova neskúša (iba nové podklady alebo tvoja žiadosť)
+  max_wall_seconds_per_pass: 600     # pri pomalom lokálnom modeli môžeš zvýšiť
+  retry_only_on_new_evidence_or_explicit_request: true
+  semantic_search_enabled: false     # zatiaľ iba fulltext (sémantika až po zmeraní jeho chýb)
+  auto_send: false                   # systém nič neodosiela (iná hodnota sa neprijme)
+  esco_language: sk                  # ESCO balík: python -m radar esco-import --dir <rozbalený balík>
+  esco_fallback_language: en
+  max_role_candidates: 5
+
 # ---------------------------------------------------------------- cloudové modely (Azure OpenAI)
 # Vlastný rozpočet – nie zostatok Azure. Pred každým volaním sa rezervuje horný odhad ceny (vstup + max. výstup),
 # po odpovedi sa vyrovná podľa skutočných tokenov; timeout ostáva započítaný. Bez sadzby nasadenia sa nevolá.

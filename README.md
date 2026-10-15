@@ -147,6 +147,12 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    K tomu **návrh prínosu** pre zákazníka, držiteľa dát a experta: hypotéza potreby, malý výstup,
    rozhodnutie, ktoré podporí, minimálny vstup, obmedzenia – bez sľubov a čísel bez podkladu; konkrétny
    záväzok (rozsah, termín) potvrdzuješ ty. Kontroluje ho kód a hodnotiteľ (rola `reviewer`).
+   **Doménové podklady neblokujú Bránu 0:** prvé 3 domény (podľa sily dôkazov, ďalšie zaradíš ručne) dostanú
+   výskum skôr; stav `pripravené / čiastočné / treba doplniť` s pokrytím (roly, proces, riešenia, význam dát,
+   alternatívne vysvetlenia) a dôvodom ukončenia. Ten istý vstup sa znova neskúša – iba nové podklady alebo
+   „Obnoviť doménové podklady“. Tvrdenia majú stav (zo zdroja, hypotéza, uviedol kontakt, pozorované v dátach,
+   vyvrátené) a rozsah – opis povolania nie je fakt o konkrétnej firme. Otázky ukazujú, komu ich položiť a čo
+   neznáma blokuje (napr. bez histórie termínov žiadna analýza meškania, bez merania žiadne tvrdenie o úspore).
 6. **`drafts`** → **GUI → Oslovenia:** návrh podľa účelu – **zákazník** (rozhovor o skúsenosti, prípadne
    ponuka malého výstupu), **držiteľ dát** (vysvetlenie polí, vzorka), **expert** (posúdenie postupu),
    **pilot** až po potvrdení problému kontaktom; aj organizácia cez funkčný kontakt bez vymyslenej osoby.
@@ -154,7 +160,10 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    bezplatné. O platenom používaní by sme sa dohodli až vtedy, keď by riešenie fungovalo vo vašej
    prevádzke a preukázateľne vám prinášalo hodnotu.“ (`outreach.value_offer`). Každý návrh ukazuje
    reťazec prečo tento kontakt → predpokladaná potreba → čo môže dostať → čo minimálne potrebuješ → čo
-   ešte nevieme a pripravenosť (pripravené / rozpracované s dôvodmi). E-mail (varianty A podľa dôkazu
+   ešte nevieme a pripravenosť: **chýba podklad o kontakte** (zdroj dôvodu výberu – schválenie zablokované),
+   **čaká na hodnotiteľa** (napr. výpadok Azure; môžeš potvrdiť „Skontroloval som ručne“), **návrh na tvoju
+   kontrolu**, **pripravené na ručné odoslanie**, **blokované** (odmietnutie, potlačenie, vylúčená organizácia).
+   Prvé oslovenie má jednu hlavnú otázku; ostatné sú v „Príprave rozhovoru“. E-mail (varianty A podľa dôkazu
    a B podľa funkcie), poznámka pre LinkedIn (≤ 200 znakov), skript na telefón. Výsledky kontrol (dĺžky,
    zakázané frázy, potreba podaná ako fakt, čísla mimo faktov, „nejde o ponuku“ pri ponuke, pätička)
    a viet, ktoré hodnotiteľ považuje za nepodložené. Uprav, „Uložiť a skontrolovať“,
@@ -446,6 +455,7 @@ nepredpokladaj – over ho v podmienkach predplatného.
 | `radar/db/` | SQLite: `evidence.py` (register dôkazov), `gate0.py` (organizácie, ľudia, oslovenia, rozhovory), `ops.py` (provenance, kontrola, labely, eval), `value.py` (prehľady domén, návrhy prínosu, výsledky oslovení, náklady a cache cloudu), `schema.py` + `migrations.py` |
 | `radar/value.py` | prehľad domény a návrh prínosu (citáty, neznáme, hodnotiteľ, verzie) |
 | `radar/outcomes.py` | výsledky oslovení, stav potreby, metriky po organizáciách |
+| `radar/domain.py` | stav doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, hlavná otázka |
 | `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |

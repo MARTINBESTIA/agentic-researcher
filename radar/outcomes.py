@@ -76,8 +76,10 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
                    person_id: int | None = None, org_id: int | None = None, reply: str = "none",
                    problem_relevance: str | None = None, rejection_reason: str = "", next_action: str = "",
                    note: str = "", prep_minutes: float | None = None, delivery_days: float | None = None,
-                   **flags: bool) -> dict[str, Any]:
-    """Zapíše výsledok oslovenia (ručne zadaný človekom) a premietne ho do stavu oslovenia, potreby a prehľadu."""
+                   answers: dict[int, dict[str, Any]] | None = None, **flags: bool) -> dict[str, Any]:
+    """Zapíše výsledok oslovenia (ručne zadaný človekom) a premietne ho do stavu oslovenia, potreby a prehľadu.
+    answers: odpovede na otázky domény {id otázky: {"text": …, "contradicts": bool}} – otázka sa uzavrie s históriou
+    a vznikne tvrdenie „uviedol kontakt“ (výpoveď, nie meraný výsledok)."""
     from .outreach import set_status
     from .value import brief_inputs
 
@@ -109,6 +111,13 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
         next_action=(next_action or "").strip() or None, note=mask_text((note or "").strip()) or None,
         prep_minutes=prep_minutes, delivery_days=delivery_days, **{k: bool(v) for k, v in flags.items()})
     result: dict[str, Any] = {"id": outcome_id}
+    if answers:
+        from .domain import record_answer
+
+        result["odpovede"] = [record_answer(db, int(qid), (a or {}).get("text", ""), f"kontakt (výsledok #{outcome_id})",
+                                            outcome_id=outcome_id, organization_id=org_id,
+                                            contradicts=bool((a or {}).get("contradicts")))
+                              for qid, a in answers.items() if (a or {}).get("text")]
     if row is not None and row["status"] not in FINAL_STATUSES:
         new = "scheduled" if flags.get("interview_agreed") and reply != "declined" else STATUS_FOR_REPLY.get(reply)
         if new and new != row["status"]:

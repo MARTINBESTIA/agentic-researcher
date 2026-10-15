@@ -542,6 +542,26 @@ class ValueOfferConfig(BaseModel):
     automatic_paid_conversion: bool = False
 
 
+class DomainResearchConfig(BaseModel):
+    """Doménové obohatenie (dodatok 16. 10. 2026): ohraničený pokus o podklady pre prioritné domény. Limity sú
+    prevádzkové nastavenia, nie empiricky optimálne hodnoty."""
+
+    enabled: bool = True
+    initial_priority_domain_count: int = 3  # veľkosť prvej dávky, nie obmedzenie (ďalšie domény sa dajú zaradiť ručne)
+    max_queries_per_domain: int = 6
+    max_documents_per_domain: int = 10
+    max_evidence_chunks: int = 15
+    max_model_calls_per_pass: int = 2  # syntéza + kontrola
+    max_attempts_per_input_version: int = 1
+    max_wall_seconds_per_pass: int = 600
+    retry_only_on_new_evidence_or_explicit_request: bool = True
+    semantic_search_enabled: bool = False  # voliteľné rozšírenie po zmeraní chýb fulltextu (zatiaľ neimplementované)
+    auto_send: Literal[False] = False  # systém nič neodosiela
+    esco_language: str = "sk"
+    esco_fallback_language: str = "en"
+    max_role_candidates: int = 5
+
+
 class OutreachConfig(BaseModel):
     sender: SenderConfig = Field(default_factory=SenderConfig)
     value_offer: ValueOfferConfig = Field(default_factory=ValueOfferConfig)
@@ -678,6 +698,7 @@ class Config(BaseModel):
     experiments: ExperimentsConfig = Field(default_factory=ExperimentsConfig)
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
+    domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)
     gui: GuiConfig = Field(default_factory=GuiConfig)

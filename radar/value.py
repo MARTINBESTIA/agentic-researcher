@@ -56,12 +56,14 @@ BUYER_RE = re.compile(r"\bkúp|\bcen[auy]\b|\bplaten|licenci|predplat", re.I)
 class Cited(BaseModel):
     text: str = ""
     claims: list[int] = Field(default_factory=list)
+    evidence: list[int] = Field(default_factory=list)  # doménové podklady (ESCO, web, dokumentácia)
 
 
 class Term(BaseModel):
     term: str = ""
     explanation: str = ""
     claims: list[int] = Field(default_factory=list)
+    evidence: list[int] = Field(default_factory=list)
 
 
 class Roles(BaseModel):
@@ -74,11 +76,19 @@ class DataItem(BaseModel):
     field: str = ""
     meaning_pitfall: str = ""
     claims: list[int] = Field(default_factory=list)
+    evidence: list[int] = Field(default_factory=list)
 
 
 class Question(BaseModel):
     aspect: str = "problem_exists"
     question: str = ""
+
+
+class OpenQuestion(BaseModel):
+    question: str = ""
+    about: str = "process"  # roles | process | solutions | data | alternatives
+    target_role: str = "any"  # customer | data_holder | expert | any
+    blocks_action: str = "none"  # none | contact_choice | data_request | duration_analysis | prediction | quantified_savings_claim
 
 
 class DomainBriefOut(BaseModel):
@@ -87,8 +97,11 @@ class DomainBriefOut(BaseModel):
     roles: Roles = Field(default_factory=Roles)
     decision: Cited = Field(default_factory=Cited)
     current_practice: Cited = Field(default_factory=Cited)
+    existing_solutions: list[Cited] = Field(default_factory=list)
+    alternative_explanations: list[Cited] = Field(default_factory=list)
     data_needed: list[DataItem] = Field(default_factory=list)
     falsifying_questions: list[Question] = Field(default_factory=list)
+    open_questions: list[OpenQuestion] = Field(default_factory=list)
     unknowns: list[str] = Field(default_factory=list)
 
 
@@ -180,49 +193,82 @@ def _hash(*parts: Any) -> str:
     return hashlib.sha256(json.dumps(parts, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()[:20]
 
 
-def brief_inputs(db: DB, hid: int) -> tuple[str, str, list[int], list, str, list[str], str]:
+def domain_evidence_items(db: DB, key: str, limit: int = 15) -> list:
+    """Doménové podklady (ESCO, web, dokumentácia) – najviac `domain_research.max_evidence_chunks`."""
+    try:
+        return list(db.domain_evidence(key))[:limit]
+    except Exception:  # noqa: BLE001 – databáza bez doménových tabuliek (staršia schéma v testoch)
+        return []
+
+
+def domain_evidence_text(items: list) -> str:
+    return "\n".join(f"[{e['id']}] ({e['source_kind']}, rozsah {e['scope']}) {e['title'] or ''}: „{e['excerpt']}“ "
+                     f"({e['source_url'] or e['local_reference'] or ''})" for e in items)
+
+
+def brief_inputs(db: DB, hid: int, max_chunks: int = 15) -> tuple[str, str, list[int], list, str, list[str], str]:
+    """(kľúč domény, názov, hypotézy, tvrdenia, karty, signály, hash). Signály: potvrdenia/vyvrátenia z oslovení
+    a zodpovedané otázky domény; hash zahŕňa aj doménové podklady – ich zmena = nová verzia prehľadu."""
+    from .domain import answered_signals
+
     key, title, ids = domain_of(db, hid)
     evidence = _evidence(db, ids)
     cards = _cards(db, ids)
-    signals = _need_signals(db, ids)
+    try:
+        answers = answered_signals(db, key)
+    except Exception:  # noqa: BLE001
+        answers = []
+    signals = _need_signals(db, ids) + answers
     roles = sorted({r for h in ids for t in db.contact_targets_for(h) for r in json.loads(t["roles_json"] or "[]")})
-    digest = _hash([(e["id"], e["quote"]) for e in evidence], cards, signals, roles)
+    dom = [(e["id"], e["content_hash"]) for e in domain_evidence_items(db, key, max_chunks)]
+    digest = _hash([(e["id"], e["quote"]) for e in evidence], cards, signals, roles, *([dom] if dom else []))
     return key, title, ids, evidence, cards, signals, digest
 
 
 # ======================================================================= prehľad domény
-def code_check_brief(out: DomainBriefOut, allowed: set[int]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Kontroly kódom: počty častí, platné citáty; tvrdenie bez citátu sa presunie medzi neznáme. Vráti
-    (prehľad na uloženie, kontroly)."""
+def code_check_brief(out: DomainBriefOut, allowed: set[int],
+                     allowed_evidence: set[int] | frozenset[int] = frozenset()) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Kontroly kódom: počty častí, platné citáty a doménové podklady; tvrdenie bez opory sa presunie medzi neznáme
+    (a ako hypotéza s otázkou do tvrdení domény). Vráti (prehľad na uloženie, kontroly)."""
     problems: list[str] = []
     moved: list[str] = []
+    moved_parts: list[list[str]] = []
     unknowns = [u.strip() for u in out.unknowns if u.strip()]
 
-    def cited(item: Cited, label: str) -> dict[str, Any]:
+    def cited(item: Cited, label: str, part: str = "other") -> dict[str, Any]:
         claims = [c for c in item.claims if c in allowed]
+        evidence = [e for e in item.evidence if e in allowed_evidence]
         text = item.text.strip()
-        if text and not claims:
+        if text and not claims and not evidence:
             moved.append(label)
             unknowns.append(f"Predpoklad bez zdroja ({label}): {text}")
-            return {"text": "", "claims": []}
-        return {"text": text, "claims": claims}
+            moved_parts.append([part, f"Predpoklad bez zdroja ({label}): {text}"])
+            return {"text": "", "claims": [], "evidence": []}
+        return {"text": text, "claims": claims, "evidence": evidence}
 
-    steps = [cited(s, f"krok {i + 1}") for i, s in enumerate(out.process_steps[:5])]
+    steps = [cited(s, f"krok {i + 1}", "process") for i, s in enumerate(out.process_steps[:5])]
     steps = [s for s in steps if s["text"]]
     if len(out.process_steps) > 5:
         problems.append(f"proces má {len(out.process_steps)} krokov (najviac 5) – ponechaných prvých 5")
-    terms = [{"term": t.term.strip(), "explanation": t.explanation.strip(), "claims": [c for c in t.claims if c in allowed]}
-             for t in out.terms if t.term.strip()][:5]
+    terms = [{"term": t.term.strip(), "explanation": t.explanation.strip(), "claims": [c for c in t.claims if c in allowed],
+              "evidence": [e for e in t.evidence if e in allowed_evidence]} for t in out.terms if t.term.strip()][:5]
     if len(terms) != 5:
         problems.append(f"pojmov je {len(terms)} (treba 5)")
-    roles = {k: cited(getattr(out.roles, k), label) for k, label in
+    roles = {k: cited(getattr(out.roles, k), label, "roles") for k, label in
              (("user", "kto pracuje s problémom"), ("data_steward", "kto spravuje dáta"),
               ("decision_maker", "kto rozhoduje o rozpočte"))}
     data = []
     for d in out.data_needed[:5]:
         if d.field.strip():
             data.append({"field": d.field.strip(), "meaning_pitfall": d.meaning_pitfall.strip(),
-                         "claims": [c for c in d.claims if c in allowed]})
+                         "claims": [c for c in d.claims if c in allowed],
+                         "evidence": [e for e in d.evidence if e in allowed_evidence]})
+    solutions = [x for x in (cited(s, f"existujúce riešenie {i + 1}", "solutions")
+                             for i, s in enumerate(out.existing_solutions[:5])) if x["text"]]
+    alternatives = [x for x in (cited(s, f"alternatívne vysvetlenie {i + 1}", "alternatives")
+                                for i, s in enumerate(out.alternative_explanations[:5])) if x["text"]]
+    open_questions = [{"question": q.question.strip(), "about": q.about, "target_role": q.target_role,
+                       "blocks_action": q.blocks_action} for q in out.open_questions[:8] if q.question.strip()]
     questions = []
     for aspect in ASPECTS:
         q = next((x for x in out.falsifying_questions if x.aspect == aspect and x.question.strip()), None)
@@ -231,10 +277,12 @@ def code_check_brief(out: DomainBriefOut, allowed: set[int]) -> tuple[dict[str, 
         else:
             questions.append({"aspect": aspect, "question": q.question.strip()})
     brief = {"process_steps": steps, "terms": terms, "roles": roles,
-             "decision": cited(out.decision, "rozhodnutie"), "current_practice": cited(out.current_practice, "dnešný postup"),
-             "data_needed": data, "falsifying_questions": questions, "unknowns": unknowns}
+             "decision": cited(out.decision, "rozhodnutie", "decision"),
+             "current_practice": cited(out.current_practice, "dnešný postup", "solutions"),
+             "existing_solutions": solutions, "alternative_explanations": alternatives,
+             "data_needed": data, "falsifying_questions": questions, "open_questions": open_questions, "unknowns": unknowns}
     n_words = len(re.findall(r"\w+", json.dumps(brief, ensure_ascii=False)))
-    checks = {"problémy": problems, "presunuté_medzi_neznáme": moved, "slová": n_words,
+    checks = {"problémy": problems, "presunuté_medzi_neznáme": moved, "presunuté_časti": moved_parts, "slová": n_words,
               "pojmy_bez_zdroja": sum(1 for t in terms if not t["claims"])}
     if n_words > 1100:
         checks["upozornenie"] = f"prehľad má ~{n_words} slov (cieľ 500–700)"
@@ -263,69 +311,130 @@ def brief_status(checks: dict[str, Any]) -> str:
 
 
 def ensure_brief(cfg: Config, db: DB, llm: Any, hid: int, reason: str | None = None, force: bool = False) -> int | None:
-    """Platný prehľad domény hypotézy; generuje sa iba pri zmene podkladov (alebo `force`). Vráti id prehľadu."""
-    key, title, ids, evidence, cards, signals, digest = brief_inputs(db, hid)
+    """Platný prehľad domény hypotézy; generuje sa iba pri zmene podkladov (alebo `force`) a pre jednu verziu vstupu
+    najviac `domain_research.max_attempts_per_input_version`-krát. Zapisuje stav podkladov domény (pokrytie, dôvod
+    ukončenia), tvrdenia so stavom a rozsahom a otázky. Vráti id prehľadu."""
+    from .domain import PARTS, attempt_allowed, coverage, finish_attempt, persist_brief, start_attempt
+    from .outcomes import pending_brief_reason
+
+    dr = cfg.domain_research
+    key, title, ids, evidence, cards, signals, digest = brief_inputs(db, hid, dr.max_evidence_chunks)
     latest = db.latest_brief(key)
+    previous = int(latest["id"]) if latest is not None else None
     if latest is not None and latest["inputs_hash"] == digest and not force:
-        return int(latest["id"])
-    if not evidence and not cards:
-        return int(latest["id"]) if latest is not None else None
+        return previous
+    dom = domain_evidence_items(db, key, dr.max_evidence_chunks)
+    if not evidence and not cards and not dom:
+        return previous
+    allowed_now, why = attempt_allowed(cfg, db, key, digest)
+    if not allowed_now and not force:
+        log.info("Prehľad domény %s: %s", key, why)
+        return previous
+    start_attempt(db, key, title, digest)
     router = as_router(llm, cfg, db)
     user = (f"DOMAIN: {title}\n\nPROBLEM CARDS:\n<untrusted_document>\n{cards or '-'}\n</untrusted_document>\n\n"
-            f"EVIDENCE:\n<untrusted_document>\n{evidence_text(evidence) or '-'}\n</untrusted_document>"
-            + ("\n\nREPLIES FROM CONTACTS (need confirmed/refuted):\n<untrusted_document>\n" + "\n".join(signals)
+            f"EVIDENCE (cite in \"claims\"):\n<untrusted_document>\n{evidence_text(evidence) or '-'}\n</untrusted_document>"
+            + (f"\n\nDOMAIN SOURCES (cite in \"evidence\"; occupation/sector scope is general, never a fact about a "
+               f"specific organization):\n<untrusted_document>\n{domain_evidence_text(dom)}\n</untrusted_document>"
+               if dom else "")
+            + ("\n\nREPLIES FROM CONTACTS AND ANSWERED QUESTIONS:\n<untrusted_document>\n" + "\n".join(signals)
                + "\n</untrusted_document>" if signals else ""))
     res = router.run_task("domain_brief", [{"role": "system", "content": DOMAIN_BRIEF_SYSTEM.format(
         lang=cfg.pipeline.output_language)}, {"role": "user", "content": user}], DomainBriefOut,
         object_type="hypothesis", object_id=hid, max_tokens=3000)
     if not res.ok:
-        return int(latest["id"]) if latest is not None else None
+        finish_attempt(db, key, title, "needs_research", f"syntéza prehľadu zlyhala ({res.reason or 'model'})",
+                       "nový pokus pri nových podkladoch alebo na tvoju žiadosť; oslovenie môže pokračovať s otázkami")
+        return previous
     allowed = {e["id"] for e in evidence}
-    brief, checks = code_check_brief(res.value, allowed)
+    allowed_ev = {e["id"] for e in dom}
+    brief, checks = code_check_brief(res.value, allowed, allowed_ev)
     checks["hodnotiteľ"] = review(cfg, router, "domain_brief_check", DOMAIN_BRIEF_CHECK_SYSTEM,
                                   f"EVIDENCE:\n<untrusted_document>\n{evidence_text(evidence)}\n</untrusted_document>\n\n"
-                                  f"BRIEF:\n<untrusted_document>\n{json.dumps(brief, ensure_ascii=False)}\n</untrusted_document>",
+                                  + (f"DOMAIN SOURCES:\n<untrusted_document>\n{domain_evidence_text(dom)}\n"
+                                     "</untrusted_document>\n\n" if dom else "")
+                                  + f"BRIEF:\n<untrusted_document>\n{json.dumps(brief, ensure_ascii=False)}\n</untrusted_document>",
                                   "hypothesis", hid)
-    used = sorted({c for part in (brief["process_steps"], brief["terms"], brief["data_needed"],
-                                  list(brief["roles"].values()), [brief["decision"], brief["current_practice"]])
-                   for item in part for c in item.get("claims", [])})
+    parts = (brief["process_steps"], brief["terms"], brief["data_needed"], list(brief["roles"].values()),
+             [brief["decision"], brief["current_practice"]], brief["existing_solutions"], brief["alternative_explanations"])
+    used = sorted({c for part in parts for item in part for c in item.get("claims", [])})
+    used_ev = sorted({c for part in parts for item in part for c in item.get("evidence", [])})
     sources = [{"claim_id": e["id"], "url": e["url"], "domain": e["domain"], "stiahnuté": (e["fetched_at"] or "")[:10]}
                for e in evidence if e["id"] in used]
-    from .outcomes import pending_brief_reason
-
+    sources += [{"evidence_id": e["id"], "url": e["source_url"] or e["local_reference"], "druh": e["source_kind"],
+                 "rozsah": e["scope"], "verzia": e["source_version"], "stiahnuté": (e["retrieved_at"] or "")[:10]}
+                for e in dom if e["id"] in used_ev]
     reason = reason or pending_brief_reason(db, key, pop=True)
-    return db.add_brief(key, title, brief, sources, digest, checks, brief_status(checks), getattr(res, "model", None),
-                        reason or ("prvá verzia" if latest is None else "zmena podkladov"))
+    brief_id = db.add_brief(key, title, brief, sources, digest, checks, brief_status(checks), getattr(res, "model", None),
+                            reason or ("prvá verzia" if latest is None else "zmena podkladov"))
+    persist_brief(db, key, brief_id, brief, [(p, t) for p, t in checks.get("presunuté_časti") or []])
+    cov, status = coverage(db, key)
+    missing = [PARTS[k] for k, v in cov.items() if v == "chýba"]
+    finish_attempt(db, key, title, status, "pokrytie všetkých častí" if status == "ready" else
+                   ("chýba: " + ", ".join(missing) if missing else "časti iba ako hypotézy s otázkami"),
+                   "pokračovať s označenými otázkami" if status != "ready" else "použiť v príprave oslovení", cov)
+    return brief_id
 
 
-def brief_markdown(row) -> str:
-    """Prehľad domény ako Markdown (GUI a export)."""
+def brief_markdown(row, db: DB | None = None) -> str:
+    """Prehľad domény ako Markdown (GUI a export). Citáty hypotéz [12], doménové podklady [D5]. S databázou pridá
+    stav podkladov a otázky s tým, čo blokujú, a ich odpovede."""
     b = json.loads(row["brief_json"] or "{}")
-    src = {s["claim_id"]: s for s in json.loads(row["sources_json"] or "[]")}
+    sources = json.loads(row["sources_json"] or "[]")
 
-    def refs(claims: list[int]) -> str:
-        return " " + " ".join(f"[{c}]" for c in claims) if claims else ""
+    def refs(item: dict[str, Any]) -> str:
+        out = [f"[{c}]" for c in item.get("claims") or []] + [f"[D{e}]" for e in item.get("evidence") or []]
+        return " " + " ".join(out) if out else ""
 
-    lines = [f"# {row['title']} – prehľad domény (verzia {row['version']}, {row['created_at'][:10]}, stav {row['status']})",
-             "", "## Proces"]
-    lines += [f"{i + 1}. {s['text']}{refs(s['claims'])}" for i, s in enumerate(b.get("process_steps") or [])] or ["- chýba"]
+    lines = [f"# {row['title']} – prehľad domény (verzia {row['version']}, {row['created_at'][:10]}, stav {row['status']})"]
+    if db is not None:
+        from .domain import STATUS_LABEL
+
+        state = db.research_get(row["domain_key"])
+        if state is not None:
+            lines += ["", f"Stav podkladov: **{STATUS_LABEL.get(state['status'], state['status'])}** – "
+                      f"{state['stop_reason'] or ''}. Ďalej: {state['next_step'] or '–'}. Prehľad nepotvrdzuje problém "
+                      "konkrétnej firmy a nerozhoduje o bránach."]
+    lines += ["", "## Proces"]
+    lines += [f"{i + 1}. {s['text']}{refs(s)}" for i, s in enumerate(b.get("process_steps") or [])] or ["- chýba"]
     lines += ["", "## Pojmy"]
-    lines += [f"- **{t['term']}** – {t['explanation']}{refs(t['claims'])}" for t in b.get("terms") or []]
+    lines += [f"- **{t['term']}** – {t['explanation']}{refs(t)}" for t in b.get("terms") or []]
     lines += ["", "## Kto"]
     for k, label in (("user", "Pracuje s problémom"), ("data_steward", "Spravuje dáta"), ("decision_maker", "Rozhoduje o rozpočte")):
         item = (b.get("roles") or {}).get(k) or {}
-        lines.append(f"- {label}: {item.get('text') or 'neznáme'}{refs(item.get('claims') or [])}")
+        lines.append(f"- {label}: {item.get('text') or 'neznáme'}{refs(item)}")
     for k, label in (("decision", "Rozhodnutie, ktoré má výstup podporiť"), ("current_practice", "Dnešný postup a riešenia")):
         item = b.get(k) or {}
-        lines += ["", f"## {label}", (item.get("text") or "neznáme") + refs(item.get("claims") or [])]
+        lines += ["", f"## {label}", (item.get("text") or "neznáme") + refs(item)]
+    if b.get("existing_solutions"):
+        lines += ["", "## Existujúce riešenia"] + [f"- {x['text']}{refs(x)}" for x in b["existing_solutions"]]
+    lines += ["", "## Prečo nový nástroj nemusí pomôcť (alternatívne vysvetlenia)"]
+    lines += [f"- {x['text']}{refs(x)}" for x in b.get("alternative_explanations") or []] or ["- nepodložené – otázka do rozhovoru"]
     lines += ["", "## Potrebné dáta a úskalia významu"]
-    lines += [f"- {d['field']}: {d['meaning_pitfall']}{refs(d['claims'])}" for d in b.get("data_needed") or []] or ["- chýba"]
+    lines += [f"- {d['field']}: {d['meaning_pitfall']}{refs(d)}" for d in b.get("data_needed") or []] or ["- chýba"]
     lines += ["", "## Otázky, ktoré môžu nápad vyvrátiť"]
     lines += [f"- ({ASPECT_LABEL.get(q['aspect'], q['aspect'])}) {q['question']}" for q in b.get("falsifying_questions") or []]
+    if db is not None:
+        from .domain import BLOCKS, TARGETS
+
+        qs = [q for q in db.domain_questions(row["domain_key"]) if q["kind"] == "open" and q["status"] != "superseded"]
+        if qs:
+            lines += ["", "## Otvorené otázky (komu, čo blokujú)"]
+            for q in qs:
+                answer = f" → **{q['answer']}** ({q['answer_source']})" if q["status"] == "answered" else ""
+                lines.append(f"- {q['question']} – {TARGETS.get(q['target_role'], q['target_role'])}; blokuje: "
+                             f"{BLOCKS.get(q['blocks_action'], q['blocks_action'])}{answer}")
     lines += ["", "## Neznáme a predpoklady na overenie"]
     lines += [f"- {u}" for u in b.get("unknowns") or []] or ["- žiadne uvedené"]
     lines += ["", "## Zdroje"]
-    lines += [f"- [{c}] {s['url']} (stiahnuté {s['stiahnuté']})" for c, s in src.items()] or ["- žiadne"]
+    out = []
+    for src in sources:
+        if "claim_id" in src:
+            out.append(f"- [{src['claim_id']}] {src['url']} (stiahnuté {src['stiahnuté']})")
+        else:
+            out.append(f"- [D{src['evidence_id']}] {src['url']} ({src.get('druh')}, rozsah {src.get('rozsah')}, verzia "
+                       f"{src.get('verzia') or '–'}, stiahnuté {src.get('stiahnuté')})")
+    lines += out or ["- žiadne"]
     return "\n".join(lines) + "\n"
 
 
@@ -461,8 +570,12 @@ def recipient_kinds(cfg: Config, db: DB, hid: int) -> list[str]:
 
 def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None = None) -> dict:
     """Krok `value`: prehľad domény a návrhy prínosu pre hypotézy na Bráne 0 (iba pri zmene podkladov)."""
+    from .domain import sync_priorities
+
     stats: Counter = Counter()
     hyps = ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    prio = {r["domain_key"]: r["priority"] for r in sync_priorities(cfg, db)}
+    hyps = sorted(hyps, key=lambda h: -prio.get(domain_of(db, h)[0], 0))  # prioritné domény prvé (poradie, nie právo)
     done_domains: set[str] = set()
     for hid in hyps:
         if deadline.expired():

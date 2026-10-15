@@ -263,6 +263,8 @@ def apply_queue(cfg: Config, db: DB, hid: int, rows: list[dict[str, Any]], today
                                            f"oslovenie najskôr po {cfg.outreach.org_cooldown_days} dňoch")
             elif org_id in queued_orgs:
                 eligible, action = False, f"z organizácie je vo fronte {queued_orgs[org_id]} – jedno prvé oslovenie naraz"
+        if eligible and not r.get("zdroj_kontaktu"):  # dodatok 16. 10.: personalizácia sa nevyrába z domnienky
+            action = "doplniť podklad: zdroj dôvodu výberu (URL a úryvok) – bez neho návrh nepôjde na odoslanie"
         if eligible:
             if org_id:
                 queued_orgs[org_id] = r["osoba"] or r["organizácia"]

@@ -5,7 +5,8 @@ import streamlit as st
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
 from radar.outcomes import FLAGS, RELEVANCE, REPLIES, OutcomeError, outcome_metrics, record_outcome
 from radar.outreach import (
-    MODE_LABEL, OutreachError, approve, follow_up_text, mailto_link, mark_follow_up_sent, mark_sent, recheck, set_status,
+    MODE_LABEL, SEND_STATES, OutreachError, approve, confirm_manual_review, follow_up_text, mailto_link,
+    mark_follow_up_sent, mark_sent, recheck, send_state, set_status,
 )
 from radar.privacy import sender_placeholders
 
@@ -55,6 +56,15 @@ for o in items:
         if o["status"] == "blocked":
             st.warning(o["body"], icon=":material/gavel:")
             continue
+        state, state_reasons = send_state(c, d, o)
+        if state is not None:
+            box = {"ready_for_manual_send": st.success, "draft_ready": st.info}.get(state, st.warning)
+            box(f"Pripravenosť: **{SEND_STATES[state]}**" + ("".join(f"\n- {esc(r)}" for r in state_reasons)),
+                icon=":material/outgoing_mail:")
+            if state == "review_pending" and st.button("Skontroloval som ručne (hodnotiteľ bez výsledku)",
+                                                       key=f"o{o['id']}mr", icon=":material/person_check:"):
+                confirm_manual_review(d, o["id"])
+                refresh()
         if pkg:
             why, need = pkg.get("prečo_tento_kontakt") or {}, pkg.get("potreba") or {}
             st.dataframe([
@@ -69,6 +79,12 @@ for o in items:
             ], hide_index=True, alt="Reťazec dôvodov návrhu oslovenia")
             if pkg.get("záväzok"):
                 st.caption(f"Schválený záväzok: {pkg['záväzok']}")
+            if pkg.get("hlavná_otázka"):
+                st.caption(f"Hlavná otázka prvého oslovenia: „{esc(pkg['hlavná_otázka']['text'])}“ (odpoveď odblokuje: "
+                           f"{pkg['hlavná_otázka']['blokuje']})")
+            if pkg.get("príprava_rozhovoru"):
+                with st.popover("Príprava rozhovoru (ďalšie otázky)", icon=":material/forum:"):
+                    st.markdown("\n".join(f"- {esc(q)}" for q in pkg["príprava_rozhovoru"]))
             for r in pkg.get("pripravenosť") or []:
                 st.warning(r, icon=":material/edit_note:")
         problems = list(checks.get("problems", []))
@@ -152,11 +168,23 @@ for o in items:
                 cols = st.columns(2)
                 prep = cols[0].number_input("Príprava na kontakt (min)", min_value=0.0, value=None, key=key + "pm")
                 delivery = cols[1].number_input("Dodanie výstupu (dni)", min_value=0.0, value=None, key=key + "dd")
+                from radar.value import domain_of
+
+                open_q = d.domain_questions(domain_of(d, o["hypothesis_id"])[0], "open")[:6]
+                answers = {}
+                if open_q:
+                    st.caption("Odpovede na otázky domény (vyplň iba tie, na ktoré kontakt odpovedal):")
+                    for q in open_q:
+                        qc = st.columns([4, 1])
+                        text = qc[0].text_input(q["question"], key=f"{key}q{q['id']}")
+                        contra = qc[1].checkbox("vyvracia", key=f"{key}qc{q['id']}",
+                                                help="Odpoveď vyvracia predpoklad prehľadu.")
+                        answers[q["id"]] = {"text": text, "contradicts": contra}
                 if st.form_submit_button("Uložiť výsledok oslovenia", icon=":material/fact_check:"):
                     try:
                         res = record_outcome(c, d, outreach_id=o["id"], reply=reply, problem_relevance=relevance or None,
                                              rejection_reason=rejection, next_action=next_step, note=note,
-                                             prep_minutes=prep, delivery_days=delivery, **flags)
+                                             prep_minutes=prep, delivery_days=delivery, answers=answers, **flags)
                         msg = "Výsledok uložený"
                         if res.get("prehľad_domény"):
                             msg += " · prehľad domény sa aktualizuje pri najbližšom kroku value"
