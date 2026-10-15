@@ -975,6 +975,27 @@ def _store_profiled(cfg: Config, db: DB, hid: int, source_id: int | None, url: s
     return stats
 
 
+def reprofile(cfg: Config, db: DB, hid: int, force: bool = False) -> int:
+    """Profil datasetu z aktuálneho snapshotu tabuľky: keď počet riadkov nesedí s metadátami (napr. po doplnení
+    dávok CRZ – audit: 2 125 793 vs. 2 125 477 riadkov) alebo pri `force`, profil sa prepočíta; importný report
+    a ďalšie údaje profilu ostanú. Vráti počet prepočítaných datasetov."""
+    n = 0
+    for ds in db.datasets_for(hid, only_ok=True):
+        try:
+            rows = run_query(cfg, hid, f"SELECT COUNT(*) FROM {ds['table_name']}")[0][0]
+        except DatasetError:
+            continue
+        if not force and rows == ds["rows"]:
+            continue
+        old = json.loads(ds["profile_json"] or "{}")
+        prof = profile_table(cfg, hid, ds["table_name"])
+        prof.update({k: v for k, v in old.items() if k not in prof})
+        prof["snapshot"] = {"riadky": rows, "predtým": ds["rows"], "prepočítané": utcnow()}
+        db.update_dataset(ds["id"], profile_json=prof, rows=rows)
+        n += 1
+    return n
+
+
 def sharing_hypotheses(db: DB, hid: int) -> list[int]:
     """Hypotézy so spoločnou DuckDB: rodič a jeho podhypotézy (rozdelenie)."""
     h = db.get_hypothesis(hid)
@@ -1237,6 +1258,7 @@ def run_finish(cfg: Config, db: DB, deadline: Deadline, ids: list[int] | None) -
         if not db.fields_for(hid):
             continue
         _update_field_statuses(db, hid)
+        stats["reprofiled"] += reprofile(cfg, db, hid)  # metadáta z aktuálneho snapshotu tabuľky
         stats["info_requests"] += draft_info_requests(cfg, db, hid)
         stats["coverage"] += refresh_coverage(cfg, db, hid)
         summary = readiness(cfg, db, hid)

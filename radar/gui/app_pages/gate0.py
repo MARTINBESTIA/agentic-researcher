@@ -31,16 +31,18 @@ with tab_who:
         st.metric("S e-mailom", summary["s_e-mailom"], border=True)
     st.caption("Odporúčanie je pravidlo, nie hodnotenie človeka: dôvody sú v stĺpci „dôvody“. Typy: **zákazník** "
                "(rozhovor o poslednom prípade problému), **držiteľ dát** (schéma a vzorka), **expert** (posúdenie, "
-               "odporúčanie). Kontakty sú iba zverejnené organizáciou alebo v úradnom zverejnení, so zdrojom a úryvkom. "
-               "Nič sa neodosiela.")
+               "odporúčanie). Účel (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert) má každý "
+               "svoj dôkaz; politici a členovia predstavenstiev nie sú vlastníci procesu. Kontakty sú iba zverejnené "
+               "organizáciou alebo v úradnom zverejnení, so zdrojom a úryvkom. Nič sa neodosiela.")
     with st.container(horizontal=True):
         kinds = st.segmented_control("Typ", ["všetko", "zákazník", "držiteľ dát", "expert"], default="všetko",
                                      key="g0_kind")
         tiers = st.multiselect("Odporúčanie", list(TIERS), default=[t for t in TIERS if t != "neoslovovať"],
                                key="g0_tiers")
     shown = [r for r in rows if r["odporúčanie"] in tiers and (kinds in (None, "všetko") or r["typ"] == kinds)]
-    table = [{k: r[k] for k in ("odporúčanie", "typ", "osoba", "funkcia", "organizácia", "e-mail", "telefón", "prečo",
-                                "čo_žiadať", "dôvody", "stav")} | {"zdroj": safe_url(r["zdroj_kontaktu"])} for r in shown]
+    table = [{k: r[k] for k in ("odporúčanie", "typ", "osoba", "funkcia", "účel", "organizácia", "e-mail", "telefón",
+                                "prečo", "čo_žiadať", "dôvody", "dôkaz_účelu", "stav")} | {"zdroj": safe_url(r["zdroj_kontaktu"])}
+             for r in shown]
     if not rows:
         st.info("Zatiaľ nikto. Spusti hľadanie: organizácie → plán kontaktov podľa hypotézy (zákazník, držiteľ dát, "
                 "expert) → ľudia a kontakty z webov → poradie.", icon=":material/info:")
@@ -66,6 +68,16 @@ with tab_who:
                 st.caption(f"Cieľ plánu: {row['cieľ']}")
             if row["úryvok"]:
                 st.html(f"<small>Úryvok zo zdroja: {esc(row['úryvok'])}</small>")
+            if row["účel"]:
+                st.caption(f"Účel: {row['účel']} · dôkaz: {row['dôkaz_účelu']}")
+            with st.container(horizontal=True):
+                if st.button("Účel sedí", icon=":material/thumb_up:", key=f"g0_role_ok_{pid}",
+                             help="Referenčné hodnotenie (meranie presnosti výberu kontaktov)."):
+                    d.add_label("contact_role", "person", pid, "correct", note=f"H{hid}: {row['účel']}")
+                    st.toast("Uložené ako referenčné hodnotenie.", icon=":material/check:")
+                if st.button("Účel nesedí", icon=":material/thumb_down:", key=f"g0_role_no_{pid}"):
+                    d.add_label("contact_role", "person", pid, "incorrect", note=f"H{hid}: {row['účel']}")
+                    st.toast("Uložené ako referenčné hodnotenie.", icon=":material/check:")
             with st.container(horizontal=True):
                 if row["e-mail"]:
                     st.link_button(f"Napísať na {row['e-mail']}", "mailto:" + quote(row["e-mail"], safe="@."),

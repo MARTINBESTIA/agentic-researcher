@@ -129,6 +129,9 @@ def stage_gate1(step: str) -> Callable[[Any, Deadline], dict]:
             return gate1.run_user_inputs(app.cfg, app.db, app.router, deadline, ids)
         if step == "revalidate":
             return dict(gate1.revalidate_passed(app.cfg, app.db, ids))
+        if step == "reprofile":
+            hyps = ids or [h["id"] for h in app.db.gate1_hypotheses()]
+            return {"reprofiled": sum(gate1.reprofile(app.cfg, app.db, h, force=True) for h in hyps)}
         return gate1.run_finish(app.cfg, app.db, deadline, ids)
 
     return run
@@ -297,6 +300,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "gate1-user": stage_gate1("user"),
     "gate1-finish": stage_gate1("finish"),
     "gate1-revalidate": stage_gate1("revalidate"),
+    "gate1-reprofile": stage_gate1("reprofile"),
     "gate2-cards": stage_gate2("cards"),
     "gate2-plan": stage_gate2("plan"),
     "gate2-conclusion": stage_gate2("conclusion"),
@@ -335,6 +339,7 @@ STAGE_HELP = {
                     "Brána 2, inak čaká na tvoje dáta (kód); preverí aj prešlé.",
     "gate1-revalidate": "Brána 1: preverí prešlé hypotézy s aktuálnymi dátami – prechod pravidlom bez platných "
                         "podmienok dostane „treba znova overiť“, ručný prechod príznak (kód).",
+    "gate1-reprofile": "Brána 1: prepočíta profily datasetov z aktuálneho stavu tabuliek (riadky, stĺpce, IČO) (kód).",
     "gate2-cards": "Problémové karty (problém, kto, rozhodnutie, výstup s citátmi) a rozdelenie širokých hypotéz.",
     "gate2-plan": "Brána 2: návrh experimentov z karty a profilu dát (model), skúšobný beh a oprava (kód).",
     "gate2-conclusion": "Brána 2: záver pre problém z vypočítaných faktov a správa experimentu (HTML).",

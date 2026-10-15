@@ -125,3 +125,8 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   automatizáciu práce typ úlohy „workflow“ (čas, chybovosť, výsledok práce pred a po) s meraním u používateľa. · 2 dni.
 - **2026-10-15 – Brána 2 – časové bloky aj pre predpoveď.** Bootstrap predpovede je po entitách; pri jednej entite by
   mal prevzorkovať bloky období. · 0,5 dňa.
+- **2026-10-15 – kontakty – účel z textu stránky, nie iba z funkcie.** Účel kontaktu sa zatiaľ určuje z názvu funkcie
+  pravidlami; dôkaz zodpovednosti by mohol byť aj veta zo stránky („zodpovedá za fakturáciu“) – kód by ju našiel
+  v okolí mena a doslovne uložil. Najprv zmerať na referenčnej vzorke `contact_role`. · 1 deň.
+- **2026-10-15 – autopilot – ladenie podielu zberu a počtu priorít.** 25 % a 3 priority sú pracovné nastavenie z auditu;
+  po 2 týždňoch porovnať postup k zákazníkovi (Prehľad) a počet nových hypotéz a upraviť. · 0,5 dňa.

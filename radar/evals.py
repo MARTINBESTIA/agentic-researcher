@@ -11,6 +11,7 @@ Labely: (1) z kontroly v GUI, (2) zo stratifikovanej vzorky model_judgments (eva
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -34,6 +35,44 @@ EVAL_TASKS = ("entail", "extract", "cluster_assign", "role_fit", "contact_assoc"
 # Pozitívna trieda pri binárnom pohľade (čo chceme zachytiť).
 POSITIVE = {"entail": "unsupported", "draft_check": "problems", "extract": "correct", "contact_assoc": "correct",
             "cluster_assign": "correct"}
+
+
+# Referenčná vzorka (audit 14. 10. 2026, poradie práce bod 3): ručne overené prípady na meranie presnosti mapovania
+# polí, importov, účelu kontaktov a rozhodnutí o dôkazoch. ~20 % prípadov je kontrolná časť (holdout): podľa nich sa
+# neupravujú prompty ani pravidlá, iba sa na nich meria (rozdelenie podľa hashu – stabilné medzi behmi).
+REFERENCE_TARGETS = {"field_binding": 30, "dataset_import": 20, "contact_role": 20, "entail": 30}
+REFERENCE_LABELS = {"field_binding": "mapovanie poľa na stĺpec (Brána 1 → Mapovanie polí)",
+                    "dataset_import": "import na kontrole (Brána 1 → Datasety)",
+                    "contact_role": "účel kontaktu (Brána 0 → Koho osloviť)",
+                    "entail": "rozhodnutie o dôkaze (Kontrola)"}
+# „správne“ z pohľadu systému: návrh väzby potvrdený, import na kontrole naozaj zlý, účel kontaktu sedí, posúdenie
+# dôkazu sa zhoduje s modelom (pri entail sa zhoda počíta v evale, tu iba počet)
+REFERENCE_CORRECT = {"field_binding": "confirmed", "dataset_import": "rejected", "contact_role": "correct"}
+HOLDOUT_PERCENT = 20
+
+
+def is_holdout(task: str, object_type: str, object_id: int) -> bool:
+    digest = hashlib.sha1(f"{task}:{object_type}:{object_id}".encode()).hexdigest()
+    return int(digest[:8], 16) % 100 < HOLDOUT_PERCENT
+
+
+def reference_status(db: DB) -> list[dict[str, Any]]:
+    """Koľko referenčných prípadov je označených, koľko chýba do cieľa a aká je zhoda systému (Wilsonov interval)."""
+    rows = []
+    for task, target in REFERENCE_TARGETS.items():
+        labels = [r for r in db.labels_for(task) if r["label"] != "unsure"]
+        hold = [r for r in labels if is_holdout(task, r["object_type"], int(r["object_id"]))]
+        row: dict[str, Any] = {"úloha": task, "čo": REFERENCE_LABELS[task], "označené": len(labels), "cieľ": target,
+                               "chýba": max(0, target - len(labels)), "kontrolná_časť": len(hold),
+                               "na_ladenie": len(labels) - len(hold)}
+        good = REFERENCE_CORRECT.get(task)
+        if good and labels:
+            k = sum(1 for r in labels if r["label"] == good)
+            lo, hi = wilson(k, len(labels))
+            row["zhoda_systému"] = round(k / len(labels), 3)
+            row["interval_95"] = f"{lo:.0%}–{hi:.0%}"
+        rows.append(row)
+    return rows
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -189,10 +228,13 @@ PREDICTORS: dict[str, Callable[[Config, DB, ModelRouter, EvalItem], str]] = {
 }
 
 
-def eval_items(db: DB, task: str, limit: int | None = None) -> list[EvalItem]:
+def eval_items(db: DB, task: str, limit: int | None = None, split: str = "all") -> list[EvalItem]:
+    """Položky s gold labelom; split „tuning“ = bez kontrolnej časti, „holdout“ = iba kontrolná časť."""
     items = []
     for label in db.labels_for(task):
         if label["label"] == "unsure":
+            continue
+        if split != "all" and is_holdout(task, label["object_type"], int(label["object_id"])) != (split == "holdout"):
             continue
         payload = {}
         if label["object_type"] == "eval_case":
@@ -276,7 +318,7 @@ def run_eval(cfg: Config, db: DB, router: ModelRouter, task: str, profiles: list
     for name in profiles:
         prof = cfg.models.eval_profiles[name]
         router.overrides[task] = TaskRoute(role=prof.model, thinking=prof.thinking, k=1)
-        pairs, times, tokens = [], [], []
+        pairs, times, tokens, hold = [], [], [], []
         for item in items:
             start = time.monotonic()
             pred = PREDICTORS[task](cfg, db, router, item)
@@ -284,8 +326,13 @@ def run_eval(cfg: Config, db: DB, router: ModelRouter, task: str, profiles: list
             info = getattr(router.client(router.route(task).role, prof.thinking), "last", None)
             tokens.append((getattr(info, "prompt_tokens", 0) or 0) + (getattr(info, "completion_tokens", 0) or 0))
             pairs.append((item.gold, pred))
+            if is_holdout(task, item.object_type, item.object_id):
+                hold.append((item.gold, pred))
         router.overrides.pop(task, None)
         metrics = compute_metrics(pairs, POSITIVE.get(task))
+        if hold:  # kontrolná časť zvlášť – podľa nej sa prompty neladia
+            metrics["holdout"] = {"n": len(hold), **{k: v for k, v in compute_metrics(hold, POSITIVE.get(task)).items()
+                                                    if k in ("accuracy", "accuracy_ci")}}
         metrics["undecided"] = sum(1 for _, p in pairs if p == "undecided")
         metrics["avg_s"] = sum(times) / len(times) if times else None
         metrics["avg_tokens"] = sum(tokens) / len(tokens) if tokens else None

@@ -628,8 +628,9 @@ def test_people_workflow_leaves_time_for_people_after_orgs(tmp_path):
 
 
 def test_autopilot_plans_round_by_work_and_time_and_continues(tmp_path):
-    """„Nechať bežať všetko“: kolo iba z akcií s prácou, v poradí závislostí, úseky do zvyšného času; zber ľudí iba
-    pre hypotézy zapnuté na Bránu 0 (bez automatického výberu); na konci ďalší autopilot s rovnakým koncom."""
+    """„Nechať bežať všetko“: kolo iba z akcií s prácou, úseky do zvyšného času; od M22 najprv vetvy vybraných hypotéz
+    a nový zber v pevnom podiele kola (audit P1 6); zber ľudí iba pre hypotézy zapnuté na Bránu 0 (bez automatického
+    výberu); akcia, ktorá sa 2 kolá nezmestí, ide dopredu; na konci ďalší autopilot s rovnakým koncom."""
     from datetime import datetime, timedelta, timezone
 
     from radar.autopilot import pending_work, plan_round
@@ -645,8 +646,9 @@ def test_autopilot_plans_round_by_work_and_time_and_continues(tmp_path):
     now = datetime(2026, 10, 12, 20, 0, tzinfo=timezone.utc)
     plan = plan_round(cfg, db, "config.yaml", now + timedelta(minutes=185), 1, now=now)
     kinds = [(p["akcia"], p["minúty"]) for p in plan["naplánované"]]
-    assert kinds == [("scout", 60), ("topics", 30), ("validate", 60), ("themes", 10), ("people", 25)]
-    assert plan["preskočené"]["contacts"] == "nezmestí sa do času" and plan["preskočené"]["gate2"] == "bez práce"
+    assert kinds == [("gate1", 60), ("people", 60), ("contacts", 19), ("scout", 46)]  # zber: 25 % z 185 min
+    assert plan["preskočené"]["validate"] == "nezmestí sa do času" and plan["preskočené"]["gate2"] == "bez práce"
+    assert plan["rezerva_na_zber_min"] == 46 and plan["prioritné_hypotézy"] == [h1]
     queued = db.queued_jobs()
     people_job = [j for j in queued if j["kind"] == "people"][0]
     assert json.loads(people_job["args_json"])["hypotheses"] == [h1]  # iba zapnuté, h2 nie
@@ -655,6 +657,8 @@ def test_autopilot_plans_round_by_work_and_time_and_continues(tmp_path):
     assert queued[-1]["kind"] == "autopilot" and nxt["round"] == 2 and nxt["until"] == "2026-10-12T23:05:00+00:00"
     late = plan_round(cfg, db, "config.yaml", now + timedelta(minutes=5), 2, now=now)
     assert late["naplánované"] == [] and late["ďalšie_kolo"] is None  # čas vypršal → reťaz končí
+    aged = plan_round(cfg, db, "config.yaml", now + timedelta(minutes=185), 3, now=now)  # validate 2 kolá čakal
+    assert aged["naplánované"][0]["akcia"] == "validate" and "prednosť po čakaní" in aged["naplánované"][0]["dôvod"]
 
 
 def test_autopilot_job_reads_its_end_time_and_plans(tmp_path, monkeypatch):

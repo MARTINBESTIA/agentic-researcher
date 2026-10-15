@@ -18,7 +18,8 @@ problém rozhovormi skôr, než sa začne stavať produkt). Beží na notebooku 
 hľadanie kontaktov podľa hypotézy a „Koho osloviť“ v Bráne 0 (schéma v10, M18); lievik „hypotéza po hypotéze“
 od testu po Bránu 2, donekonečna (schéma v11, M19); dôvera v dáta Brány 1 podľa auditu 14. 10. 2026 – overenie súborov
 požiadavkou, import podľa obsahu s kontrolou, väzby pole → stĺpec, pravidlo prechodu s potvrdením človeka, preverenie
-prešlých (schéma v12, M20); experimenty bez úniku, so silným porovnaním a štyrmi osami výsledku (M21). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
+prešlých (schéma v12, M20); experimenty bez úniku, so silným porovnaním a štyrmi osami výsledku (M21); priority autopilota, účel kontaktov,
+osi stavu, postup k zákazníkovi a referenčná vzorka (M22). Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
 ## Príkazy
@@ -53,7 +54,8 @@ docker compose up -d                     # SearXNG
 | `radar/cards.py` | problémová karta (problém, kto, rozhodnutie, výstup, metrika – s citátmi, sudca) a rozdelenie širokej hypotézy na podhypotézy |
 | `radar/exp_ops.py`, `radar/exp_plan.py`, `radar/exp_tasks.py`, `radar/exp_conclude.py` | univerzálne experimenty Brány 2: operácie nad dátami (DuckDB, bez únikov budúcich dát; dostupnosť štítka z inej tabuľky a jeho dozretie), návrh modelom + skúšobný beh + metodické kontroly (jednotka štítka, entita, populácia, dostupnosť), testy podľa úlohy (poradie bez úniku po foldoch, predpoveď, anomália, prah, porovnanie) s výsledkovou tabuľkou, silné porovnanie zmrazené na validácii, štyri osi a verdikt, verzie; záver pre problém |
 | `radar/gate2_trace.py` | postup experimentu Brány 2 krok po kroku (výber organizácie, návrh, uzamknutie, SQL a rad, kolá testu, výber auto, výpočet, demo) – GUI a Markdown |
-| `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií podľa práce a závislostí, každá akcia samostatná úloha |
+| `radar/autopilot.py` | „Nechať bežať všetko“: kolá akcií – najprv tvoje dáta a vetvy prioritných hypotéz (najviac 3), nový zber s vyhradeným podielom, starnutie preskočených akcií; každá akcia samostatná úloha |
+| `radar/progress.py` | osi stavu hypotézy (literatúra, zákazník, dáta, ochota platiť), obchodný stav so zápisom človeka a dôkazom, postup k zákazníkovi (prevádzkové metriky zvlášť) |
 | `radar/funnel.py` | lievik (akcia `funnel`): ďalší krok hypotézy podľa stavu (test → kontakty → Brána 1 → Brána 2), výber (fokus, rozpracované, fronta testu, hľadanie nových), odloženie zaseknutých, jeden krok na úlohu a ďalšia úloha do poradia; záznam `funnel_log` |
 | `radar/nku.py` | NKÚ: otvorené dáta kontrolných zistení + zoznam subjektov (IČO), bez adries – štítky pre experimenty |
 | `radar/eta.py` | odhady časov pre dashboard (história akcií, poradie, miestny čas) |
@@ -66,9 +68,9 @@ docker compose up -d                     # SearXNG
 | `radar/shortlist.py` | Koho osloviť (GUI Brána 0): odporúčanie pravidlom kódu s dôvodmi (oslov najprv / oslov / doplň kontakt / neoslovovať), e-mail, prečo, čo žiadať |
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
-| `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita |
+| `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita; účel kontaktu s dôkazom (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert; politici a členovia orgánov nie) |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení, kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |
-| `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson); benchmark a plán behu |
+| `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson) a referenčná vzorka s kontrolnou časťou (holdout); benchmark a plán behu |
 | `radar/pipeline.py`, `radar/cli.py`, `radar/commands.py` | run-all v poradí podľa modelov; príkazy `python -m radar …` |
 | `radar/agent.py` | agent s nástrojmi len na čítanie a `record_evidence` (úlohy deep_dive, validate, scout) |
 | `radar/scout.py`, `radar/validate.py` | agent hľadá nové problémy (bunky matice); test uložených hypotéz (fronta, verdikt kódu) |

@@ -303,6 +303,11 @@ class WorkflowsConfig(BaseModel):
     funnel_max_attempts: int = 2  # krok, ktorý toľkokrát nezmení stav hypotézy, sa pre ňu odloží (zaseknutá)
     funnel_max_runs_per_step: int = 4  # najviac behov jedného kroku pre jednu hypotézu (napr. dlhá Brána 1)
     funnel_max_failures: int = 3  # toľko zlyhaných krokov za sebou (napr. nebeží model) → lievik zastaví
+    # Autopilot (audit 14. 10. 2026, P1 6): najprv tvoje vstupy a rozpracované vetvy (najviac N prioritných hypotéz),
+    # nový zber (scout, topics) má pevný podiel času kola; akcia s prácou, ktorá sa N kôl nezmestila, ide dopredu.
+    autopilot_discovery_share: float = 0.25
+    autopilot_max_priorities: int = 3
+    autopilot_aging_rounds: int = 2
 
 
 # ------------------------------------------------------------------ Brána 1 a 2

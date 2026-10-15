@@ -24,11 +24,17 @@ from .util import utc_days_ago, utcnow
 
 log = logging.getLogger(__name__)
 
-# (akcia, minúty) v poradí závislostí: nové hypotézy → test → posúdenie → témy → ľudia → kontakty → návrhy → brány → kritika
-ROUND: list[tuple[str, int]] = [
-    ("scout", 60), ("topics", 30), ("validate", 60), ("evidence", 45), ("themes", 10), ("cards", 30), ("people", 60),
-    ("contacts", 20), ("drafts", 30), ("gate1-input", 10), ("catalog", 30), ("gate1", 60), ("gate2", 60), ("critique", 30),
+# (akcia, minúty). Audit 14. 10. 2026 (P1 6): pri krátkych behoch dostal čas iba nový zber (scout, topics boli prví
+# a vždy majú prácu). Teraz najprv tvoje vstupy a vetvy vybraných hypotéz (Brána 1 → karty → Brána 2 → ľudia),
+# potom spracovanie existujúcich hypotéz; nový zber (aj index katalógu) má vyhradený podiel kola
+# (workflows.autopilot_discovery_share).
+PRIORITY: list[tuple[str, int]] = [
+    ("gate1-input", 10), ("gate1", 60), ("cards", 30), ("gate2", 60), ("people", 60), ("contacts", 20), ("drafts", 30),
+    ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30),
 ]
+DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30)]
+ROUND: list[tuple[str, int]] = PRIORITY + DISCOVERY
+AGING_KEY = "autopilot_aging"  # akcia → počet kôl, v ktorých mala prácu, ale nezmestila sa
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
 GATE1_PER_JOB = 3
 
@@ -42,6 +48,18 @@ def _since_last(db: DB, kinds: tuple[str, ...]) -> str:
 
 def selected_ids(db: DB) -> list[int]:
     return [h["id"] for h in db.people_enabled_hypotheses()]
+
+
+STAGE_RANK = {"passed": 0, "needs_revalidation": 1, "running": 1, "needs_input": 2, "ready": 1, "not_started": 3}
+
+
+def priority_ids(cfg: Config, db: DB, k: int | None = None) -> list[int]:
+    """Prioritné hypotézy (najviac `autopilot_max_priorities`): vybrané na Bránu 0, najďalej v lieviku prvé
+    (Brána 1 prešla → rozpracovaná → čaká na dáta → nezačatá), potom najdlhšie vybrané. Ostatné počkajú, kým
+    sa niektorá vetva dokončí (audit: systém má dokončovať vybrané vetvy, nie rozbiehať nové)."""
+    k = k if k is not None else cfg.workflows.autopilot_max_priorities
+    rows = [(STAGE_RANK.get(h["gate1_status"] or "not_started", 3), h["id"]) for h in db.people_enabled_hypotheses()]
+    return [hid for _, hid in sorted(rows)[:k]]
 
 
 def gate1_ids(db: DB, k: int = GATE1_PER_JOB) -> list[int]:
@@ -154,27 +172,49 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
 
         auto_select_validated(cfg, db)
     work = pending_work(cfg, db)
-    planned, skipped, budget = [], {}, left
+    planned, skipped = [], {}
     config = str(config_path)
-    for kind, minutes in ROUND:
+    aging = db.get_setting(AGING_KEY, {}) or {}
+    wf = cfg.workflows
+    # starnutie: akcia s prácou, ktorá sa `autopilot_aging_rounds` kôl nezmestila, ide na začiatok kola
+    aged = [(kd, m) for kd, m in PRIORITY if kd in work and aging.get(kd, 0) >= wf.autopilot_aging_rounds]
+    priority = aged + [(kd, m) for kd, m in PRIORITY if (kd, m) not in aged]
+    has_priority = any(kd in work for kd, _ in PRIORITY)
+    has_discovery = any(kd in work for kd, _ in DISCOVERY)
+    reserve = 0.0
+    if has_priority and has_discovery:  # pevný podiel na nový zber; bez inej práce má zber celý čas
+        reserve = left * wf.autopilot_discovery_share
+        reserve = reserve if reserve >= MIN_SLICE else 0.0
+    used = 0.0
+    ids_for = {"gate1": gate1_ids(db, wf.autopilot_max_priorities), "people": priority_ids(cfg, db),
+               "contacts": priority_ids(cfg, db), "drafts": priority_ids(cfg, db)}
+
+    def plan(kind: str, minutes: int, budget: float) -> float:
         if kind not in work:
             skipped[kind] = "bez práce"
-            continue
+            return 0.0
         slice_min = min(minutes, budget)
         if slice_min < MIN_SLICE:
             skipped[kind] = "nezmestí sa do času"
-            continue
+            return 0.0
         window = cfg.workflows.autopilot_hours.get(kind)
-        start = now + timedelta(minutes=left - budget)  # odhad: úlohy pred ňou minú celý svoj úsek
+        start = now + timedelta(minutes=used)  # odhad: úlohy pred ňou minú celý svoj úsek
         if not in_hours(window, start):
             skipped[kind] = f"mimo času ({window[0]}–{window[1]} h)"
-            continue
-        ids = (gate1_ids(db) if kind == "gate1"
-               else selected_ids(db) if kind in ("people", "contacts", "drafts") else [])
-        job = db.create_job(kind, {"minutes": round(slice_min), "hypotheses": ids, "config": config,
+            return 0.0
+        job = db.create_job(kind, {"minutes": round(slice_min), "hypotheses": ids_for.get(kind, []), "config": config,
                                    "autopilot": round_no}, status="queued")
-        planned.append({"úloha": job, "akcia": kind, "minúty": round(slice_min), "dôvod": work[kind]})
-        budget -= slice_min
+        planned.append({"úloha": job, "akcia": kind, "minúty": round(slice_min), "dôvod": work[kind]
+                        + (" · prednosť po čakaní" if aging.get(kind, 0) >= wf.autopilot_aging_rounds else "")})
+        return slice_min
+
+    for kind, minutes in priority:
+        used += plan(kind, minutes, left - reserve - used)
+    for kind, minutes in DISCOVERY:  # vyhradený čas + čo priority nevyužili
+        used += plan(kind, minutes, left - used)
+    for kind, _ in ROUND:  # starnutie: prácu mala, nezmestila sa → +1; naplánovaná alebo bez práce → 0
+        aging[kind] = aging.get(kind, 0) + 1 if skipped.get(kind) == "nezmestí sa do času" else 0
+    db.set_setting(AGING_KEY, {k_: v for k_, v in aging.items() if v})
     next_job = None
     if planned:  # ďalší autopilot prepočíta zvyšný čas (úlohy často skončia skôr); keď sa nič nezmestí, reťaz skončí
         next_job = db.create_job("autopilot", {"minutes": 5, "hypotheses": [], "config": config,
@@ -183,7 +223,8 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
     log.info("Autopilot kolo %d: %d úloh, ďalšie kolo %s (do %s)", round_no, len(planned),
              f"#{next_job}" if next_job else "nie", until.isoformat(timespec="minutes"))
     return {"kolo": round_no, "do": until.isoformat(timespec="minutes"), "naplánované": planned,
-            "preskočené": skipped, "ďalšie_kolo": next_job, "naplánované_o": utcnow()}
+            "preskočené": skipped, "ďalšie_kolo": next_job, "naplánované_o": utcnow(),
+            "rezerva_na_zber_min": round(reserve), "prioritné_hypotézy": ids_for["people"]}
 
 
 def until_for(job, minutes: float) -> datetime:

@@ -51,7 +51,7 @@ log = logging.getLogger(__name__)
 ROLE_FIT_CALLS_PER_HYPOTHESIS = 15  # posúdenia funkcie presným modelom na hypotézu a beh (~20 s)
 WINDOW = 400  # meno a kontakt musia byť v tom istom bloku alebo v okne ≤ 400 znakov (R-PPL-10)
 MAX_GENERIC_PER_KIND = 2  # generické kontakty organizácie (e-mail, telefón)
-LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "data_holder": 0.6, "org_affected": 0.5,
+LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "data_holder": 0.6, "process_user": 0.55, "org_affected": 0.5,
                  "procurement_contact": 0.4, "expert": 0.3}
 COLLECTED_LINKS = ("quoted_about_problem", "procurement_contact")
 # Funkcie ľudí, ktorí v organizácii, ktorá drží dáta, vedia poslať vzorku alebo schému: začiatky slov bez diakritiky
@@ -697,6 +697,53 @@ def is_expert(person, org) -> bool:
     return False
 
 
+# Účel kontaktu (audit 14. 10. 2026, P1): rozlišovať používateľa riešenia, vlastníka procesu, správcu dát,
+# schvaľovateľa rozpočtu a experta – každá rola potrebuje vlastný dôkaz (funkcia zverejnená organizáciou alebo
+# zadaná človekom). Politici a členovia orgánov (predstavenstvo, dozorná rada) nie sú vlastníci procesu; osoba
+# spomenutá v článku nemá doloženú kompetenciu (H11: poslanci a členovia predstavenstiev v zozname).
+POLITICAL_RE = re.compile(r"poslan|\bminist|statn\w* tajomn|europoslan|senator|zastupitel|politi|"
+                          r"(predsed|podpredsed)\w* (vlady|strany|parlament|nr sr|narodnej rady)")
+BOARD_RE = re.compile(r"(clen|predsed|podpredsed)\w* (predstavenstva|dozornej rady|spravnej rady|statutarneho organu|"
+                      r"vedeckej rady|rady)|\bboard\b")
+RESPONSIBILITY_RE = re.compile(r"veduc|riaditel|manazer|manager|\bhead\b|zodpoved|koordinator|garant|owner|\bsef|\bhlavn|"
+                               r"prednost|konatel|majitel")
+BUDGET_RE = re.compile(r"financ|ekonom|rozpoc|\bcfo\b|controll|konatel|generaln\w* riaditel|starost|primator|prednost|"
+                       r"majitel")
+USER_RE = re.compile(r"referent|specialist|uctov|operator|asistent|technik|dispecer|samostatn|odborn\w* pracovn")
+OWN_SOURCES = {"website": "web organizácie", "rpo": "register RPO", "catalog": "katalóg dát", "procurement": "obstarávanie",
+               "manual": "zadané tebou"}
+PURPOSES = ("vlastník procesu", "používateľ riešenia", "správca dát", "schvaľovateľ rozpočtu", "expert")
+
+
+def contact_purposes(person, fit: float, org=None, expert: bool = False) -> list[dict[str, str]]:
+    """Účely kontaktu, každý s vlastným dôkazom (kód, bez modelu). Vlastník procesu: funkcia zodpovednosti (vedúci,
+    riaditeľ, manažér…) zodpovedá roli z mapy (role_fit ≥ 0,5) a zverejnila ju organizácia alebo register."""
+    title = fold(person["role_title"] or "")
+    src = person["source_kind"] or ""
+    where = (f"funkcia „{person['role_title'] or '?'}“ ({OWN_SOURCES.get(src, src or 'zdroj')}: "
+             f"{person['source_url']})")
+    if POLITICAL_RE.search(title) or BOARD_RE.search(title):
+        return [{"rola": "politik alebo člen orgánu", "dôkaz": where + " – nie je vlastník procesu ani správca dát"}]
+    own = src in OWN_SOURCES or (not src and org is not None and org["website"]  # staršie záznamy bez druhu zdroja
+                                 and domain_of(person["source_url"] or "") == domain_of(org["website"]))
+    if not own:
+        return [{"rola": "citovaná osoba", "dôkaz": f"{where} – kompetencia nedoložená (nie zo zverejnenia organizácie)"}]
+    out = []
+    if expert:
+        out.append({"rola": "expert", "dôkaz": where})
+    small = org is not None and org["size_category"] in ("micro", "small")
+    if fit >= 0.5 and (RESPONSIBILITY_RE.search(title) or src == "manual"):
+        out.append({"rola": "vlastník procesu", "dôkaz": where + (" · vedenie malej organizácie" if small and
+                                                                  "konatel" in title else "")})
+    elif fit >= 0.5 or (fit >= 0.3 and USER_RE.search(title)):  # funkcia z mapy rolí bez zodpovednosti: zažíva problém
+        out.append({"rola": "používateľ riešenia", "dôkaz": where})
+    if "kontaktny bod" in title or any(t.startswith(DATA_ROLE_PREFIXES) for t in re.findall(r"\w+", title)):
+        out.append({"rola": "správca dát", "dôkaz": where})
+    if BUDGET_RE.search(title):
+        out.append({"rola": "schvaľovateľ rozpočtu", "dôkaz": where})
+    return out
+
+
 def data_role_fit(role: str | None, target_roles: list[str]) -> float:
     """Funkcia osoby v organizácii, ktorá drží dáta: 1,0 pri práci s dátami alebo s funkciou z cieľa plánu,
     0,5 pri príbuznej funkcii z cieľa, inak 0 (kód, bez modelu)."""
@@ -773,12 +820,18 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
                     fit, cat, fit_src = tfit, tcat or cat, "kód (cieľ plánu)"
             # Väzby zo zberu (citácia, obstarávanie) ostávajú; ostatné sa pri každom poradí počítajú znova.
             types = {t for t in existing if t in COLLECTED_LINKS}
+            purposes = {p_["rola"] for p_ in contact_purposes(person, fit, org, expert)}
             if expert:
                 types.add("expert")
             else:
-                if fit >= 0.5:
+                if "vlastník procesu" in purposes:  # dôkaz zodpovednosti, nie iba podobná funkcia
                     types.add("role_owner")
-                if relation in ("mentioned_with_problem", "quoted_person") and (fit >= 0.3 or person["source_kind"] == "rpo"):
+                elif "používateľ riešenia" in purposes:
+                    types.add("process_user")
+                elif fit >= 0.5:
+                    stats["role_without_evidence"] += 1  # politik, člen orgánu alebo osoba z článku
+                if relation in ("mentioned_with_problem", "quoted_person") and (fit >= 0.3 or person["source_kind"] == "rpo") \
+                        and "politik alebo člen orgánu" not in purposes:
                     types.add("org_affected")
                 if relation == "procured_related" and person["source_kind"] == "procurement":
                     types.add("procurement_contact")
@@ -797,6 +850,8 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             "kanál": channel, "kanál_popis": channel_label,
             "zhoda_org": org_fit, "zhoda_org_popis": org_label,
             "skupina": group, "váhy": w.model_dump(),
+            "účely": contact_purposes(person, fit, org, group == "expert") if not manual else
+            [{"rola": "vlastník procesu" if "role_owner" in types else "podľa teba", "dôkaz": "zadané tebou"}],
         }
         if target is not None:
             components["cieľ"] = target["who"]
@@ -861,7 +916,10 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
 def _rationale(link_type: str, comp: dict[str, Any], org) -> str:
     org_name = org["name"] if org is not None else "organizácia"
     if link_type == "role_owner":
-        return f"Funkcia zodpovedá roli „{comp.get('kategória') or '?'}“ z mapy rolí."
+        return (f"Zodpovedá za proces: funkcia zodpovedá roli „{comp.get('kategória') or '?'}“ z mapy rolí a je "
+                "zverejnená organizáciou.")
+    if link_type == "process_user":
+        return f"Pracuje v procese s problémom („{comp.get('kategória') or '?'}“) – zažíva ho, nerozhoduje o ňom."
     if link_type == "org_affected":
         return f"{org_name} má problém podľa dôkazu; osoba je vo vedení."
     if link_type == "procurement_contact":

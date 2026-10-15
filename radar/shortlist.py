@@ -26,8 +26,9 @@ from .people import LINK_STRENGTH
 TIERS = ("oslov najprv", "oslov", "doplň kontakt", "neoslovovať")
 GROUP_OF_RELATION = {"data_holder": "data_holder", "expert_org": "expert"}
 LINK_LABEL = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlastník procesu", "data_holder": "drží dáta",
-              "org_affected": "vedenie dotknutej org.", "procurement_contact": "kontakt v obstarávaní", "expert": "expert"}
-STRONG_LINKS = ("quoted_about_problem", "role_owner", "data_holder")
+              "process_user": "používateľ (zažíva problém)", "org_affected": "vedenie dotknutej org.",
+              "procurement_contact": "kontakt v obstarávaní", "expert": "expert"}
+STRONG_LINKS = ("quoted_about_problem", "role_owner", "data_holder", "process_user")
 DONE_STATUSES = {"contacted": "oslovený", "replied": "odpovedal", "interviewed": "rozhovor hotový"}
 
 
@@ -116,6 +117,8 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
             "e-mail_druh": email_kind, "telefón": phones[0]["value"] if phones else "",
             "prečo": rationale if not rationale.startswith("Pridané ručne") else "pridané ručne",
             "čo_žiadať": ask, "dôvody": "; ".join(reasons + [f"⛔ {b}" for b in blockers]),
+            "účel": ", ".join(p_["rola"] for p_ in comp.get("účely") or []),
+            "dôkaz_účelu": " | ".join(p_["dôkaz"] for p_ in comp.get("účely") or [])[:400],
             "cieľ": target["who"] if target is not None else (comp.get("cieľ") or ""),
             "stav": DONE_STATUSES.get(link["person_status"], link["person_status"]),
             "zdroj_kontaktu": (email_row["source_url"] if email_row is not None else link["person_source_url"]) or "",
@@ -151,6 +154,7 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
             "e-mail_druh": "organizácie", "telefón": next((c["value"] for c in db.org_contacts(org["id"]) if c["kind"] == "phone"), ""),
             "prečo": why, "čo_žiadať": ask,
             "dôvody": "; ".join([why, "e-mail organizácie (bez konkrétnej osoby)"] + [f"⛔ {b}" for b in blockers]),
+            "účel": "nasmerovanie", "dôkaz_účelu": "",
             "cieľ": target["who"] if target is not None else (fit.get("cieľ") or ""), "stav": "",
             "zdroj_kontaktu": emails[0]["source_url"], "úryvok": emails[0]["source_snippet"],
             "priorita": None, "väzba_sila": 0.0, "kanál": 0.4, "role_fit": 0.0,

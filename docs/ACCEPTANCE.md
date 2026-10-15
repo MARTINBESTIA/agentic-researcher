@@ -219,3 +219,12 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M21 | 8 záver uvádza verdikt a silné porovnanie | `test_conclusion_states_verdict_and_strong_baseline` |
 | M21 | 9 neúspešný návrh sa opakuje iba pri zmene odtlačku vstupov | `test_failed_plan_is_retried_only_when_inputs_change` |
 | M21 | 10 GUI: verdikt, osi (a)–(d), zápis výsledku u používateľa | `test_gate2_page_shows_verdict_axes_and_saves_user_result` |
+| M22 | 1 krátky beh: tvoje dáta a vetva vybranej hypotézy pred zberom; zber má vyhradený podiel; starnutie | `test_m22_priorities.py::test_short_run_plans_user_inputs_and_branches_before_discovery`, `test_m9_agentic.py::test_autopilot_plans_round_by_work_and_time_and_continues` |
+| M22 | 2 najviac 3 prioritné hypotézy, najďalej v lieviku prvé | `test_priority_hypotheses_are_limited_and_furthest_first` |
+| M22 | 3 účel kontaktu s dôkazom; politik, člen orgánu a osoba z článku nie sú vlastníci procesu | `test_contact_purposes_need_evidence_and_politicians_are_not_owners`, `test_rank_gives_role_owner_only_with_responsibility_evidence` |
+| M22 | 4 osi stavu samostatne; krok obchodného stavu iba s dôkazom | `test_axes_are_separate_and_business_steps_need_proof` |
+| M22 | 5 postup k zákazníkovi; počet hypotéz iba prevádzková metrika | `test_customer_progress_counts_steps_toward_customer` |
+| M22 | 6 referenčná vzorka s kontrolnou časťou (stabilný hash) a zhodou systému | `test_reference_sample_has_stable_holdout_and_system_agreement` |
+| M22 | 7 dokument dodávateľa nie je úspech objavovania | `test_vendor_documents_do_not_reward_discovery` |
+| M22 | 8 kvalita IČO s pôvodnou hodnotou; profil zo snapshotu tabuľky | `test_identifier_quality_keeps_original_and_reprofile_from_snapshot` |
+| M22 | 9 GUI: osi na stránke Problémy, referenčná vzorka v Evale | `test_problems_page_shows_axes_and_eval_page_reference_sample` |

@@ -163,7 +163,25 @@ Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.
 
+## Stav hypotézy a postup k zákazníkovi
+
+Overený citát nie je overený trh. Stránka **Problémy → Osi a obchodný stav** ukazuje štyri samostatné osi –
+literatúra (overené tvrdenia z nezávislých domén, bez dodávateľov), zákazník (rozhovory, nevyžiadané spomenutie),
+dáta (Brána 1 s potvrdenými stĺpcami) a ochota platiť – a obchodný stav, ktorý zapisuješ ty: preukázaný problém,
+vlastník procesu, vzorka, nameraná úspora, pilot, platiteľ (každý krok s dôkazom). **Prehľad** ukazuje postup
+k zákazníkovi (kontakty, odpovede, rozhovory, vzorky, piloty); počet hypotéz je iba prevádzková metrika.
+
+V **Koho osloviť** má každý kontakt účel s dôkazom: vlastník procesu (funkcia zodpovednosti zverejnená organizáciou),
+používateľ riešenia, správca dát, schvaľovateľ rozpočtu, expert. Politici a členovia predstavenstiev nie sú vlastníci
+procesu; osoba spomenutá v článku nemá doloženú kompetenciu.
+
+**Autopilot** plánuje najprv tvoje dáta a rozpracované vetvy (najviac 3 prioritné hypotézy), nový zber dostane
+vyhradený podiel kola (25 %); akcia, ktorá sa 2 kolá nezmestila, ide dopredu.
+
 ## Presnosť a eval
+
+**Referenčná vzorka** (Eval): 30 mapovaní polí, 20 importov, 20 účelov kontaktov a 30 rozhodnutí o dôkazoch, ktoré
+označíš ty; 20 % je kontrolná časť, podľa ktorej sa neladia prompty.
 
 - Profily: `fast` (všetko rýchly model), `balanced` (tabuľka v `config.yaml → models.tasks`),
   `accurate` (všetko presný, napr. víkend): `run-all --profile accurate`.

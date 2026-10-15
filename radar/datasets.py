@@ -1004,8 +1004,9 @@ def profile_table(cfg: Config, hid: int, table: str) -> dict[str, Any]:
                 span[name] = [info["min"], info["max"]]
         if periods:
             span["obdobia v stĺpcoch"] = [min(periods.values()).isoformat(), max(periods.values()).isoformat()]
+        ids = {name: identifier_quality(con, table, name) for name in ico_cols[:6]}
         return {"rows": rows, "columns": columns, "time_columns": time_cols, "time_span": span,
-                "ico_columns": ico_cols, "personal_columns": personal,
+                "ico_columns": ico_cols, "personal_columns": personal, "identifikátory": ids,
                 "period_columns": {"granularita": gran, "počet": len(periods)} if periods else None}
     finally:
         con.close()
@@ -1096,6 +1097,25 @@ def wide_to_long(cfg: Config, hid: int, table: str) -> dict[str, Any] | None:
 def base_table(table: str) -> str:
     """Tabuľka datasetu, z ktorej vznikol dlhý tvar (ds5_long → ds5)."""
     return re.sub(r"_long$", "", table or "")
+
+
+def ico_check_sql(key: str) -> str:
+    """SQL: kontrolná číslica 8-miestneho IČO (SR/ČR): (11 − Σ číslica × váha 8…2 mod 11) mod 10 = posledná číslica."""
+    total = " + ".join(f"CAST(substr({key}, {i + 1}, 1) AS INTEGER) * {8 - i}" for i in range(7))
+    return f"((11 - (({total}) % 11)) % 10) = CAST(substr({key}, 8, 1) AS INTEGER)"
+
+
+def identifier_quality(con, table: str, column: str) -> dict[str, Any]:
+    """Kvalita identifikátora v stĺpci (pôvodné hodnoty ostávajú v tabuľke; porovnáva sa normalizovaná podoba):
+    čisté 8-miestne IČO, normalizované (medzery, text „IČO:“, 6–7 číslic), nerozpoznané (napr. zahraničné ID)
+    a platná kontrolná číslica (audit: v CRZ 50 070 riadkov IČO objednávateľa s nečíselnými znakmi)."""
+    col = _quote(column)
+    key = ico_sql(col)
+    filled, clean, norm, valid = con.execute(
+        f"SELECT COUNT({col}), COUNT(*) FILTER (WHERE regexp_matches(CAST({col} AS VARCHAR), '^[0-9]{{8}}$')), "
+        f"COUNT({key}), COUNT(*) FILTER (WHERE {key} IS NOT NULL AND {ico_check_sql(key)}) FROM {table}").fetchone()
+    return {"vyplnené": int(filled), "čisté_8_číslic": int(clean), "normalizované": int(norm) - int(clean),
+            "nerozpoznané": int(filled) - int(norm), "kontrolná_číslica_ok": int(valid)}
 
 
 def ico_sql(expr: str) -> str:

@@ -177,7 +177,35 @@ with st.container(border=True):
                                   "LinkedIn (nič sa neodosiela; návrhy oslovení sú samostatná akcia).")
     jobs_panel(show_last=False)
 
-tab_ev, tab_crit, tab_notes, tab_export = st.tabs(["Dôkazy", "Kritika a trh", "Poznámky", "Export všetkého"])
+tab_ev, tab_axes, tab_crit, tab_notes, tab_export = st.tabs(["Dôkazy", "Osi a obchodný stav", "Kritika a trh",
+                                                             "Poznámky", "Export všetkého"])
+with tab_axes:
+    from radar.progress import BUSINESS_LABELS, BUSINESS_STEPS, axes, business_state, set_business_step
+
+    st.caption("Samostatné osi (nesčítavajú sa): overený citát nie je overený trh. Literatúra slúži na výber rozhovorov; "
+               "zákazník, dáta a ochota platiť sa overujú rozhovormi, Bránou 1 a pilotom.")
+    ax = axes(c, d, hid)
+    with st.container(horizontal=True):
+        for name, label in (("literatúra", "Literatúra"), ("zákazník", "Zákazník"), ("dáta", "Dáta"),
+                            ("ochota_platiť", "Ochota platiť")):
+            st.metric(label, ax[name]["stav"], border=True,
+                      help=", ".join(f"{k}: {v}" for k, v in ax[name]["zložky"].items()))
+    state = business_state(d, hid)
+    st.markdown("**Obchodný stav** (zapisuješ ty, každý krok s dôkazom):")
+    st.dataframe([{"krok": BUSINESS_LABELS[k], "hotové": bool(state[k].get("hotové")), "dôkaz": state[k].get("dôkaz", ""),
+                   "kedy": (state[k].get("kedy") or "")[:10]} for k in BUSINESS_STEPS], hide_index=True,
+                 alt="Obchodný stav hypotézy")
+    with st.form(f"pr_business_{hid}"):
+        step = st.selectbox("Krok", list(BUSINESS_STEPS), format_func=BUSINESS_LABELS.get, key=f"pr_bs_step_{hid}")
+        done = st.checkbox("Hotové", key=f"pr_bs_done_{hid}")
+        proof = st.text_input("Dôkaz (kto, čo, kedy)", key=f"pr_bs_note_{hid}")
+        if st.form_submit_button("Uložiť krok", icon=":material/flag:"):
+            try:
+                set_business_step(d, hid, step, done, proof)
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                refresh()
 with tab_ev:
     for e in evidence[:40]:
         vyd = TYPE_LABELS.get(e["source_type"], "") if "source_type" in e.keys() else ""

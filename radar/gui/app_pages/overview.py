@@ -35,6 +35,25 @@ else:
     metrics()
 v = d.validation_counts()
 
+prog = None
+try:
+    from radar.progress import customer_progress
+
+    prog = customer_progress(c, d)
+except Exception:  # noqa: BLE001 – prehľad sa zobrazí aj bez metrík postupu
+    prog = None
+if prog and prog["hypotézy"]:
+    st.subheader("Postup k zákazníkovi")
+    tot = prog["spolu"]
+    with st.container(horizontal=True):
+        for k, label in (("relevantné_kontakty", "Relevantné kontakty"), ("oslovení", "Oslovení"), ("odpovede", "Odpovede"),
+                         ("rozhovory", "Rozhovory"), ("vzorky", "Vzorky dát"), ("piloty", "Piloty"),
+                         ("nameraná_úspora", "Nameraná úspora"), ("ochota_platiť", "Ochota platiť")):
+            st.metric(label, tot.get(k, 0), border=True)
+    st.caption("Merajú cestu k zákazníkovi pre hypotézy na Bráne 0. Prevádzkové: "
+               f"{prog['prevádzkové']['hypotézy']} hypotéz, {prog['prevádzkové']['modelové_rozhodnutia']} modelových "
+               "rozhodnutí – to nie je postup.")
+
 st.subheader("Akcie")
 cols = st.columns(3)
 extras = {"validate": f"Otestované {v['tested']} z {v['total']}, čaká na overenie {v['searched']}, "
