@@ -165,3 +165,53 @@ with tab_import:
 
                 delete_import(c, d, imp["id"])
                 refresh()
+
+with tab_report:
+    from radar.process_analysis import analyze, report_markdown, rereview
+
+    st.caption("Iba metriky, ktoré import podporil, s menovateľmi a obmedzeniami. Výpočet je deterministický; model "
+               "iba posúdi formulácie (dostane agregáty, nie surový log). Report navrhuje miesta na rozhovor alebo "
+               "meranie – nedokazuje príčinu, stratu ani úsporu.")
+    checked = [i for i in d.eventlog_imports(hid=hid) if i["status"] == "checked"]
+    if not checked:
+        st.caption("Najprv importuj event log a potvrď mapovanie.")
+    for imp in checked:
+        reports = d.process_reports(imp["id"])
+        with st.container(border=True):
+            st.markdown(f"**#{imp['id']} · {esc(imp['org_name'])} · {esc(imp['file_name'])}** – mapovanie "
+                        f"v{imp['mapping_version']}")
+            with st.container(horizontal=True):
+                if st.button("Spustiť podporované analýzy", key=f"el_an_{imp['id']}", icon=":material/insights:"):
+                    try:
+                        analyze(c, d, imp["id"])
+                        refresh()
+                    except EventLogError as exc:
+                        st.error(str(exc))
+                if reports and reports[0]["status"] == "pending_review" and st.button(
+                        "Posúdiť formulácie hodnotiteľom (model)", key=f"el_rv_{imp['id']}", icon=":material/rule:"):
+                    from radar.models import ModelRouter
+
+                    with st.spinner("Hodnotiteľ posudzuje formulácie…"):
+                        status = rereview(c, d, reports[0]["id"], ModelRouter(c, d))
+                    st.toast(f"Stav reportu: {status}", icon=":material/rule:")
+                    refresh()
+            if reports:
+                r = reports[0]
+                review = json_or(r["review_json"], {})
+                if r["status"] == "pending_review":
+                    st.info("Formulácie čakajú na hodnotiteľa" + (f" ({esc(review.get('dôvod'))})" if review.get("dôvod")
+                                                                  else "") + " – výsledky výpočtu platia.",
+                            icon=":material/hourglass_top:")
+                elif r["status"] == "needs_review":
+                    st.warning("Hodnotiteľ má výhrady: " + "; ".join(f"{p['sentence']} ({p['issue']})"
+                                                                    for p in review.get("problems") or []))
+                md = report_markdown(r, imp)
+                st.markdown(esc(md).replace("](", "]\\("))
+                res = json_or(r["results_json"], {})
+                if res.get("nadväznosti"):
+                    st.dataframe([{"z": x["z"], "do": x["do"], "prechody": x["prípady_prechodov"],
+                                   "odstup medián (h)": (x.get("odstup_h") or {}).get("medián"),
+                                   "n": (x.get("odstup_h") or {}).get("n")} for x in res["nadväznosti"]],
+                                 hide_index=True, alt="Zaznamenané priamo nadväzujúce kroky a odstupy")
+                st.download_button("Stiahnuť report (Markdown)", md, file_name=f"proces_{imp['id']}_v{r['id']}.md",
+                                   mime="text/markdown", key=f"el_dl_{r['id']}", icon=":material/download:")

@@ -121,6 +121,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "domain_brief_check": _route("reviewer"),
     "value_proposal": _route("accurate"),
     "value_check": _route("reviewer"),
+    "process_report_review": _route("reviewer"),  # formulácie procesného reportu (iba agregáty)
     "draft": _route("accurate"),
     "draft_check": _route("reviewer", True),
 }

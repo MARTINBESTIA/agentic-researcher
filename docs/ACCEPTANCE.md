@@ -275,3 +275,9 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M31 | scenár 12: start/complete bez jednoznačného párovania → žiadny vymyslený čas aktivity | `test_start_complete_without_unambiguous_pairing_gives_no_activity_time` |
 | M31 | scenár 7: snapshot sa nespracuje ako história | `test_snapshot_is_not_processed_as_event_history` |
 | M31 | Parquet, nepodporovaný formát, výmaz importu | `test_parquet_import_and_unsupported_format`, `test_delete_import_removes_tables_and_raw_file` |
+| M32 | scenár 13: otvorené a odrezané prípady zvlášť; varianty a nadväznosti iba z usporiadaných prípadov s menovateľom | `test_m32_process_report.py::test_report_uses_only_ordered_cases_and_separates_open_cases` |
+| M32 | scenár 14: dlhý odstup ani opakovaný krok nie je úspora ani chyba pracovníka; najviac 3 miesta na preverenie | `test_followups_are_questions_not_savings_or_worker_fault` |
+| M32 | scenár 15: výpadok hodnotiteľa (aj cloud bez povolenia) nechá report čakať, deterministické výsledky platia | `test_review_failure_keeps_report_pending_and_results_traceable`, `test_cloud_reviewer_does_not_get_organization_data_without_permission` |
+| M32 | scenár 16: pôvod zistení (import, hash, mapovanie, verzia analýzy); cudzí text je iba hodnota | `test_review_failure_keeps_report_pending_and_results_traceable` |
+| M32 | čas aktivity iba zo spárovaných start/complete; odchýlka od termínu s významom termínu; snapshot bez sekvencií | `test_activity_time_only_from_unambiguous_pairs_and_deadline_deviation`, `test_snapshot_and_unchecked_import_give_no_sequence_metrics` |
+| M32 | PM4Py voliteľný a overený podľa verzie; GUI Analýza | `test_pm4py_adapter_is_optional_and_version_checked`, `test_eventlog_page_analysis_tab` |

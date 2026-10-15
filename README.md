@@ -189,6 +189,11 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    začiatočnými a koncovými aktivitami. Report kvality: chýbajúce hodnoty, neplatné časy, prechody letného času,
    duplicity, zhodné časy, start/complete, otvorené a odrezané prípady, výber, premenovania, snapshot – s počtami,
    podielmi a rozhodnutím; nič sa nemaže potichu. Tabuľka „dostupná“ povie, ktoré analýzy dáta podporia a prečo.
+   **Analýza** (karta „Analýza“ alebo `python -m radar process-report --import 1 [--review]`): počty, frekvencie,
+   najčastejšie priebehy a priamo nadväzujúce kroky (iba z jednoznačne usporiadaných prípadov), odstupy a trvania
+   (kalendárny čas; dokončené zvlášť od otvorených a odrezaných), opakovanie kroku, čas aktivity a odchýlka od
+   termínu, ak to dáta podporia – s menovateľmi a obmedzeniami a najviac 3 miestami na preverenie v rozhovore.
+   Report nedokazuje príčinu ani úsporu. Hodnotiteľ posúdi iba formulácie (agregáty, nie surový log).
 8. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.
@@ -474,6 +479,7 @@ nepredpokladaj – over ho v podmienkach predplatného.
 | `radar/domain.py` | stav doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, hlavná otázka |
 | `radar/domain_sources.py` | lokálny ESCO index a fulltext, rola → povolanie, ohraničený doménový výskum (web) |
 | `radar/event_logs.py` | žiadosť o event log (šablóna, minimálna schéma, alternatívy) a import s kontrolou kvality |
+| `radar/process_analysis.py` | procesný report (podporované metriky, menovatele, obmedzenia, miesta na preverenie) |
 | `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |

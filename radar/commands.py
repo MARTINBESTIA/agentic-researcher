@@ -512,6 +512,20 @@ def cmd_domain_research(app, args) -> int:
     return 0
 
 
+def cmd_process_report(app, args) -> int:
+    """Procesný report z importu event logu (deterministicky); s --review aj posúdenie formulácií hodnotiteľom."""
+    from .event_logs import EventLogError
+    from .process_analysis import analyze, report_markdown
+
+    try:
+        rid = analyze(app.cfg, app.db, args.import_id, app.router if args.review else None)
+    except EventLogError as exc:
+        print(exc)
+        return 1
+    print(report_markdown(app.db.get_process_report(rid), app.db.get_eventlog_import(args.import_id)))
+    return 0
+
+
 def cmd_drafts(app, args) -> int:
     from .privacy import PrivacyGateError
 
@@ -731,6 +745,10 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--hypothesis", type=int, required=True)
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
+    p.add_argument("--import", dest="import_id", type=int, required=True)
+    p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
+
     p = sub.add_parser("drafts", help="Návrhy oslovení (nič sa neodosiela).")
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
@@ -809,6 +827,7 @@ HANDLERS = {
     "esco-import": cmd_esco_import,
     "esco-search": cmd_esco_search,
     "domain-research": cmd_domain_research,
+    "process-report": cmd_process_report,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,
