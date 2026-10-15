@@ -184,6 +184,36 @@ with tab_value:
                 request_research(d, key, dom_title)
                 st.toast("Doména zaradená – pokus prebehne v akcii „Pripraviť návrhy oslovení“.", icon=":material/check:")
                 refresh()
+    stats = json_or(state["stats_json"], {}) if state is not None else {}
+    if stats:
+        st.caption("Posledný pokus: " + " · ".join(f"{k} {v}" for k, v in stats.items()
+                                                    if k in ("dopyty", "dokumenty", "úryvky", "esco", "sekundy")))
+    with st.expander("Zdroje domény a roly → povolania (ESCO)", icon=":material/library_books:"):
+        esco = d.esco_last_import()
+        st.caption(f"ESCO index: verzia {esco['version']}, jazyk {esco['lang']}, {json_or(esco['counts_json'], {})} "
+                   f"({esco['license']})" if esco else "ESCO index nie je načítaný: stiahni balík CSV zo stránky ESCO "
+                   "(Download) a spusti python -m radar esco-import --dir <priečinok>. Bez neho sa použije iba web.")
+        for m in d.role_mappings(key):
+            cands = json_or(m["candidates_json"], [])
+            if not cands:
+                st.caption(f"Rola „{esc(m['role_label'])}“: bez kandidáta v ESCO.")
+                continue
+            opts = [None] + [x["uri"] for x in cands]
+            labels = {x["uri"]: f"{x['label']} ({x['score']} – {x['basis']})" for x in cands}
+            pick = st.selectbox(f"Rola „{m['role_label']}“" + (f" – vybral(a) {m['chosen_by']}" if m["chosen_by"] else
+                                                                " – nejednoznačné, vyber kandidáta"),
+                                opts, index=opts.index(m["chosen_uri"]) if m["chosen_uri"] in opts else 0,
+                                format_func=lambda u, lab=labels: "nevybrané (ostanú kandidáti)" if u is None else lab[u],
+                                key=f"g0_role_{m['id']}")
+            if pick != m["chosen_uri"]:
+                d.choose_role_mapping(m["id"], pick)
+                refresh()
+        dom_ev = d.domain_evidence(key)
+        if dom_ev:
+            st.dataframe([{"id": f"D{e['id']}", "druh": e["source_kind"], "rozsah": e["scope"], "zdroj": e["source_url"]
+                           or e["local_reference"], "verzia": e["source_version"] or "", "úryvok": e["excerpt"][:300],
+                           "stiahnuté": (e["retrieved_at"] or "")[:10]} for e in dom_ev], hide_index=True,
+                         alt="Doménové podklady: druh, rozsah platnosti, zdroj, úryvok")
     with st.expander(f"Všetky domény Brány 0 ({len(domains)})", icon=":material/list:"):
         st.dataframe([{"doména": r["title"], "priorita": ("áno" if r["priority"] else "nie") + (
             " (ručne)" if (r["priority_source"] or "").startswith("manual") else ""),

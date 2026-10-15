@@ -234,7 +234,8 @@ def stage_value(app, deadline: Deadline, hypothesis_ids: list[int] | None = None
     """Prehľad domény a návrhy prínosu (zákazník, držiteľ dát, expert) – iba pri zmene podkladov."""
     from .value import run_value
 
-    return run_value(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids))
+    return run_value(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids), getattr(app, "searx", None),
+                     getattr(app, "fetcher", None))
 
 
 def stage_prepare_next(app, deadline: Deadline) -> dict:
@@ -476,6 +477,41 @@ def cmd_contacts_add(app, args) -> int:
     return 0
 
 
+def cmd_esco_import(app, args) -> int:
+    """Lokálny ESCO index z ručne stiahnutého balíka CSV (stránka ESCO → Download, formát CSV, jazyk)."""
+    from .domain_sources import import_esco
+
+    try:
+        out = import_esco(app.db, args.dir, args.lang, args.version)
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_esco_search(app, args) -> int:
+    from .domain_sources import search_esco
+
+    for c in search_esco(app.cfg, app.db, args.query, None if args.kind == "all" else args.kind, args.limit):
+        print(f"{c['score']:>3}  {c['label']}  ({c['basis']}; {c['lang']}, {c['version']})  {c['uri']}")
+    return 0
+
+
+def cmd_domain_research(app, args) -> int:
+    """Ohraničený pokus o doménové podklady pre doménu hypotézy (výslovná žiadosť – aj pri rovnakom vstupe)."""
+    from .domain import request_research
+    from .domain_sources import research_domain
+    from .value import domain_of
+
+    key, title, _ = domain_of(app.db, args.hypothesis)
+    request_research(app.db, key, title)
+    out = research_domain(app.cfg, app.db, app.router, args.hypothesis, app.searx, app.fetcher,
+                          Deadline(args.minutes or 15), explicit=True)
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
 def cmd_drafts(app, args) -> int:
     from .privacy import PrivacyGateError
 
@@ -681,6 +717,20 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--org", default="", help="názov organizácie, ak na stránke nie je IČO")
     p.add_argument("--ask", default="", help="čo od kontaktu žiadať")
 
+    p = sub.add_parser("esco-import", help="Lokálny ESCO index z rozbaleného balíka CSV (povolania, zručnosti, väzby).")
+    p.add_argument("--dir", required=True, help="priečinok s occupations_<jazyk>.csv, skills_<jazyk>.csv, …")
+    p.add_argument("--lang", default=None, help="jazyk balíka (predvolene podľa názvov súborov)")
+    p.add_argument("--version", default=None, help="verzia ESCO (napr. v1.2.0; predvolene z názvu priečinka)")
+
+    p = sub.add_parser("esco-search", help="Hľadanie v lokálnom ESCO (fulltext; skóre je zhoda textu, nie pravdivosť).")
+    p.add_argument("query")
+    p.add_argument("--kind", choices=["occupation", "skill", "all"], default="occupation")
+    p.add_argument("--limit", type=int, default=10)
+
+    p = sub.add_parser("domain-research", help="Doménové podklady (ESCO, web) a nová verzia prehľadu pre doménu hypotézy.")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--minutes", type=float, default=None)
+
     p = sub.add_parser("drafts", help="Návrhy oslovení (nič sa neodosiela).")
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
@@ -756,6 +806,9 @@ HANDLERS = {
     "people": cmd_people,
     "drafts": cmd_drafts,
     "contacts-add": cmd_contacts_add,
+    "esco-import": cmd_esco_import,
+    "esco-search": cmd_esco_search,
+    "domain-research": cmd_domain_research,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

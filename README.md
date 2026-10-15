@@ -153,6 +153,11 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    „Obnoviť doménové podklady“. Tvrdenia majú stav (zo zdroja, hypotéza, uviedol kontakt, pozorované v dátach,
    vyvrátené) a rozsah – opis povolania nie je fakt o konkrétnej firme. Otázky ukazujú, komu ich položiť a čo
    neznáma blokuje (napr. bez histórie termínov žiadna analýza meškania, bez merania žiadne tvrdenie o úspore).
+   **Zdroje:** lokálny ESCO index (stiahni balík CSV zo stránky ESCO → Download a spusti
+   `python -m radar esco-import --dir <priečinok>`; hľadanie `python -m radar esco-search "nákupca"`) – roly kontaktov
+   sa namapujú na kandidátne povolania (nejednoznačné vyberieš v GUI); a web cez SearXNG: najviac 6 dopytov,
+   10 stránok a 15 doslovných úryvkov na doménu (bez e-mailov a telefónov). Ručne: `python -m radar domain-research
+   --hypothesis 1`.
 6. **`drafts`** → **GUI → Oslovenia:** návrh podľa účelu – **zákazník** (rozhovor o skúsenosti, prípadne
    ponuka malého výstupu), **držiteľ dát** (vysvetlenie polí, vzorka), **expert** (posúdenie postupu),
    **pilot** až po potvrdení problému kontaktom; aj organizácia cez funkčný kontakt bez vymyslenej osoby.
@@ -456,6 +461,7 @@ nepredpokladaj – over ho v podmienkach predplatného.
 | `radar/value.py` | prehľad domény a návrh prínosu (citáty, neznáme, hodnotiteľ, verzie) |
 | `radar/outcomes.py` | výsledky oslovení, stav potreby, metriky po organizáciách |
 | `radar/domain.py` | stav doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, hlavná otázka |
+| `radar/domain_sources.py` | lokálny ESCO index a fulltext, rola → povolanie, ohraničený doménový výskum (web) |
 | `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |

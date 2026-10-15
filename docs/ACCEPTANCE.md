@@ -258,3 +258,8 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M28 | scenár 4: opis povolania má rozsah occupation a nie je faktom o firme; tvrdenie bez opory je hypotéza; otázky nesú blokovanú akciou | `test_claims_have_status_scope_and_questions_block_actions` |
 | M28 | scenár 5: kontakty domény používajú rovnakú verziu prehľadu; odpoveď aktualizuje otázku a tvrdenie s históriou a novou verziou | `test_partial_brief_still_gives_cautious_draft_with_one_main_question_and_shared_version`, `test_answer_updates_question_and_claim_with_history_and_new_brief_keeps_it` |
 | M28 | GUI: stav podkladov, priorita, otázky s blokovanou akciou; pripravenosť oslovenia | `test_gui_shows_domain_state_and_send_readiness` |
+| M29 | ESCO import idempotentný s verziou, fulltext so slovenskými tvarmi a alternatívnymi názvami | `test_m29_domain_sources.py::test_esco_import_is_idempotent_versioned_and_fulltext_handles_slovak_forms` |
+| M29 | nejednoznačná rola ostane s kandidátmi, ručný výber sa neprepíše | `test_role_mapping_keeps_ambiguous_candidates_and_respects_human_choice` |
+| M29 | limity dopytov, dokumentov a úryvkov; doslovné úryvky bez kontaktov; útržok vyhľadávača nie je podklad; cudzí text v untrusted_document; rozsah povolania vs. odvetvia | `test_research_respects_limits_stores_verbatim_chunks_without_contacts_and_wraps_untrusted_text`, `test_select_chunks_requires_domain_terms` |
+| M29 | scenár 2: výpadok vyhľadávača a modelu → needs_research s dôvodom, bez opakovania rovnakého vstupu | `test_same_input_is_not_researched_again_and_outages_end_with_reason` |
+| M29 | GUI: stav ESCO, kandidáti povolaní na výber, doménové podklady | `test_gui_shows_esco_status_role_candidates_and_sources` |

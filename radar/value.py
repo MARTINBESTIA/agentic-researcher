@@ -568,8 +568,10 @@ def recipient_kinds(cfg: Config, db: DB, hid: int) -> list[str]:
     return [k for k in KINDS if k == "customer" or k in groups]
 
 
-def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None = None) -> dict:
-    """Krok `value`: prehľad domény a návrhy prínosu pre hypotézy na Bráne 0 (iba pri zmene podkladov)."""
+def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] | None = None, searx=None,
+              fetcher=None) -> dict:
+    """Krok `value`: prehľad domény a návrhy prínosu pre hypotézy na Bráne 0 (iba pri zmene podkladov). Prioritné
+    a ručne vyžiadané domény najprv dostanú ohraničený doménový výskum (ESCO, web) – raz na verziu vstupu."""
     from .domain import sync_priorities
 
     stats: Counter = Counter()
@@ -582,6 +584,14 @@ def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
             break
         key = domain_of(db, hid)[0]
         before = db.latest_brief(key)
+        state = db.research_get(key)
+        if (key not in done_domains and cfg.domain_research.enabled and state is not None
+                and (state["priority"] or state["status"] == "queued")):
+            from .domain_sources import research_domain
+
+            res = research_domain(cfg, db, llm, hid, searx, fetcher, deadline)
+            if "preskočené" not in res:  # preskočený pokus (rovnaký vstup) nie je práca
+                stats["research"] += 1
         brief_id = ensure_brief(cfg, db, llm, hid) if key not in done_domains else (before["id"] if before else None)
         done_domains.add(key)
         if brief_id is not None and (before is None or before["id"] != brief_id):

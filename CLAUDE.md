@@ -25,7 +25,8 @@ osi stavu, postup k zákazníkovi a referenčná vzorka (M22); podľa auditu 15.
 (schéma v13, M23), prehľad domény a návrh prínosu (M24), návrhy oslovení pre zákazníka, držiteľa dát, experta a pilot
 s obchodnou politikou (M25), Azure OpenAI pre vybrané roly s nasadeniami v GUI a rozpočtom (M26), výsledky oslovení
 a učenie z odpovedí po organizáciách (M27); podľa dodatku 16. 10. 2026 (doménové vyhľadávanie a event log) stavy
-doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, pripravenosť oslovenia (schéma v14, M28).
+doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, pripravenosť oslovenia (schéma v14, M28);
+lokálny ESCO index, fulltext, rola → povolanie a ohraničený doménový výskum (M29).
 Stav dodatku: `docs/STAV_domenovy_search_event_log.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
@@ -79,6 +80,7 @@ docker compose up -d                     # SearXNG
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO |
 | `radar/contacts.py`, `radar/names.py`, `radar/people.py` | deterministická extrakcia kontaktov z HTML; mená, tituly, rod; ľudia, mapa rolí, väzby, priorita; účel kontaktu s dôkazom (vlastník procesu, používateľ, správca dát, schvaľovateľ rozpočtu, expert; politici a členovia orgánov nie) |
 | `radar/domain.py` | doménové podklady (neblokujúce obohatenie): priority domén (prvá dávka + ručne), stav `not_requested → queued → researching → ready/partial/needs_research` podľa pokrytia častí, jeden pokus na verziu vstupu, tvrdenia so stavom a rozsahom (opis povolania nie je fakt o firme), otázky s cieľovou rolou a blokovanou akciou, hlavná otázka prvého oslovenia, odpovede s históriou |
+| `radar/domain_sources.py` | ESCO import z balíka CSV (verzia, jazyk, väzby; `esco-import`), fulltext FTS5 so slovenskými kmeňmi (`esco-search`), rola → kandidátne povolania (jednoznačné pravidlom, inak výber človekom), ohraničený doménový výskum (`research_domain`, `domain-research`): dopyty podľa účelu, doslovné úryvky bez kontaktov, limity, jeden pokus na verziu vstupu |
 | `radar/outcomes.py` | výsledok oslovenia zapísaný človekom → stav oslovenia, stav potreby návrhov prínosu (po organizáciách a type adresáta), dôvod novej verzie prehľadu domény; metriky po unikátnych organizáciách (čas prípravy, dodania, režimy) |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení podľa režimu (discovery, data_request, expert_review, pilot) s obchodnou politikou `outreach.value_offer`, reťazcom dôvodov (`package_json`) a pripravenosťou; kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |
 | `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson) a referenčná vzorka s kontrolnou časťou (holdout); benchmark a plán behu |
