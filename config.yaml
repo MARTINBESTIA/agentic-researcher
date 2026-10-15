@@ -295,7 +295,9 @@ gate2:
 # katalógu), vždy so zdrojom a úryvkom; e-maily sa nehádajú, obfuskované adresy sa nedekódujú, LinkedIn sa nesťahuje.
 people:
   auto_select_top: 3
-  auto_select_validated: true      # Brána 0 aj pre každú hypotézu s testom „podložená“ (ručné vypnutie má prednosť)
+  # Brána 0 aj pre každú hypotézu s testom „podložená“ (ručné vypnutie má prednosť). 15. 10. 2026 vypnuté, kým
+  # používateľ neaktualizuje data/LIA.md (nový zdroj – katalóg, nový účel – vzorka dát, vyšší objem ľudí).
+  auto_select_validated: false
   auto_select_verdicts: [podložená]
   min_strength: stredná
   # Limity zvýšené 14. 10. 2026 (požiadavka: čo najviac relevantných kontaktov); predvolené v kóde 30/15/2/3.
