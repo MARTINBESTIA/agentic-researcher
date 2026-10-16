@@ -58,6 +58,9 @@ models:
     entail_gate:  {role: judge, thinking: false, k: 3}
     critique:     {role: accurate, thinking: false, k: 1}
     draft_check:  {role: accurate, thinking: false, k: 1}
+    # Hodnotiteľ (reviewer) beží od 16. 10. 2026 v Azure (gpt-6-luna) iba pre úlohy nad verejnými zdrojmi; procesný
+    # report z event logu organizácie nie je v cloud.allowed_tasks – posúdi ho lokálny sudca (inak by čakal).
+    process_report_review: {role: judge, thinking: false, k: 1}
     role_map:     {role: accurate, thinking: false, k: 3}
     market_structure: {role: accurate, thinking: false, k: 1}
   eval_profiles:
