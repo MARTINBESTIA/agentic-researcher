@@ -187,3 +187,17 @@ def test_ranges_in_own_ask_are_not_unsupported_numbers_and_review_has_room():
     _, problems = code_check_value(item, "customer", set(), "zdržania projektov 2 3", "")
     assert any("40" in p for p in problems)  # číslo v tvrdení o adresátovi bez podkladu sa stále hlási
     assert REVIEW_MAX_TOKENS >= 2000
+
+
+def test_citations_negated_ask_and_duplicate_refs_are_not_false_problems():
+    """16. 10. 2026 (návrhy z gpt-6-luna): „[276, 281, 508]“ vyšli ako čísla bez podkladu, „Nepotrebujeme celú databázu“
+    ako priveľká požiadavka a v prehľade sa odkazy zdvojili („[95] [95]“)."""
+    from radar.value import ValueItem, code_check_value
+
+    item = ValueItem(need_statement="Hypotéza: koordinátor potrebuje vidieť zaseknuté projekty [276, 281, 508].",
+                     deliverable="ukážkový prehľad", decision_supported="ktoré projekty preveriť skôr",
+                     minimum_input="Malá anonymizovaná vzorka, ak je dostupná. Nepotrebujeme celú databázu.")
+    _, problems = code_check_value(item, "customer", {276, 281, 508}, "projekty sa zdržali", "")
+    assert problems == [], problems
+    item.minimum_input = "Pošlite celú databázu projektov."
+    assert any("priveľká" in p for p in code_check_value(item, "customer", set(), "", "")[1])

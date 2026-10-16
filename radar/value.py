@@ -49,6 +49,12 @@ MAX_EVIDENCE = 25
 PROMISE_RE = re.compile(r"\bgarant|\bzaruč|\bsľubuj|\bistotou ušetr|\d+\s*%", re.I)
 BIG_ASK_RE = re.compile(r"cel[úa] databáz|všetk\w* (dáta|údaje|záznamy)|kompletn\w* export|full database|entire database",
                         re.I)
+# „Nepotrebujeme celú databázu“, „bez kompletného exportu“ – zápor nie je veľká požiadavka (test Azure 16. 10. 2026)
+NEGATED_ASK_RE = re.compile(r"\b(?:nepotreb\w*|netreba|nežiad\w*|bez|nie je potrebn\w*|not need\w*|no need for)\s+"
+                            r"(?:\w+\s+){0,2}(?:cel[úa] databáz\w*|všetk\w* (?:dáta|údaje|záznamy)|kompletn\w* export\w*|"
+                            r"full database|entire database)", re.I)
+# odkazy na očíslované dôkazy v texte („[276, 281]“, „[D4]“) nie sú čísla tvrdenia
+CITATION_RE = re.compile(r"\[(?:D?\d+)(?:\s*[,;]\s*D?\d+)*\]")
 BUYER_RE = re.compile(r"\bkúp|\bcen[auy]\b|\bplaten|licenci|predplat", re.I)
 
 
@@ -392,7 +398,8 @@ def brief_markdown(row, db: DB | None = None) -> str:
     sources = json.loads(row["sources_json"] or "[]")
 
     def refs(item: dict[str, Any]) -> str:
-        out = [f"[{c}]" for c in item.get("claims") or []] + [f"[D{e}]" for e in item.get("evidence") or []]
+        out = [f"[{c}]" for c in dict.fromkeys(item.get("claims") or [])] + [  # bez duplicít („[95] [95]“)
+            f"[D{e}]" for e in dict.fromkeys(item.get("evidence") or [])]
         return " " + " ".join(out) if out else ""
 
     lines = [f"# {row['title']} – prehľad domény (verzia {row['version']}, {row['created_at'][:10]}, stav {row['status']})"]
@@ -475,11 +482,11 @@ def code_check_value(item: ValueItem, kind: str, allowed: set[int], allowed_text
     # „2-3“ nie je záporné číslo
     claims = " ".join(str(data.get(k) or "") for k in ("need_statement", "deliverable", "decision_supported",
                                                          "benefit_hypothesis", "success_metric"))
-    missing = numbers_missing_in_source(RANGE_RE.sub(" až ", claims),
+    missing = numbers_missing_in_source(RANGE_RE.sub(" až ", CITATION_RE.sub(" ", claims)),
                                         RANGE_RE.sub(" až ", allowed_text + " " + estimate_inputs))
     if missing:
         problems.append("čísla bez podkladu: " + ", ".join(missing[:5]))
-    if BIG_ASK_RE.search(data.get("minimum_input") or ""):
+    if BIG_ASK_RE.search(NEGATED_ASK_RE.sub(" ", data.get("minimum_input") or "")):
         problems.append("požiadavka je priveľká – stačí potvrdenie relevantnosti, vysvetlenie polí alebo malá vzorka")
     if kind in ("data_holder", "expert") and BUYER_RE.search(text):
         problems.append("adresát nie je nákupca – bez ceny, platenia a licencií")
