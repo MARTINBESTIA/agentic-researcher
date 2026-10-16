@@ -144,21 +144,21 @@ def test_public_recipient_gets_no_offer_terms_and_fact_ids_never_reach_the_text(
     cfg, db, hid, pid, org_id, rec, router, dh, ex, firma = _world(tmp_path)
     assert policy_text(cfg, "discovery", True, commercial=False) is None
     assert policy_text(cfg, "discovery", True, commercial=True) == POLICY_TEXT
-    assert is_public_org({"sector_kind": None, "website": "https://mirri.gov.sk/", "name": "MIRRI SR"})
+    assert is_public_org({"sector_kind": None, "website": "https://ministerstvo-x.gov.sk/", "name": "Ministerstvo X"})
     assert is_public_org({"sector_kind": None, "website": None, "name": "Ministerstvo obrany SR"})
     assert not is_public_org({"sector_kind": None, "website": "https://gratex.sk/", "name": "Gratex"})
     assert strip_fact_refs("zdržania pri príprave projektov (F2, F3). Chcem sa opýtať [F1] na prípad.") == \
         "zdržania pri príprave projektov. Chcem sa opýtať na prípad."
     ministry, _ = db.upsert_organization("Ministerstvo investícií", "ministerstvo investicii", "evidence",
-                                         website="https://mirri.gov.sk/")
+                                         website="https://ministerstvo-x.gov.sk/")
     db.link_org_hypothesis(ministry, hid, "segment_match")
-    db.add_contact_point(None, ministry, "email", "kontakt@mirri.gov.sk", "https://mirri.gov.sk/kontakt",
-                         "kontakt@mirri.gov.sk", "regex", True)
+    db.add_contact_point(None, ministry, "email", "kontakt@ministerstvo-x.gov.sk", "https://ministerstvo-x.gov.sk/kontakt",
+                         "kontakt@ministerstvo-x.gov.sk", "regex", True)
     rec.responses["DraftOut"] = {"subject": "Otázka (F1)", "body": CORE + " Podľa správy (F1, F2) to trvá.",
                                  "facts_used": ["F1"]}
     run_drafts(cfg, db, router, Deadline(1), [hid])
     row = db.outreach_for_org(ministry, hid)[0]
     assert POLICY_TEXT not in row["body"] and "(F1" not in row["body"] and "F1" not in (row["subject"] or "")
     assert "Podľa správy to trvá." in row["body"]
-    checks = check_draft(cfg, "email", "Predmet", row["body"].replace("trvá.", "trvá (F3)."), CORE, [], "https://mirri.gov.sk/kontakt")
+    checks = check_draft(cfg, "email", "Predmet", row["body"].replace("trvá.", "trvá (F3)."), CORE, [], "https://ministerstvo-x.gov.sk/kontakt")
     assert any("značky faktov" in p for p in checks["problems"])
