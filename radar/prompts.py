@@ -477,6 +477,14 @@ TASK_PROMPTS: dict[str, str] = {
 }
 
 
+LANGUAGE_NAMES = {"sk": "Slovak", "cs": "Czech", "en": "English", "de": "German", "hu": "Hungarian"}
+
+
+def language_name(code: str) -> str:
+    """Názov jazyka pre prompt: hodnotiteľ 27B kód „sk“ v posudku ignoroval a písal po anglicky (16. 10. 2026)."""
+    return LANGUAGE_NAMES.get((code or "").lower(), code)
+
+
 def version_of(template: str) -> str:
     return hashlib.sha256(template.encode("utf-8")).hexdigest()[:8]
 

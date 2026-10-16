@@ -37,7 +37,7 @@ from .db import DB
 from .models import ModelRouter, as_router
 from .names import fold, public_salutation, split_titles
 from .privacy import forget, placeholders_in, require_lia, sender_placeholders
-from .prompts import DRAFT_CHECK_SYSTEM, DRAFT_SYSTEM
+from .prompts import DRAFT_CHECK_SYSTEM, DRAFT_SYSTEM, language_name
 from .util import Deadline, domain_of, utcnow
 from .verify import apply_entailment, judge_entailment, numbers_missing_in_source
 
@@ -428,7 +428,7 @@ def model_check(cfg: Config, router: ModelRouter, body: str, facts: list[dict[st
     res = router.run_task(
         "draft_check",
         [
-            {"role": "system", "content": DRAFT_CHECK_SYSTEM.format(lang=cfg.pipeline.output_language)},
+            {"role": "system", "content": DRAFT_CHECK_SYSTEM.format(lang=language_name(cfg.pipeline.output_language))},
             {"role": "user", "content": f"FACTS:\n<untrusted_document>\n{facts_text(facts)}\n</untrusted_document>\n\n"
                                         + (f"PROPOSAL:\n<untrusted_document>\n{proposal}\n</untrusted_document>\n\n"
                                            if proposal else "")

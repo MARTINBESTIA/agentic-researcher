@@ -215,13 +215,13 @@ def followups(cfg: Config, results: dict[str, Any]) -> list[dict[str, str]]:
 
 def review_report(cfg: Config, router, report: dict[str, Any], import_id: int) -> dict[str, Any]:
     """Hodnotiteľ posúdi formulácie (iba agregáty, žiadny surový log). Zlyhanie = čaká; nikdy automatické „ok“."""
-    from .prompts import PROCESS_REPORT_REVIEW_SYSTEM
+    from .prompts import PROCESS_REPORT_REVIEW_SYSTEM, language_name
     from .value import ReviewOut
 
     summary = {"podporované": report["podporované"], "kandidáti": report["kandidáti"],
                "obmedzenia": report["obmedzenia"][:12], "menovatele": report["menovatele"]}
     res = router.run_task("process_report_review", [
-        {"role": "system", "content": PROCESS_REPORT_REVIEW_SYSTEM.format(lang=cfg.pipeline.output_language)},
+        {"role": "system", "content": PROCESS_REPORT_REVIEW_SYSTEM.format(lang=language_name(cfg.pipeline.output_language))},
         {"role": "user", "content": f"REPORT SUMMARY:\n<untrusted_document>\n{json.dumps(summary, ensure_ascii=False)}"
                                     "\n</untrusted_document>"}], ReviewOut, object_type="eventlog_import",
         object_id=import_id, max_tokens=1500)

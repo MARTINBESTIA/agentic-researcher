@@ -299,7 +299,9 @@ REVIEW_MAX_TOKENS = 2400
 def review(cfg: Config, router, task: str, system: str, content: str, object_type: str, object_id: int | None,
            **fmt: Any) -> dict[str, Any]:
     """Kontrola hodnotiteľom; zlyhanie = čaká na hodnotenie (nikdy nie automatické schválenie)."""
-    res = router.run_task(task, [{"role": "system", "content": system.format(lang=cfg.pipeline.output_language, **fmt)},
+    from .prompts import language_name
+
+    res = router.run_task(task, [{"role": "system", "content": system.format(lang=language_name(cfg.pipeline.output_language), **fmt)},
                                  {"role": "user", "content": content}], ReviewOut, object_type=object_type,
                           object_id=object_id, max_tokens=REVIEW_MAX_TOKENS)
     if not res.ok:
