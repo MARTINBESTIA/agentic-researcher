@@ -597,8 +597,8 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
                 object_id=pid or org_id,
                 max_tokens=900,
             )
-            if not res.ok:
-                stats["llm_failures"] += 1
+            if not res.ok:  # cloudová rola bez povolenia osobných údajov: nečaká chyba modelu, ale súkromie
+                stats["čaká_osobné_údaje_cloud" if res.reason == "cloud_not_allowed" else "llm_failures"] += 1
                 continue
             out = res.value
             out.body, out.subject = strip_fact_refs(strip_leading_greeting(out.body)), strip_fact_refs(out.subject)

@@ -376,3 +376,15 @@ def test_timeout_keeps_reservation_and_limit_blocks_next_call_spend_is_own_estim
     env.router.models, env.router.cloud, env.router.budget = router.models, router.cloud, router.budget
     assert router.run_task("value_check", MSG, ReviewOut).reason == "cloud"
     assert len(env.comp.calls) == 1  # po vyčerpaní limitu žiadne nové cloudové volanie
+
+
+def test_cloud_result_records_deployment_not_local_role_model(tmp_path, monkeypatch):
+    """16. 10. 2026: prehľad domény a návrh prínosu z Azure mali uložený model „radar-qwen3.6-27b“ (lokálny model
+    roly) – pôvod výstupu bol nesprávny. Výsledok aj záznam z cache nesú názov nasadenia."""
+    env = cloud_env(tmp_path, monkeypatch, [OK])
+    res = env.router.run_task("value_check", MSG, ReviewOut)
+    assert res.model == "mini-b" and env.router.route("value_check").model == "mini-b"
+    cached = env.router.run_task("value_check", MSG, ReviewOut)
+    assert cached.model == "mini-b"
+    rows = env.db.conn.execute("SELECT model FROM model_judgments WHERE task = 'value_check'").fetchall()
+    assert {r[0] for r in rows} == {"mini-b"}

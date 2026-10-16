@@ -167,7 +167,10 @@ class ModelRouter:
         elif self.profile == "accurate" and role != "embed":
             role = "accurate"
         role_cfg = self.role_config(role)
-        return Route(task, role, role_cfg.model, base.thinking, max(1, base.k))
+        # rola v cloude: model = názov nasadenia (inak by sa k prehľadom, návrhom a cache zapísal lokálny model roly,
+        # hoci odpoveď dal Azure – test 16. 10. 2026)
+        model = role_cfg.deployment if role_cfg.provider != "local" and role_cfg.deployment else role_cfg.model
+        return Route(task, role, model, base.thinking, max(1, base.k))
 
     def role_config(self, role: str) -> RoleConfig:
         if self.legacy:
