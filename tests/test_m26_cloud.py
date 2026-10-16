@@ -388,3 +388,12 @@ def test_cloud_result_records_deployment_not_local_role_model(tmp_path, monkeypa
     assert cached.model == "mini-b"
     rows = env.db.conn.execute("SELECT model FROM model_judgments WHERE task = 'value_check'").fetchall()
     assert {r[0] for r in rows} == {"mini-b"}
+
+
+def test_reasoning_deployment_gets_headroom_for_reasoning_tokens(tmp_path, monkeypatch):
+    """16. 10. 2026: gpt-6-luna (reasoning) orezal posudok prehľadu pri limite 2400 – tokeny uvažovania sa rátajú do
+    max_completion_tokens. Rezerva cloud.reasoning_extra_tokens sa pripočíta (aj do rezervácie rozpočtu)."""
+    env = cloud_env(tmp_path, monkeypatch, [OK], reasoning=True)
+    env.router.run_task("value_check", MSG, ReviewOut, max_tokens=2400)
+    params = env.comp.calls[-1]
+    assert params["max_completion_tokens"] == 2400 + env.router.cloud.reasoning_extra_tokens

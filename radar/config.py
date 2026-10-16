@@ -682,6 +682,9 @@ class CloudConfig(BaseModel):
     rates: dict[str, CloudRate] = Field(default_factory=dict)  # názov nasadenia → sadzba
     max_retries: int = 2  # limit rýchlosti a dočasné chyby; potom položka čaká (bez drahšieho fallbacku)
     chars_per_token: float = 2.0  # horný odhad tokenov promptu pri rezervácii (slovenčina ~2,5–3 znaky na token)
+    # Reasoning model v cloude: tokeny uvažovania sa rátajú do max_completion_tokens – rezerva navyše, inak sa posudok
+    # orezal (gpt-6-luna, 16. 10. 2026: kontrola prehľadu pri limite 2400). Zaplatí sa iba skutočne použité.
+    reasoning_extra_tokens: int = 4000
     cache: bool = True
     # Úlohy, ktorých podklady smú opustiť počítač (verejné zdroje, bez osobných údajov). Úlohy s menami a kontaktmi
     # (návrhy oslovení, kontrola návrhov, kontakty) iba s privacy.cloud_personal_data.

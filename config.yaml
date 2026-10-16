@@ -447,6 +447,7 @@ cloud:
   budget_run_eur: 1.0
   max_retries: 2                   # limit rýchlosti a dočasné chyby; potom položka čaká (žiadny drahší náhradný model)
   chars_per_token: 2.0             # konzervatívny odhad tokenov promptu pri rezervácii
+  reasoning_extra_tokens: 4000     # reasoning model: rezerva na tokeny uvažovania (rátajú sa do limitu výstupu)
   cache: true                      # rovnaký vstup + nasadenie + verzia promptu = odpoveď z cache (bez nákladov)
   rates: {}                        # nasadenie → {input_per_1m, output_per_1m, currency, verified_at} z cenníka Azure
   # allowed_tasks: [domain_brief, domain_brief_check, value_proposal, value_check, field_binding, entail, card_check,

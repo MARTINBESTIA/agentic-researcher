@@ -180,8 +180,8 @@ class CloudLLM(LLM):
     def _params(self, messages: list[dict[str, Any]], max_tokens: int | None, kwargs: dict[str, Any]) -> dict[str, Any]:
         limit = max_tokens or self.role_cfg.max_tokens
         params: dict[str, Any] = {"model": self.deployment, "messages": messages}
-        if self.role_cfg.reasoning:
-            params["max_completion_tokens"] = limit
+        if self.role_cfg.reasoning:  # tokeny uvažovania sa rátajú do limitu – rezerva, aby výstup nebol orezaný
+            params["max_completion_tokens"] = limit + self.cloud.reasoning_extra_tokens
         else:
             params["temperature"] = self.cfg.temperature
             params["max_tokens"] = limit
