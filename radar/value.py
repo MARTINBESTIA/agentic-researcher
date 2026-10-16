@@ -604,6 +604,9 @@ def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
             res = research_domain(cfg, db, llm, hid, searx, fetcher, deadline)
             if "preskočené" not in res:  # preskočený pokus (rovnaký vstup) nie je práca
                 stats["research"] += 1
+        if deadline.expired():  # prehľad (presný model + hodnotiteľ) až v ďalšom behu – inak krok value zjedol čas
+            stats["odložené_na_ďalší_beh"] += 1  # návrhov oslovení (test 16. 10.: 15,8 min pri limite 4 min)
+            break
         brief_id = ensure_brief(cfg, db, llm, hid) if key not in done_domains else (before["id"] if before else None)
         done_domains.add(key)
         if brief_id is not None and (before is None or before["id"] != brief_id):

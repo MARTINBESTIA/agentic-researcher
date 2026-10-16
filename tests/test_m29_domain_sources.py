@@ -189,3 +189,22 @@ def test_esco_search_without_index_says_what_to_do(tmp_path, capsys):
     cfg, db, *_ = _world(tmp_path)
     rc = cmd_esco_search(SimpleNamespace(cfg=cfg, db=db), SimpleNamespace(query="účtovník", kind="occupation", limit=5))
     assert rc == 1 and "esco-import" in capsys.readouterr().out
+
+
+def test_value_stops_after_research_when_time_is_up(tmp_path, monkeypatch):
+    """16. 10. 2026 (test behu drafts): krok value po doménovom výskume spustil aj prehľad a hodnotiteľa, hoci čas
+    vypršal – minul 15,8 min pri limite 4 min a na návrhy oslovení neostal čas. Prehľad ide do ďalšieho behu."""
+    from radar.domain import request_research
+
+    cfg, db, hid, rec, router, searx, fetcher, prompts = _research_env(tmp_path)
+    key, title, _ = domain_of(db, hid)
+    request_research(db, key, title)
+    dl = Deadline(5)
+
+    def slow_research(*a, **k):
+        dl.end = 0  # výskum minul celý čas kroku
+        return {"stav": "čiastočné"}
+
+    monkeypatch.setattr("radar.domain_sources.research_domain", slow_research)
+    out = run_value(cfg, db, router, dl, [hid], searx, fetcher)
+    assert out.get("odložené_na_ďalší_beh") == 1 and not rec.models_for("DomainBriefOut")
