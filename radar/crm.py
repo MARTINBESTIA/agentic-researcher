@@ -157,16 +157,25 @@ def export_rows(db: DB, what: str, include_personal: bool) -> tuple[list[str], l
                              person["status"], contact_text, src, RPO_ATTRIBUTION if person["source_kind"] == "rpo" else ""])
         return cols, rows
     if what == "outreach":
-        cols = ["id", "person", "hypothesis", "channel", "variant", "status", "subject", "body", "approved_at", "sent_at", "follow_up_due"]
+        cols = ["id", "person", "hypothesis", "mode", "readiness", "channel", "variant", "status", "why_recipient",
+                "why_source", "need", "need_state", "deliverable", "decision_supported", "minimum_input", "unknowns",
+                "subject", "body", "approved_at", "sent_at", "follow_up_due"]
         rows = []
         for o in db.outreach_list():
-            person = db.get_person(o["person_id"])
-            if include_personal:
-                rows.append([o["id"], o["full_name"], o["hypothesis_id"], o["channel"], o["variant"], o["status"], o["subject"],
-                             o["body"], o["approved_at"], o["sent_at"], o["follow_up_due"]])
+            pkg = json.loads(o["package_json"]) if o["package_json"] else {}
+            why, need = pkg.get("prečo_tento_kontakt") or {}, pkg.get("potreba") or {}
+            chain = [o["mode"], o["readiness"] or "", o["channel"], o["variant"], o["status"],
+                     why.get("text", ""), why.get("zdroj", ""), need.get("text", ""), need.get("stav", ""),
+                     pkg.get("výstup", ""), pkg.get("rozhodnutie", ""), pkg.get("minimálny_vstup", ""),
+                     pkg.get("čo_nevieme", "")]
+            person = db.get_person(o["person_id"]) if o["person_id"] else None
+            if include_personal or person is None:
+                label = o["full_name"] or f"organizácia: {o['org_name'] or ''}"
+                rows.append([o["id"], label, o["hypothesis_id"], *chain, o["subject"], o["body"], o["approved_at"],
+                             o["sent_at"], o["follow_up_due"]])
             else:
                 names = [o["full_name"], split_name(o["full_name"])]
-                rows.append([o["id"], _person_label(person), o["hypothesis_id"], o["channel"], o["variant"], o["status"],
+                rows.append([o["id"], _person_label(person), o["hypothesis_id"], *chain,
                              pseudonymize_text(o["subject"] or "", names), pseudonymize_text(o["body"] or "", names),
                              o["approved_at"], o["sent_at"], o["follow_up_due"]])
         return cols, rows

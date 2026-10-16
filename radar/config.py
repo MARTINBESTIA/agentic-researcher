@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -37,6 +37,27 @@ class RoleConfig(BaseModel):
     max_tokens: int = 2048
     temperature: float = 0.2
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    # Poskytovateľ (audit 15. 10. 2026): "local" (Ollama, llama-server) alebo názov profilu v models.providers
+    # (napr. Azure OpenAI). Pri Azure sa v poli `model` posiela názov nasadenia (deployment), nie názov modelu.
+    provider: str = "local"
+    deployment: str = ""
+    reasoning: bool = False  # reasoning model: max_completion_tokens, bez temperature
+    json_mode: Literal["json_schema", "json_object", "none"] = "json_schema"  # začiatočný režim štruktúrovaného výstupu
+
+
+class ProviderProfile(BaseModel):
+    """Profil cloudového poskytovateľa. Tajomstvo sa nikdy neukladá (YAML, SQLite, logy, prompty) – iba názov
+    premennej prostredia, v ktorej je kľúč."""
+
+    kind: Literal["azure_openai"] = "azure_openai"
+    endpoint: str = ""  # napr. https://<resource>.openai.azure.com/openai/v1/
+    api_key_env: str = "AZURE_OPENAI_API_KEY"  # premenná prostredia s inference kľúčom
+    # Voliteľné: načítanie nasadení cez Azure Resource Manager (iba čítanie; vyžaduje oprávnenie na resource).
+    subscription_id: str = ""
+    resource_group: str = ""
+    account_name: str = ""
+    mgmt_token_env: str = "AZURE_MGMT_TOKEN"  # Bearer token (napr. az account get-access-token)
+    mgmt_api_version: str = "2024-10-01"
 
 
 class TaskRoute(BaseModel):
@@ -94,8 +115,15 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "contact_plan": _route("fast"),  # koho osloviť k hypotéze a ako ho nájsť (dopyty overuje a vykonáva kód)
     "role_map": _route("accurate", True, 3),
     "role_fit": _route("accurate"),
+    # Oslovenia podľa účelu (audit 15. 10. 2026): prehľad domény a návrh prínosu generuje presný model, kontroluje
+    # rola „reviewer“ (hodnotiteľ; predvolene ten istý lokálny model, v GUI sa dá nastaviť napr. Azure nasadenie).
+    "domain_brief": _route("accurate"),
+    "domain_brief_check": _route("reviewer"),
+    "value_proposal": _route("accurate"),
+    "value_check": _route("reviewer"),
+    "process_report_review": _route("reviewer"),  # formulácie procesného reportu (iba agregáty)
     "draft": _route("accurate"),
-    "draft_check": _route("accurate", True),
+    "draft_check": _route("reviewer", True),
 }
 
 
@@ -104,6 +132,7 @@ def _default_roles() -> dict[str, RoleConfig]:
         "fast": RoleConfig(model="radar-qwen3.5-9b", timeout_s=600, max_tokens=2048),
         "accurate": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=4096),
         "judge": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=2048),
+        "reviewer": RoleConfig(model="radar-qwen3.6-27b", timeout_s=1800, max_tokens=2048),
         "agent": RoleConfig(model="radar-qwen3.5-9b", timeout_s=900, max_tokens=2048),
         "embed": RoleConfig(model="radar-qwen3-embedding", timeout_s=120),
     }
@@ -113,6 +142,7 @@ class ModelsConfig(BaseModel):
     base_url: str = "http://localhost:11434/v1"
     api_key: str = "local"
     roles: dict[str, RoleConfig] = Field(default_factory=_default_roles)
+    providers: dict[str, ProviderProfile] = Field(default_factory=dict)  # cloudové profily (local je vždy)
     profile: str = "balanced"
     self_consistency_temperature: float = 0.7
     # Zapnutie a vypnutie uvažovania pre jednu požiadavku. Ollama: reasoning_effort;
@@ -502,8 +532,53 @@ class SenderConfig(BaseModel):
     gender: str = ""
 
 
+class ValueOfferConfig(BaseModel):
+    """Obchodná politika ponuky dema a skúšky (schválená používateľom 15. 10. 2026; pri generovaní sa znova nepýta).
+    Konkrétny rozsah, termín a kapacitu individuálneho pilotu dohodne človek zvlášť; návrh nič neodosiela."""
+
+    demo_free: bool = True
+    trial_free: bool = True
+    paid_use_requires: list[str] = Field(default_factory=lambda: [
+        "operational_product", "demonstrated_customer_value", "explicit_paid_agreement"])
+    automatic_paid_conversion: bool = False
+
+
+class DomainResearchConfig(BaseModel):
+    """Doménové obohatenie (dodatok 16. 10. 2026): ohraničený pokus o podklady pre prioritné domény. Limity sú
+    prevádzkové nastavenia, nie empiricky optimálne hodnoty."""
+
+    enabled: bool = True
+    initial_priority_domain_count: int = 3  # veľkosť prvej dávky, nie obmedzenie (ďalšie domény sa dajú zaradiť ručne)
+    max_queries_per_domain: int = 6
+    max_documents_per_domain: int = 10
+    max_evidence_chunks: int = 15
+    max_model_calls_per_pass: int = 2  # syntéza + kontrola
+    max_attempts_per_input_version: int = 1
+    max_wall_seconds_per_pass: int = 600
+    retry_only_on_new_evidence_or_explicit_request: bool = True
+    semantic_search_enabled: bool = False  # voliteľné rozšírenie po zmeraní chýb fulltextu (zatiaľ neimplementované)
+    auto_send: Literal[False] = False  # systém nič neodosiela
+    esco_language: str = "sk"
+    esco_fallback_language: str = "en"
+    max_role_candidates: int = 5
+
+
+class EventLogConfig(BaseModel):
+    """Import event logov (dodatok 16. 10. 2026): dáta organizácie v oddelenom priestore (DuckDB súbor na organizáciu),
+    nikdy spolu s verejným korpusom; predvolene iba lokálne."""
+
+    dir: str = "data/eventlogs"  # relatívne k configu; mimo gitu
+    max_file_mb: int = 500
+    keep_raw: bool = True  # pôvodný súbor podľa SHA-256 (reprodukovateľnosť importu)
+    default_timezone: str = ""  # "" = neznáma; napr. Europe/Bratislava, ak to organizácia potvrdila
+    truncation_window_days: int = 3  # prípad začínajúci/končiaci tak blízko okraja obdobia môže byť odrezaný
+    max_followups: int = 3  # najviac 3 miesta na ďalšie preverenie v procesnom reporte
+
+
 class OutreachConfig(BaseModel):
     sender: SenderConfig = Field(default_factory=SenderConfig)
+    value_offer: ValueOfferConfig = Field(default_factory=ValueOfferConfig)
+    value_proposals_max: int = 3  # malé výstupy navrhnuté na typ adresáta (generátor; kontroluje kód a hodnotiteľ)
     language: str = "sk"
     daily_cap: int = 10
     follow_up_business_days: list[int] = Field(default_factory=lambda: [5, 7])
@@ -520,12 +595,17 @@ class OutreachConfig(BaseModel):
             "cenová ponuka",
         ]
     )
+    # Pri ponuke dema alebo skúšky (veta o podmienkach podľa value_offer) sú tieto frázy v texte povolené.
+    offer_allowed_phrases: list[str] = Field(default_factory=lambda: ["demo", "bezplatná skúška", "skúška"])
     exclude_orgs: list[str] = Field(default_factory=list)  # IČO alebo domény, ktoré sa nikdy neoslovujú
     channels: list[str] = Field(default_factory=lambda: ["email", "linkedin", "phone"])
     # Návrh + kontrola presným modelom trvá ~1–2 min; za beh sa pripraví najviac toľko návrhov
     # (najprv osoby s najvyššou prioritou). 0 = bez limitu.
     max_drafts_per_run: int = 24
     facts_per_draft: int = 3  # koľko overených dôkazov hypotézy dostane generátor ako fakty
+    # Fronta prvého oslovenia (audit 15. 10. 2026): organizácia oslovená v posledných N dňoch (v ktorejkoľvek hypotéze)
+    # nedostane ďalšie prvé oslovenie; z jednej organizácie je vo fronte naraz najviac jeden kontakt.
+    org_cooldown_days: int = 21
 
 
 # ------------------------------------------------------------------ súkromie (R-PRIV)
@@ -536,6 +616,7 @@ class PrivacyConfig(BaseModel):
     retention_days_declined: int = 30
     retention_days_exports: int = 30
     pseudonymize_reports: bool = True
+    cloud_personal_data: bool = False  # úlohy s menami a kontaktmi smú ísť do cloudového modelu (napr. Azure)
     salt_path: str | None = None  # None = .salt vedľa databázy (data/.salt); súbor je mimo gitu
 
 
@@ -581,6 +662,34 @@ class Project(BaseModel):
         return f"Projekt: {self.name}"
 
 
+class CloudRate(BaseModel):
+    """Sadzba nasadenia (z cenníka Azure pre zvolený deployment) – žiadny zakódovaný cenník; chýbajúca sadzba = volanie
+    sa nevykoná (cena sa nenahrádza nulou)."""
+
+    input_per_1m: float
+    output_per_1m: float
+    currency: str = "EUR"
+    verified_at: str = ""  # kedy si sadzbu overil (YYYY-MM-DD)
+
+
+class CloudConfig(BaseModel):
+    """Cloudové modely: vlastný rozpočet (nie zostatok Azure), sadzby a čo smie opustiť počítač."""
+
+    budget_total_eur: float = 0.0  # 0 = cloudové volania vypnuté (napr. 85.87 podľa tvojho zostatku)
+    budget_since: str = ""  # od kedy sa počíta celkový rozpočet (YYYY-MM-DD); prázdne = celá história
+    budget_daily_eur: float = 2.0
+    budget_run_eur: float = 1.0
+    rates: dict[str, CloudRate] = Field(default_factory=dict)  # názov nasadenia → sadzba
+    max_retries: int = 2  # limit rýchlosti a dočasné chyby; potom položka čaká (bez drahšieho fallbacku)
+    chars_per_token: float = 2.0  # horný odhad tokenov promptu pri rezervácii (slovenčina ~2,5–3 znaky na token)
+    cache: bool = True
+    # Úlohy, ktorých podklady smú opustiť počítač (verejné zdroje, bez osobných údajov). Úlohy s menami a kontaktmi
+    # (návrhy oslovení, kontrola návrhov, kontakty) iba s privacy.cloud_personal_data.
+    allowed_tasks: list[str] = Field(default_factory=lambda: [
+        "domain_brief", "domain_brief_check", "value_proposal", "value_check", "field_binding", "entail", "card_check",
+        "experiment_conclusion", "critique"])
+
+
 class Config(BaseModel):
     db_path: str = "data/radar.sqlite"
     reports_dir: str = "reports"
@@ -602,7 +711,10 @@ class Config(BaseModel):
     experiments: ExperimentsConfig = Field(default_factory=ExperimentsConfig)
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
+    domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
+    event_logs: EventLogConfig = Field(default_factory=EventLogConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
+    cloud: CloudConfig = Field(default_factory=CloudConfig)
     gui: GuiConfig = Field(default_factory=GuiConfig)
     topics: list[Topic] = Field(default_factory=list)
     projects: list[Project] = Field(default_factory=list)
@@ -659,6 +771,8 @@ def load_config(path: str | Path) -> Config:
         value = Path(getattr(cfg, field))
         if not value.is_absolute():
             setattr(cfg, field, str(base / value))
+    if not Path(cfg.event_logs.dir).is_absolute():
+        cfg.event_logs.dir = str(base / cfg.event_logs.dir)
     if cfg.privacy.salt_path and not Path(cfg.privacy.salt_path).is_absolute():
         cfg.privacy.salt_path = str(base / cfg.privacy.salt_path)
     for project in cfg.projects:

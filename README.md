@@ -6,9 +6,10 @@ z nich tvrdenia s doslovnými citátmi, overuje ich voči zdroju, zoskupuje do h
 hypotézam hľadá **organizácie, ľudí a ich zverejnené pracovné kontakty** a pripraví **návrhy
 oslovení**. Všetko je v lokálnej SQLite databáze a dá sa prezerať v **GUI** v prehliadači.
 
-Beží iba na tomto počítači: modely cez **Ollama**, vyhľadávanie cez **SearXNG** v Dockeri, dáta v
-**SQLite**. Žiadne platené API, žiadna telemetria. **Systém nikdy nič neodosiela** – návrh
-skontroluješ, schváliš, skopíruješ alebo otvoríš v pošte a pošleš sám.
+Predvolene beží iba na tomto počítači: modely cez **Ollama**, vyhľadávanie cez **SearXNG** v Dockeri, dáta v
+**SQLite**. Žiadna telemetria. Voliteľne môže vybraná rola modelu (napr. hodnotiteľ) bežať v **Azure OpenAI**
+s vlastným rozpočtom – pozri [Cloudové modely](#cloudové-modely-azure-openai-voliteľné). **Systém nikdy nič
+neodosiela** – návrh skontroluješ, schváliš, skopíruješ alebo otvoríš v pošte a pošleš sám.
 
 Špecifikácia: `docs/SPEC_brana0.md` · pravidlá pre Claude Code: `CLAUDE.md` · rozhodnutia a
 odchýlky: `docs/DECISIONS.md` · posúdenie oprávneného záujmu: `docs/LIA_template.md` (vyplnené
@@ -125,7 +126,11 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    zverejnené pracovné kontakty. Ku každej osobe uloží zdroj a úryvok, v ktorom kontakt doslova je.
    Ďalšie kolo dopytov príde, kým je kontaktovateľných menej ako `people.contact_goal_per_hypothesis`.
 3. **GUI → Brána 0 → Koho osloviť:** ľudia a organizácie k hypotéze s e-mailom, odporúčaním („oslov
-   najprv“, „oslov“, „doplň kontakt“, „neoslovovať“) a jeho dôvodmi, prečo a čo od nich žiadať; filter
+   najprv“, „oslov“, „doplň kontakt“, „neoslovovať“) a jeho dôvodmi, **stavom komunikácie naprieč
+   hypotézami** (nové, návrh, pripravené na odoslanie, čaká na odpoveď, nadviazanie, uzavreté) a ďalšou
+   akciou; prepínač „iba fronta prvého oslovenia“ skryje oslovených, odmietnutých, spoločné e-maily
+   a druhý kontakt tej istej organizácie (organizácia oslovená za posledných 21 dní čaká). Stĺpce čo
+   dostanú, potrebný vstup a čo ešte nevieme pochádzajú z návrhu prínosu; filter
    podľa typu (zákazník, držiteľ dát, expert), „Chcem osloviť“, odkaz `mailto:`. Tu je aj plán kontaktov
    (dá sa navrhnúť znova) a **pridanie kontaktu zo stránky** (URL + meno; meno aj kontakt overí kód na
    stránke) – rovnako `python -m radar contacts-add --hypothesis 1 --url … --name "…" --kind data`.
@@ -135,12 +140,61 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    Karta „Detail problému“: priorita so zložkami (role_fit, väzba, kanál, zhoda organizácie),
    kontakty s úryvkom, ručné pridanie alebo odstránenie LinkedIn, akcie „chcem osloviť“, „vylúčiť“,
    „vymazať (forget)“. Skrytý e-mail („meno(at)firma.sk“) systém nedekóduje – otvor stránku ručne.
-5. **`drafts`** → **GUI → Oslovenia:** e-mail (varianty A podľa dôkazu a B podľa funkcie), poznámka
-   pre LinkedIn (≤ 200 znakov), skript na telefón. Výsledky kontrol (dĺžky, zakázané frázy, čísla
-   mimo faktov, pätička) a viet, ktoré model považuje za nepodložené. Uprav, „Uložiť a skontrolovať“,
+5. **`value`** → **GUI → Brána 0 → Doména a prínos:** prehľad domény na 5 minút (proces, pojmy, kto
+   problém zažíva, spravuje dáta a rozhoduje, dnešný postup, úskalia významu dát, 3 otázky, ktoré môžu
+   nápad vyvrátiť, neznáme) – každé tvrdenie s citátom, inak ide medzi neznáme; spoločný pre tému,
+   nová verzia iba pri nových podkladoch (aj odpovediach kontaktov), staršie ostávajú; export Markdown.
+   K tomu **návrh prínosu** pre zákazníka, držiteľa dát a experta: hypotéza potreby, malý výstup,
+   rozhodnutie, ktoré podporí, minimálny vstup, obmedzenia – bez sľubov a čísel bez podkladu; konkrétny
+   záväzok (rozsah, termín) potvrdzuješ ty. Kontroluje ho kód a hodnotiteľ (rola `reviewer`).
+   **Doménové podklady neblokujú Bránu 0:** prvé 3 domény (podľa sily dôkazov, ďalšie zaradíš ručne) dostanú
+   výskum skôr; stav `pripravené / čiastočné / treba doplniť` s pokrytím (roly, proces, riešenia, význam dát,
+   alternatívne vysvetlenia) a dôvodom ukončenia. Ten istý vstup sa znova neskúša – iba nové podklady alebo
+   „Obnoviť doménové podklady“. Tvrdenia majú stav (zo zdroja, hypotéza, uviedol kontakt, pozorované v dátach,
+   vyvrátené) a rozsah – opis povolania nie je fakt o konkrétnej firme. Otázky ukazujú, komu ich položiť a čo
+   neznáma blokuje (napr. bez histórie termínov žiadna analýza meškania, bez merania žiadne tvrdenie o úspore).
+   **Zdroje:** lokálny ESCO index (stiahni balík CSV zo stránky ESCO → Download a spusti
+   `python -m radar esco-import --dir <priečinok>`; hľadanie `python -m radar esco-search "nákupca"`) – roly kontaktov
+   sa namapujú na kandidátne povolania (nejednoznačné vyberieš v GUI); a web cez SearXNG: najviac 6 dopytov,
+   10 stránok a 15 doslovných úryvkov na doménu (bez e-mailov a telefónov). Ručne: `python -m radar domain-research
+   --hypothesis 1`.
+6. **`drafts`** → **GUI → Oslovenia:** návrh podľa účelu – **zákazník** (rozhovor o skúsenosti, prípadne
+   ponuka malého výstupu), **držiteľ dát** (vysvetlenie polí, vzorka), **expert** (posúdenie postupu),
+   **pilot** až po potvrdení problému kontaktom; aj organizácia cez funkčný kontakt bez vymyslenej osoby.
+   Pri ponuke výstupu komerčnému adresátovi kód pridá vetu: „Príprava dema a dohodnutá skúška sú
+   bezplatné. O platenom používaní by sme sa dohodli až vtedy, keď by riešenie fungovalo vo vašej
+   prevádzke a preukázateľne vám prinášalo hodnotu.“ (`outreach.value_offer`). Každý návrh ukazuje
+   reťazec prečo tento kontakt → predpokladaná potreba → čo môže dostať → čo minimálne potrebuješ → čo
+   ešte nevieme a pripravenosť: **chýba podklad o kontakte** (zdroj dôvodu výberu – schválenie zablokované),
+   **čaká na hodnotiteľa** (napr. výpadok Azure; môžeš potvrdiť „Skontroloval som ručne“), **návrh na tvoju
+   kontrolu**, **pripravené na ručné odoslanie**, **blokované** (odmietnutie, potlačenie, vylúčená organizácia).
+   Prvé oslovenie má jednu hlavnú otázku; ostatné sú v „Príprave rozhovoru“. E-mail (varianty A podľa dôkazu
+   a B podľa funkcie), poznámka pre LinkedIn (≤ 200 znakov), skript na telefón. Výsledky kontrol (dĺžky,
+   zakázané frázy, potreba podaná ako fakt, čísla mimo faktov, „nejde o ponuku“ pri ponuke, pätička)
+   a viet, ktoré hodnotiteľ považuje za nepodložené. Uprav, „Uložiť a skontrolovať“,
    „Schváliť“ (max. 10 denne), „Kopírovať“ / „Otvoriť v pošte“, pošli sám a označ „odoslané“.
-   Follow-up pripadne na 5. pracovný deň. Námietka = okamžitý výmaz a potlačenie.
-6. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
+   Follow-up pripadne na 5. pracovný deň. Námietka = okamžitý výmaz a potlačenie. Pri odoslanom oslovení
+   **zapíš výsledok**: odpoveď, či kontakt problém potvrdil alebo vyvrátil, vzorka, rozhovor, demo, pilot,
+   hodnota, platba, ďalší krok, čas prípravy a dodania. Potvrdenie mení stav potreby (iba pre danú
+   organizáciu – ostatným ide naďalej podmienená otázka) a pri najbližšom kroku `value` vznikne nová verzia
+   prehľadu domény. Metriky („Učenie z odpovedí“, Prehľad) sa počítajú po organizáciách, nie po správach.
+7. **Event log** (GUI → Event log a procesy, alebo tlačidlo pri oslovení, kde kontakt potvrdil problém): žiadosť
+   o históriu krokov procesu – prečo práve event log, definícia prípadu, minimálna schéma (ID prípadu, udalosť,
+   čas vzniku udalosti; termín pri hypotéze o meškaní), slovník a malá ukážka niekoľkých celých prípadov, čo z toho
+   pripravíš a podmienky bezplatnej skúšky. Správa je pevná šablóna a ide do Oslovení na kontrolu a ručné
+   odoslanie. Ak históriu nemajú: prehliadka prípadu, schéma stavov, agregovaný report alebo manuálne zaznamenávanie.
+   **Import** (karta „Import a kvalita“): CSV alebo Parquet do oddeleného priestoru organizácie
+   (`data/eventlogs/org_<id>.duckdb`, nič neopúšťa počítač), rovnaký súbor sa nezdvojí. Systém navrhne mapovanie
+   (case_id, activity, timestamp, …; čas exportu ani mená pracovníkov nie), ty ho potvrdíš spolu so zónou, obdobím,
+   začiatočnými a koncovými aktivitami. Report kvality: chýbajúce hodnoty, neplatné časy, prechody letného času,
+   duplicity, zhodné časy, start/complete, otvorené a odrezané prípady, výber, premenovania, snapshot – s počtami,
+   podielmi a rozhodnutím; nič sa nemaže potichu. Tabuľka „dostupná“ povie, ktoré analýzy dáta podporia a prečo.
+   **Analýza** (karta „Analýza“ alebo `python -m radar process-report --import 1 [--review]`): počty, frekvencie,
+   najčastejšie priebehy a priamo nadväzujúce kroky (iba z jednoznačne usporiadaných prípadov), odstupy a trvania
+   (kalendárny čas; dokončené zvlášť od otvorených a odrezaných), opakovanie kroku, čas aktivity a odchýlka od
+   termínu, ak to dáta podporia – s menovateľmi a obmedzeniami a najviac 3 miestami na preverenie v rozhovore.
+   Report nedokazuje príčinu ani úsporu. Hodnotiteľ posúdi iba formulácie (agregáty, nie surový log).
+8. **GUI → Rozhovory:** formulár podľa The Mom Test; citáty z poznámok sa stanú dôkazmi (iba ak sú
    v poznámkach doslova). **GUI → Brána 0:** rozhovory/cieľ, „spomenul sám“, platiteľ, lievik,
    návrh verdiktu; rozhodnutie zapisuješ ty.
 
@@ -343,6 +397,46 @@ Zoznam a výťažnosť (dokumenty a overené tvrdenia podľa kategórie a zdroja
 Nový problém je najprv „candidate“; hypotézou sa stane až s 2 overenými tvrdeniami z 2 domén.
 Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v správe vlastné sekcie.
 
+## Cloudové modely (Azure OpenAI, voliteľné)
+
+Bez nastavenia beží všetko lokálne ako doteraz. Cloud sa zapína po rolách: napr. generátor ostane lokálny
+a **hodnotiteľ** (`reviewer`) beží v Azure – generátor nie je overovateľ.
+
+1. **Kľúč** daj do premennej prostredia (PowerShell: `setx AZURE_OPENAI_API_KEY "<kľúč>"`, potom nový terminál).
+   Do `config.yaml`, databázy ani GUI sa kľúč nezadáva – iba názov premennej.
+2. **GUI → Správca akcií → Cloudové modely:** profil (endpoint `https://<resource>.openai.azure.com/openai/v1/`,
+   názov premennej s kľúčom). Nasadenia: **„Obnoviť nasadenia“** ich iba prečíta cez Azure Resource Manager
+   (vyžaduje subscription, resource group, názov resource a token s rolou aspoň Reader v premennej
+   `AZURE_MGMT_TOKEN`, napr. `az account get-access-token --query accessToken -o tsv`), alebo **pridaj existujúce
+   nasadenie ručne** (názov deploymentu z Azure portálu). Nič sa v Azure nevytvára ani nemení.
+3. **Ktorá rola beží kde:** výber podľa modelu, verzie a názvu nasadenia (dve nasadenia toho istého modelu
+   sú rozlíšené); prežije reštart. Do Azure sa posiela názov nasadenia. Reasoning model dostane
+   `max_completion_tokens` bez `temperature`; lokálne prepínače uvažovania a uvoľňovanie GPU sa do Azure neposielajú.
+4. **Rozpočet a sadzby:** tvoj rozpočet (napr. 85,87 € podľa zostatku kreditu; 0 = cloud vypnutý), denný limit
+   a limit na beh; sadzby vstup/výstup za 1M tokenov pre každé nasadenie z cenníka Azure s dátumom overenia.
+   Bez sadzby sa nasadenie nevolá (cena sa nenahrádza nulou).
+5. **Otestovať pripojenie:** jedno krátke volanie (desiatky tokenov, započíta sa); text a JSON schéma zvlášť.
+   Do zoznamu sa zapíše iba úspešne overená schopnosť.
+
+**Čo znamenajú čísla o nákladoch:** pred volaním sa rezervuje horný odhad (vstup + maximálny výstup) v jednej
+transakcii s limitmi – aj pri súbežných volaniach a opakovaniach; po odpovedi sa vyrovná podľa skutočných
+tokenov (reasoning tokeny sú súčasťou výstupu). Timeout = neistý výsledok, rezervácia ostáva započítaná.
+Zobrazená spotreba je **vlastný odhad, nie overený zostatok ani faktúra Azure** – zostatok over v Azure portáli.
+
+**Chyby:** autentifikácia, nenájdené nasadenie, nepodporovaný parameter, limit rýchlosti (najviac
+`cloud.max_retries` opakovaní), kvóta, rozpočet – položka čaká na ďalší beh, nikdy sa automaticky neschváli
+a neprejde sa na iný (drahší) model. Jednoduchší JSON režim iba pri potvrdenej nepodpore `response_format`.
+Posledný dôvod prerušenia je v Správcovi akcií. Rovnaký vstup, nasadenie a verzia promptu = odpoveď z cache.
+
+**Čo smie opustiť počítač:** iba podklady úloh z `cloud.allowed_tasks` – verejné zdroje a citáty (prehľad
+domény, návrh prínosu a ich kontrola, väzby polí Brány 1, posúdenie dôkazov, karty, závery experimentov,
+kritika). Úlohy s menami a kontaktmi (návrhy oslovení, ich kontrola, kontakty) idú do cloudu iba
+s `privacy.cloud_personal_data: true` (vtedy doplň LIA o spracovateľa); inak čakajú. `doctor` cloudové roly iba
+vypíše (kľúč, sadzba, rozpočet), nevolá ich.
+
+**Azure for Students:** kredit a podmienky sú určené na štúdium; komerčné použitie (napr. pilot so zákazníkom)
+nepredpokladaj – over ho v podmienkach predplatného.
+
 ## Súkromie a bezpečnosť
 
 - Iba pracovné kontakty zverejnené organizáciou alebo osobou (alebo v úradnom zverejnení – napr. kontaktný bod
@@ -359,6 +453,8 @@ Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v sprá
   (soľ v `data/.salt`; po obnove zo zálohy `privacy reapply`).
 - Logy maskujú e-maily a telefóny; správy a exporty predvolene pseudonymizujú osoby.
 - GUI aj služby počúvajú iba na 127.0.0.1; Streamlit bez telemetrie (`.streamlit/config.toml`).
+- Cloudový model (voliteľný) dostane iba podklady povolených úloh; kľúč iba v premennej prostredia, nikdy
+  v configu, databáze, logoch ani promptoch (pozri Cloudové modely).
 - Pri prebiehajúcom súvisiacom obstarávaní sa návrh nevytvorí – komunikuj iba oficiálnou cestou.
 - Firmy, ktoré nemajú byť oslovené (napr. konflikt záujmov so stážou): `outreach.exclude_orgs`.
 - Do gitu nepatria `data/`, `logs/`, `reports/`, `exports/`. Projekt drž mimo OneDrive a zapni
@@ -377,14 +473,21 @@ Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v sprá
 | Súbor | Obsah |
 |---|---|
 | `radar/config.py` | konfigurácia a predvolené hodnoty (roly modelov, ľudia, oslovenia, súkromie, objavovanie) |
-| `radar/db/` | SQLite: `evidence.py` (register dôkazov), `gate0.py` (organizácie, ľudia, oslovenia, rozhovory), `ops.py` (provenance, kontrola, labely, eval), `schema.py` + `migrations.py` |
+| `radar/db/` | SQLite: `evidence.py` (register dôkazov), `gate0.py` (organizácie, ľudia, oslovenia, rozhovory), `ops.py` (provenance, kontrola, labely, eval), `value.py` (prehľady domén, návrhy prínosu, výsledky oslovení, náklady a cache cloudu), `schema.py` + `migrations.py` |
+| `radar/value.py` | prehľad domény a návrh prínosu (citáty, neznáme, hodnotiteľ, verzie) |
+| `radar/outcomes.py` | výsledky oslovení, stav potreby, metriky po organizáciách |
+| `radar/domain.py` | stav doménových podkladov, priority domén, tvrdenia a otázky s blokovanou akciou, hlavná otázka |
+| `radar/domain_sources.py` | lokálny ESCO index a fulltext, rola → povolanie, ohraničený doménový výskum (web) |
+| `radar/event_logs.py` | žiadosť o event log (šablóna, minimálna schéma, alternatívy) a import s kontrolou kvality |
+| `radar/process_analysis.py` | procesný report (podporované metriky, menovatele, obmedzenia, miesta na preverenie) |
+| `radar/cloud.py` | Azure OpenAI: klient, triedenie chýb, rozpočet s rezerváciou, nasadenia, test pripojenia |
 | `radar/models.py`, `radar/llm.py`, `radar/prompts.py` | roly a routing úloh, self-consistency, provenance; klient Ollama/OpenAI; prompty s verziou |
 | `radar/collect.py`, `discover.py`, `fetch.py`, `search.py` | zber, objavovanie, sťahovanie (robots.txt, blokované domény) |
 | `radar/extract.py`, `verify.py`, `cluster.py`, `critic.py`, `market.py`, `report.py` | pipeline dôkazov |
 | `radar/registers.py`, `orgs.py`, `contacts.py`, `names.py`, `people.py` | RPO/RÚZ, organizácie, kontakty, ľudia a priorita |
 | `radar/funnel.py` | lievik: ďalší krok hypotézy podľa jej stavu, výber hypotézy, jeden krok na úlohu, reťaz úloh |
-| `radar/contact_scout.py`, `radar/shortlist.py` | hľadanie kontaktov podľa hypotézy (plán, dopyty, držitelia dát, ručné pridanie zo stránky); Koho osloviť (odporúčanie s dôvodmi, čo žiadať) |
-| `radar/outreach.py`, `crm.py`, `privacy.py`, `review.py`, `evals.py`, `bench.py` | oslovenia, Brána 0, súkromie, kontrola, eval, benchmark |
+| `radar/contact_scout.py`, `radar/shortlist.py` | hľadanie kontaktov podľa hypotézy (plán, dopyty, držitelia dát, ručné pridanie zo stránky); Koho osloviť (odporúčanie s dôvodmi, stav komunikácie, fronta prvého oslovenia, čo dostanú, potrebný vstup) |
+| `radar/outreach.py`, `crm.py`, `privacy.py`, `review.py`, `evals.py`, `bench.py` | oslovenia podľa účelu (zákazník, držiteľ dát, expert, pilot) s reťazcom dôvodov a pripravenosťou, Brána 0, súkromie, kontrola, eval, benchmark |
 | `radar/pipeline.py`, `cli.py`, `commands.py` | run-all, príkazový riadok |
 | `radar/gui/` | Streamlit (`app.py`, `app_pages/`) |
 | `tests/` | testy bez modelu a siete (`python -m pytest -q`) |

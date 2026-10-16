@@ -109,25 +109,28 @@ def target_ask(target, kind: str) -> str:
 
 
 def contactable(db: DB, hid: int) -> int:
-    """Ľudia s väzbou na hypotézu a e-mailom (vlastným alebo organizácie) + organizácie s e-mailom bez takého človeka."""
+    """Unikátne použiteľné kontaktné kanály hypotézy: e-maily ľudí s väzbou (vlastný alebo organizácie) a organizácie
+    s e-mailom bez takého človeka. Spoločný e-mail sa ráta raz; odmietnutí a vylúčení sa nerátajú (audit 15. 10. 2026)."""
+    channels: set[str] = set()
     people_orgs: set[int] = set()
-    n = 0
     seen: set[int] = set()
     for link in db.links_for_hypothesis(hid):
-        if link["person_id"] in seen or link["priority"] is None or link["person_status"] == "excluded":
+        if link["person_id"] in seen or link["priority"] is None or link["person_status"] in ("excluded", "declined"):
             continue
         seen.add(link["person_id"])
-        has_email = any(c["kind"] == "email" for c in db.contacts_for_person(link["person_id"]))
-        if not has_email and link["org_id"]:
-            has_email = any(c["kind"] == "email" for c in db.org_contacts(link["org_id"]))
-        if has_email:
-            n += 1
+        emails = [c["value"].lower() for c in db.contacts_for_person(link["person_id"]) if c["kind"] == "email"]
+        if not emails and link["org_id"]:
+            emails = [c["value"].lower() for c in db.org_contacts(link["org_id"]) if c["kind"] == "email"]
+        if emails:
+            channels.add(emails[0])
             if link["org_id"]:
                 people_orgs.add(link["org_id"])
     for org in db.orgs_for_hypothesis(hid):
-        if org["id"] not in people_orgs and any(c["kind"] == "email" for c in db.org_contacts(org["id"])):
-            n += 1
-    return n
+        if org["id"] not in people_orgs:
+            emails = [c["value"].lower() for c in db.org_contacts(org["id"]) if c["kind"] == "email"]
+            if emails:
+                channels.add(emails[0])
+    return len(channels)
 
 
 def search_due(cfg: Config, db: DB, hid: int) -> str | None:

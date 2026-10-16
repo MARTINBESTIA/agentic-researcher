@@ -9,6 +9,10 @@ Bez sekcie `models` v configu idú všetky úlohy na `llm` (správanie v0.1).
 
 Zlyhanie modelu nezhodí beh: orezaný alebo neplatný výstup je `undecided` a pri rozhodovacích
 úlohách ide do kontroly (review_queue); timeout nechá položku na ďalší beh.
+
+Rola môže bežať u cloudového poskytovateľa (`RoleConfig.provider`, profil v `models.providers`, napr. Azure OpenAI):
+router vytvorí `cloud.CloudLLM`, pred volaním skontroluje, či podklady úlohy smú opustiť počítač
+(`cloud.allowed_tasks`, osobné údaje iba s `privacy.cloud_personal_data`), použije cache odpovedí a rozpočet.
 """
 
 from __future__ import annotations
@@ -69,7 +73,9 @@ def _value_dump(value: Any) -> Any:
     return value
 
 
-MODEL_SETTINGS_KEY = "models"  # nastavenie z GUI: {"roles": {"agent": "qwen3.6:35b-a3b", …}, "profile": "balanced"}
+MODEL_SETTINGS_KEY = "models"  # nastavenie z GUI: {"roles": {"agent": "qwen3.6:35b-a3b", …}, "profile": "balanced",
+# "providers": {profil: ProviderProfile bez tajomstiev}, "routes": {rola: {"provider", "deployment", "reasoning", "json_mode"}}}
+CLOUD_PAUSE_KEY = "cloud_pause"  # posledná cloudová chyba (rozpočet, kvóta, oprávnenie…) – dôvod čakania úloh
 SWAPS_KEY = "model_swaps"  # posledných 30 načítaní modelu pri výmene (čas, uvoľnené modely)
 
 
@@ -83,14 +89,26 @@ def gui_model_settings(db: DB | None) -> dict[str, Any]:
         return {}
 
 
-def apply_role_models(models: ModelsConfig, roles: dict[str, str]) -> ModelsConfig:
-    """Kópia konfigurácie s inými modelmi rolí (časové limity a tokeny ostávajú z roly)."""
+def apply_role_models(models: ModelsConfig, roles: dict[str, str], routes: dict[str, dict[str, Any]] | None = None,
+                      providers: dict[str, dict[str, Any]] | None = None) -> ModelsConfig:
+    """Kópia konfigurácie s inými modelmi rolí (časové limity a tokeny ostávajú z roly), poskytovateľmi a nasadeniami
+    z GUI. Rola s poskytovateľom „local“ ostáva lokálna (stará konfigurácia funguje ďalej)."""
+    from .config import ProviderProfile
+
     new = models.model_copy(deep=True)
+    for name, prof in (providers or {}).items():
+        new.providers[name] = ProviderProfile.model_validate(prof)
     for role, model in roles.items():
         if not model:
             continue
         base = new.roles.get(role) or new.roles.get("fast") or RoleConfig(model=model)
         new.roles[role] = base.model_copy(update={"model": model})
+    for role, route in (routes or {}).items():
+        base = new.roles.get(role) or new.roles.get("fast") or RoleConfig(model=route.get("deployment") or role)
+        update = {k: v for k, v in route.items() if k in ("provider", "deployment", "reasoning", "json_mode") and v is not None}
+        if update.get("provider", "local") == "local":
+            update = {"provider": "local", "deployment": ""}
+        new.roles[role] = base.model_copy(update=update)
     return new
 
 
@@ -115,8 +133,18 @@ class ModelRouter:
         self.legacy_client = legacy_client
         self.client_factory = client_factory or self._default_factory
         gui = gui_model_settings(db) if self.models is not None else {}
-        if gui.get("roles"):
-            self.models = apply_role_models(self.models, gui["roles"])
+        if gui.get("roles") or gui.get("routes") or gui.get("providers"):
+            self.models = apply_role_models(self.models, gui.get("roles") or {}, gui.get("routes"), gui.get("providers"))
+        from .cloud import CLOUD_SETTINGS_KEY, CloudBudget, apply_cloud_settings
+
+        cloud_settings = {}
+        if db is not None and hasattr(db, "get_setting"):
+            try:
+                cloud_settings = db.get_setting(CLOUD_SETTINGS_KEY, {}) or {}
+            except Exception:  # noqa: BLE001 – stará databáza bez nastavení
+                cloud_settings = {}
+        self.cloud = apply_cloud_settings(cfg.cloud, cloud_settings)
+        self.budget = CloudBudget(self.cloud, db) if db is not None and hasattr(db, "reserve_cloud") else None
         self.profile = profile or gui.get("profile") or (self.models.profile if self.models else "v0.1")
         self._clients: dict[tuple[str, str, bool, float], Any] = {}
         self.overrides: dict[str, TaskRoute] = {}  # dočasné nastavenie úlohy (eval)
@@ -152,9 +180,20 @@ class ModelRouter:
         fast = self.models.roles.get("fast")
         return RoleConfig(model=role, timeout_s=fast.timeout_s if fast else 600, max_tokens=fast.max_tokens if fast else 2048)
 
+    def is_cloud(self, role: str) -> bool:
+        return not self.legacy and self.role_config(role).provider != "local"
+
+    def cloud_allowed(self, task: str) -> bool:
+        """Smú podklady úlohy opustiť počítač? Úlohy s osobnými údajmi iba s privacy.cloud_personal_data."""
+        return task in self.cloud.allowed_tasks or self.cfg.privacy.cloud_personal_data
+
     def _default_factory(self, role: str, role_cfg: RoleConfig, thinking: bool, temperature: float) -> LLM:
         m = self.models
         assert m is not None
+        if role_cfg.provider != "local":
+            from .cloud import make_cloud_client
+
+            return make_cloud_client(m, self.cloud, self.db, role_cfg, temperature, self.budget)
         extra = dict(role_cfg.extra_body)
         extra.update(m.thinking_on if thinking else m.thinking_off)
         llm_cfg = LLMConfig(
@@ -176,7 +215,7 @@ class ModelRouter:
             return self.legacy_client
         role_cfg = self.role_config(role)
         temp = role_cfg.temperature if temperature is None else temperature
-        key = (role, role_cfg.model, thinking, round(temp, 3))
+        key = (role, f"{role_cfg.provider}:{role_cfg.deployment or role_cfg.model}", thinking, round(temp, 3))
         if key not in self._clients:
             self._clients[key] = self.client_factory(role, role_cfg, thinking, temp)
         return self._clients[key]
@@ -215,6 +254,10 @@ class ModelRouter:
         """
         route = self.route(task)
         k = route.k
+        if self.is_cloud(route.role) and not self.cloud_allowed(task):
+            log.warning("Úloha %s: podklady nesmú ísť do cloudového modelu roly %s (cloud.allowed_tasks, "
+                        "privacy.cloud_personal_data) – položka čaká", task, route.role)
+            return TaskResult(task=task, undecided=True, reason="cloud_not_allowed", role=route.role, model=route.model)
         temperature = None
         if k > 1:
             temperature = self.models.self_consistency_temperature if self.models else None
@@ -231,7 +274,9 @@ class ModelRouter:
             if reason == "timeout":
                 break  # server je preťažený; ďalšie vzorky by dopadli rovnako
         result = self._decide(task, route, samples, failure, k)
-        if review and result.undecided and object_type and object_id is not None and result.reason != "timeout":
+        # Timeout a cloudová chyba (rozpočet, kvóta, súkromie) nechajú položku na ďalší beh – nejde do kontroly človekom.
+        if review and result.undecided and object_type and object_id is not None and result.reason not in (
+                "timeout", "cloud", "cloud_not_allowed"):
             detail = {"votes": result.votes, "model": route.model, **(review_detail or {})}
             if self.db is not None:
                 self.db.enqueue_review(task, object_type, object_id, result.reason or "undecided", detail)
@@ -262,13 +307,46 @@ class ModelRouter:
         value = None
         reason = None
         truncated = False
+        cloud_error = None
+        cloud = self.is_cloud(route.role)
+        key = None
+        if cloud:
+            client.task = task  # rezervácia nákladov podľa úlohy
+            if self.cloud.cache and route.k == 1 and self.db is not None:
+                from .cloud import cache_key, deployment_version
+
+                role_cfg = self.role_config(route.role)
+                key = cache_key(role_cfg, self.models.providers.get(role_cfg.provider),
+                                deployment_version(self.db, role_cfg.provider, role_cfg.deployment), version,
+                                {"thinking": route.thinking, "max_tokens": max_tokens}, messages, schema.__name__)
+                hit = self.db.llm_cache_get(key)
+                if hit is not None:
+                    try:
+                        cached = schema.model_validate_json(hit)
+                        self.db.record_cloud_cache(role_cfg.provider, role_cfg.deployment or role_cfg.model, task)
+                        self.db.add_judgment(task=task, role=route.role, model=route.model, profile=self.profile,
+                                             prompt_version=version, params={"cache": True, "provider": role_cfg.provider},
+                                             output=_value_dump(cached), verdict=vote_key(cached) if vote_key else
+                                             _verdict_of(cached), prompt_tokens=0, completion_tokens=0, latency_s=0.0,
+                                             truncated=False, object_type=object_type, object_id=object_id)
+                        return cached, vote_key(cached) if vote_key else _verdict_of(cached), None
+                    except ValueError:
+                        pass
         try:
             value = client.chat_json(messages, schema, max_tokens=self.max_tokens(route, max_tokens))
+            if key is not None and value is not None:
+                role_cfg = self.role_config(route.role)
+                self.db.llm_cache_put(key, role_cfg.provider, role_cfg.deployment or role_cfg.model, task,
+                                  value.model_dump_json())
         except LLMTruncated as exc:
             reason, truncated = "truncated", True
             log.warning("Úloha %s (%s %s): orezaný výstup – %s", task, object_type or "-", object_id or "-", exc)
         except LLMError as exc:
             reason = "invalid"
+            cloud_error = getattr(exc, "kind", None)
+            if cloud_error:
+                reason = "cloud"
+                self._cloud_pause(task, route, cloud_error, exc)
             log.warning("Úloha %s (%s %s): neplatný výstup – %s", task, object_type or "-", object_id or "-", exc)
         except APITimeoutError as exc:
             reason = "timeout"
@@ -286,7 +364,9 @@ class ModelRouter:
                 prompt_version=version,
                 params={"thinking": route.thinking, "k": route.k, "sample": sample,
                         "temperature": getattr(getattr(client, "cfg", None), "temperature", None),
-                        "max_tokens": max_tokens, "error": reason},
+                        "max_tokens": max_tokens, "error": reason,
+                        **({"provider": self.role_config(route.role).provider, "cloud_error": cloud_error}
+                           if cloud else {})},
                 output=_value_dump(value),
                 verdict=verdict if value is not None else ("undecided" if reason != "timeout" else "timeout"),
                 prompt_tokens=getattr(info, "prompt_tokens", None),
@@ -297,6 +377,18 @@ class ModelRouter:
                 object_id=object_id,
             )
         return value, verdict, reason
+
+    def _cloud_pause(self, task: str, route: Route, kind: str, exc: Exception) -> None:
+        """Posledný dôvod, prečo cloudová úloha čaká (GUI: Správca akcií); bez tajomstiev a bez obsahu promptu."""
+        if self.db is None or not hasattr(self.db, "set_setting"):
+            return
+        role_cfg = self.role_config(route.role)
+        try:
+            self.db.set_setting(CLOUD_PAUSE_KEY, {"kedy": utcnow(), "úloha": task, "rola": route.role,
+                                                  "poskytovateľ": role_cfg.provider, "nasadenie": role_cfg.deployment,
+                                                  "dôvod": kind, "správa": str(exc)[:300]})
+        except Exception as err:  # noqa: BLE001 – záznam nesmie zhodiť beh
+            log.debug("Zápis dôvodu prerušenia cloudu zlyhal: %s", err)
 
     def _decide(self, task: str, route: Route, samples: list[tuple[Any, str]], failure: str | None, k: int) -> TaskResult:
         votes = [v for _, v in samples]
@@ -346,7 +438,13 @@ class ModelRouter:
                    object_type: str | None = None, object_id: int | None = None):
         """Jeden krok agenta s nástrojmi; zapíše provenance, chyby nechá na volajúcom."""
         route = self.route(task)
+        if self.is_cloud(route.role) and not self.cloud_allowed(task):
+            from .cloud import CloudNotAllowed
+
+            raise CloudNotAllowed(f"úloha {task} nesmie posielať podklady do cloudového modelu roly {route.role}")
         client = self.client(route.role, route.thinking)
+        if self.is_cloud(route.role):
+            client.task = task
         self._switch_to(route, client)
         msg = client.chat_tools(messages, tools)
         info = getattr(client, "last", None)
@@ -366,7 +464,8 @@ class ModelRouter:
         """Rola -> model (na výpis v doctor)."""
         if self.legacy:
             return {LEGACY_ROLE: self.cfg.llm.model}
-        return {name: r.model for name, r in self.models.roles.items()}
+        return {name: (f"{r.provider}:{r.deployment}" if r.provider != "local" else r.model)
+                for name, r in self.models.roles.items()}
 
 
 def _verdict_of(value: Any) -> str:

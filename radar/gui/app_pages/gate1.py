@@ -96,6 +96,13 @@ elif h["gate1_status"] in ("needs_input", "ready", "passed"):
         st.toast(f"Znova otvorené polia: {n}. Hypotéza je rozpracovaná.")
         refresh()
 jobs_panel(show_last=False)
+el_imports = [i for i in d.eventlog_imports(hid=hid) if i["status"] == "checked"]
+if el_imports:  # dáta organizácie z event logu: nový vstup, ktorý Bránu 1 sám nepustí
+    st.info("Event logy organizácií k tejto hypotéze: " + "; ".join(
+        f"#{i['id']} {i['org_name']} ({i['data_kind']}, dostupné: " + ", ".join(
+            m for m, v in json_or(i["availability_json"], {}).items() if v["stav"] != "nie") + ")" for i in el_imports)
+        + ". Sú to dáta organizácie v jej oddelenom priestore – Bránu 1 neposúvajú automaticky a neprenášajú sa na iné "
+        "hypotézy; rozbor na stránke Event log a procesy.", icon=":material/timeline:")
 
 tab_f, tab_m, tab_u, tab_s, tab_d, tab_r, tab_i, tab_dec = st.tabs(
     ["Polia", "Mapovanie polí", "Tvoje dáta", "Zdroje", "Datasety", "Reprodukcia čísla", "Infozákon", "Rozhodnutie"])

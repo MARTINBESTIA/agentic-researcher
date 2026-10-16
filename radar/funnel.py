@@ -270,7 +270,11 @@ def run_contacts(app, hid: int, dl: Deadline, run: Callable[[str, Deadline], boo
     from .workflows import people_stages
 
     app.people_ids = [hid]
-    people_stages(app, dl, run)
+    people_stages(app, dl.sub(dl.remaining_minutes() * 0.75), run)
+    # prehľad domény, návrh prínosu a návrhy oslovení pre frontu prvého oslovenia (audit 15. 10. 2026: lievik
+    # zbieral a zoraďoval kontakty, návrhy správ boli iba samostatná akcia)
+    run("value", dl.sub(dl.remaining_minutes() * 0.4))
+    run("drafts", dl)
 
 
 def run_gate1(app, hid: int, dl: Deadline, run: Callable[[str, Deadline], bool]) -> None:

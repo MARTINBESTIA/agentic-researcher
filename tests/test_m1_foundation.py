@@ -45,7 +45,7 @@ def test_v01_database_is_migrated_with_backup(tmp_path):
     path.parent.mkdir()
     v01_database(path)
     db = DB(path)
-    assert db.schema_version() == SCHEMA_VERSION == 12
+    assert db.schema_version() == SCHEMA_VERSION == 14
     assert db.migration["backup"] is not None
     assert db.catalog_stats() == {"datasety": 0, "aktualizované": None}  # v9: lokálny index katalógu
     backups = list((tmp_path / "data" / "backup").glob("radar-v1-*.sqlite"))
@@ -63,17 +63,20 @@ def test_v01_database_is_migrated_with_backup(tmp_path):
     assert h["contacts_searched_at"] is None and "contact_targets" in tables  # v10: hľadanie kontaktov podľa hypotézy
     assert "funnel_log" in tables  # v11: lievik (jedna hypotéza po druhej)
     assert "field_bindings" in tables and h["business_json"] is None  # v12: väzby polí na stĺpce, stav podnikania
+    assert {"domain_briefs", "value_proposals", "outreach_outcomes", "llm_usage", "llm_cache"} <= tables  # v13
+    assert {"domain_research", "domain_evidence", "domain_claims", "domain_questions", "role_mappings", "esco_concepts",
+            "eventlog_requests", "eventlog_imports", "process_reports"} <= tables  # v14: doménový výskum, event logy
     db.close()
     # druhé spustenie nič nezmení
     db = DB(path)
-    assert db.migration == {"from": 12, "to": 12, "backup": None}
+    assert db.migration == {"from": 14, "to": 14, "backup": None}
     assert len(list((tmp_path / "data" / "backup").glob("*.sqlite"))) == 1
     db.close()
 
 
 def test_new_database_has_latest_schema_without_backup(tmp_path):
     db = DB(tmp_path / "new.sqlite")
-    assert db.schema_version() == 12
+    assert db.schema_version() == 14
     assert db.migration["backup"] is None
     assert db.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
 

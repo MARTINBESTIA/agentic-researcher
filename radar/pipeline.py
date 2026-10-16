@@ -26,11 +26,11 @@ log = logging.getLogger("radar")
 FAST_STAGES = ["discover", "scout", "collect", "screen", "extract", "verify-code", "source-types", "themes", "orgs",
                "contact-search", "people", "gate1-sources",
                "gate1-check", "gate1-datasets", "gate2-backtest", "validate-search"]
-ACCURATE_STAGES = ["people-rank", "contacts", "drafts", "verify", "cluster", "validate-finish", "gate1-fields",
+ACCURATE_STAGES = ["people-rank", "contacts", "value", "drafts", "verify", "cluster", "validate-finish", "gate1-fields",
                    "gate1-bindings", "gate1-repro", "gate1-user", "gate1-finish", "gate2-cards", "gate2-plan", "gate2-conclusion",
                    "gate2-demo", "prepare-next", "critique", "market"]
 FINAL_STAGES = ["report", "purge"]
-PEOPLE_STAGES = {"orgs", "people", "people-rank", "drafts"}
+PEOPLE_STAGES = {"orgs", "people", "people-rank", "drafts"}  # value (prehľad, prínos) bez osobných údajov
 # Lacné kroky iba s kódom: bežia vždy s vlastným krátkym limitom, aj keď presnej fáze vypršal čas
 # (inak by napr. hypotézy prehľadané agentom nedostali verdikt).
 ALWAYS_STAGES = {"validate-finish", "gate1-finish", "verify-code", "source-types"}

@@ -682,3 +682,250 @@ CREATE TABLE IF NOT EXISTS field_bindings (  -- väzba požiadavky na dáta: pol
 CREATE INDEX IF NOT EXISTS idx_field_bindings_f ON field_bindings(field_id, id);
 CREATE INDEX IF NOT EXISTS idx_field_bindings_h ON field_bindings(hypothesis_id);
 """
+
+# ---------------------------------------------------------------------------------- verzia 13
+# Oslovenia podľa účelu (audit 15. 10. 2026): oslovenie aj organizácie cez funkčný kontakt (bez osoby), režim správy,
+# návrh prínosu a reťazec „prečo → potreba → výstup → vstup“; doménové prehľady, návrhy prínosu, výsledky oslovení;
+# cloudové modely (rezervácia a vyrovnanie nákladov, cache odpovedí).
+OUTREACH_V13_COLUMNS = ("id, person_id, hypothesis_id, contact_point_id, channel, variant, subject, body, facts_json, "
+                        "checks_json, status, approved_at, sent_at, follow_up_due, follow_up_count, created_at, updated_at")
+SCHEMA_V13_OUTREACH = f"""
+CREATE TABLE outreach_v13 (
+  id INTEGER PRIMARY KEY,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,       -- NULL = organizácia cez funkčný kontakt
+  org_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id),
+  contact_point_id INTEGER REFERENCES contact_points(id) ON DELETE SET NULL,
+  channel TEXT NOT NULL,                    -- email|linkedin|phone
+  variant TEXT NOT NULL,                    -- A|B
+  subject TEXT, body TEXT NOT NULL,
+  facts_json TEXT NOT NULL, checks_json TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  approved_at TEXT, sent_at TEXT, follow_up_due TEXT,
+  follow_up_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'discovery',   -- discovery|data_request|expert_review|pilot
+  proposal_id INTEGER,                      -- návrh prínosu (value_proposals)
+  package_json TEXT,                        -- prečo tento človek → potreba → výstup → minimálny vstup, politika, stav
+  readiness TEXT,                           -- ready | needs_input (zástupné polia, chýba zdroj dôvodu výberu)
+  message_version INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO outreach_v13 ({OUTREACH_V13_COLUMNS}, org_id)
+  SELECT {OUTREACH_V13_COLUMNS}, (SELECT p.org_id FROM people p WHERE p.id = outreach.person_id) FROM outreach;
+DROP TABLE outreach;
+ALTER TABLE outreach_v13 RENAME TO outreach;
+CREATE INDEX IF NOT EXISTS idx_outreach_person ON outreach(person_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_org ON outreach(org_id);
+"""
+
+SCHEMA_V13 = """
+CREATE TABLE IF NOT EXISTS domain_briefs (  -- päťminútový prehľad domény, zdieľaný kontaktmi domény, s verziami
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,                 -- theme:<id> alebo hypothesis:<id>
+  title TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  brief_json TEXT NOT NULL,                 -- proces, pojmy, roly, rozhodnutie, dnešný postup, dáta, otázky, neznáme
+  sources_json TEXT NOT NULL,               -- citáty, z ktorých prehľad vznikol (claim_id, URL)
+  inputs_hash TEXT NOT NULL,                -- podklady (tvrdenia, karta, odpovede); zmena = nová verzia
+  checks_json TEXT,
+  status TEXT NOT NULL,                     -- ok | needs_review | superseded
+  model TEXT, reason TEXT,                  -- prečo nová verzia (napr. odpoveď kontaktu)
+  created_at TEXT NOT NULL,
+  UNIQUE (domain_key, version)
+);
+CREATE TABLE IF NOT EXISTS value_proposals (  -- návrh prínosu pre typ adresáta (hypotéza potreby → výstup → vstup)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  brief_id INTEGER REFERENCES domain_briefs(id) ON DELETE SET NULL,
+  recipient_kind TEXT NOT NULL,             -- customer | data_holder | expert
+  proposal_json TEXT NOT NULL,
+  need_status TEXT NOT NULL DEFAULT 'hypothesis',  -- hypothesis | confirmed | refuted
+  evidence_refs_json TEXT, checks_json TEXT,
+  status TEXT NOT NULL,                     -- checked | needs_edit | pending_review | approved
+  delivery_commitment_approved INTEGER NOT NULL DEFAULT 0,  -- konkrétny záväzok (rozsah, termín) potvrdil človek
+  commercial_policy_version TEXT,
+  inputs_hash TEXT, model TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_value_proposals_h ON value_proposals(hypothesis_id, recipient_kind);
+CREATE TABLE IF NOT EXISTS outreach_outcomes (  -- výsledok oslovenia (osobné údaje: maže ho forget)
+  id INTEGER PRIMARY KEY,
+  outreach_id INTEGER REFERENCES outreach(id) ON DELETE SET NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  hypothesis_id INTEGER NOT NULL,
+  proposal_id INTEGER,
+  message_version INTEGER,
+  reply TEXT,                               -- none | relevant | redirect | not_relevant | declined
+  problem_relevance TEXT,                   -- confirmed | refuted | unclear
+  sample_obtained INTEGER NOT NULL DEFAULT 0, interview_agreed INTEGER NOT NULL DEFAULT 0,
+  demo_done INTEGER NOT NULL DEFAULT 0, pilot_agreed INTEGER NOT NULL DEFAULT 0,
+  value_shown INTEGER NOT NULL DEFAULT 0, paid INTEGER NOT NULL DEFAULT 0,
+  rejection_reason TEXT, next_action TEXT, note TEXT,
+  prep_minutes REAL, delivery_days REAL,
+  recorded_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outcomes_h ON outreach_outcomes(hypothesis_id);
+CREATE TABLE IF NOT EXISTS llm_usage (  -- cloudové volania: rezervácia horného odhadu ceny pred volaním, vyrovnanie po
+  id INTEGER PRIMARY KEY,
+  provider TEXT NOT NULL, profile TEXT, deployment TEXT, task TEXT,
+  status TEXT NOT NULL,                     -- reserved | settled | failed | uncertain | cached
+  reserved_eur REAL NOT NULL DEFAULT 0, cost_eur REAL,
+  prompt_tokens INTEGER, completion_tokens INTEGER, reasoning_tokens INTEGER,
+  rate_json TEXT, note TEXT,
+  created_at TEXT NOT NULL, settled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_t ON llm_usage(created_at);
+CREATE TABLE IF NOT EXISTS llm_cache (  -- odpoveď cloudového modelu podľa providera, nasadenia, promptu, parametrov a vstupu
+  key TEXT PRIMARY KEY,
+  provider TEXT, deployment TEXT, task TEXT,
+  response TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+"""
+
+# v14 (dodatok 16. 10. 2026): doménový výskum (stav, podklady, tvrdenia so stavom a rozsahom, otázky s blokovanou
+# akciou), lokálny ESCO index, žiadosti o event log, importy event logov (udalosti sú v DuckDB organizácie), procesné
+# reporty. Jedna migrácia pre celý dodatok.
+SCHEMA_V14 = """
+CREATE TABLE IF NOT EXISTS domain_research (  -- stav doménových podkladov: priorita, pokus, pokrytie, dôvod ukončenia
+  domain_key TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,        -- 1 = v prioritnej dávke (poradie výpočtu, nie právo osloviť)
+  priority_source TEXT,                       -- auto | manual | manual_off
+  status TEXT NOT NULL DEFAULT 'not_requested', -- not_requested | queued | researching | ready | partial | needs_research
+  input_hash TEXT,                            -- verzia vstupu posledného pokusu
+  attempts INTEGER NOT NULL DEFAULT 0,        -- pokusy pre input_hash (limit domain_research.max_attempts_per_input_version)
+  coverage_json TEXT,                         -- roly, proces, existujúce riešenia, význam dát, alternatívne vysvetlenia
+  stop_reason TEXT, next_step TEXT,
+  stats_json TEXT,                            -- dopyty, dokumenty, úryvky, volania modelu, čas
+  requested_at TEXT, started_at TEXT, finished_at TEXT,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS domain_evidence (  -- podklad domény (ESCO, web, dokumentácia, web organizácie, dataset)
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,
+  source_kind TEXT NOT NULL,                  -- esco | web | documentation | organization | dataset
+  source_url TEXT, local_reference TEXT,      -- URL alebo lokálny odkaz (esco:<uri>)
+  title TEXT, excerpt TEXT NOT NULL, source_locator TEXT,
+  retrieved_at TEXT NOT NULL, source_version TEXT, language TEXT, jurisdiction TEXT,
+  content_hash TEXT NOT NULL,
+  scope TEXT NOT NULL,                        -- occupation | sector | organization | dataset
+  organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (domain_key, content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_domain_evidence_key ON domain_evidence(domain_key);
+CREATE TABLE IF NOT EXISTS domain_claims (  -- tvrdenie prehľadu domény so stavom a rozsahom platnosti
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,
+  part TEXT NOT NULL,                         -- roles | process | solutions | data | alternatives | decision | terms
+  text TEXT NOT NULL,
+  evidence_json TEXT NOT NULL,                -- {"claims": [id tvrdení hypotéz], "evidence": [id domain_evidence]}
+  status TEXT NOT NULL,                       -- source_fact | hypothesis | contact_reported | data_observed | contradicted
+  scope TEXT,                                 -- occupation | sector | organization | dataset
+  applicability TEXT,                         -- na koho platí (napr. „všeobecne pre povolanie, nie fakt o firme“)
+  organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  reasoning_note TEXT,
+  brief_id INTEGER REFERENCES domain_briefs(id) ON DELETE SET NULL,
+  active INTEGER NOT NULL DEFAULT 1,          -- 0 = nahradené novou verziou prehľadu
+  history_json TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domain_claims_key ON domain_claims(domain_key, active);
+CREATE TABLE IF NOT EXISTS domain_questions (  -- otvorená otázka domény: čo blokuje, komu ju položiť, odpoveď s históriou
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,
+  question TEXT NOT NULL,
+  norm TEXT NOT NULL,                         -- normalizovaný text (zhoda otázky medzi verziami prehľadu)
+  kind TEXT NOT NULL,                         -- falsifying | open
+  part TEXT,                                  -- časť prehľadu, ktorej sa týka (roles | process | solutions | data | alternatives)
+  aspect TEXT,                                -- problem_exists | already_solved | data_enables
+  unknown_claim_id INTEGER REFERENCES domain_claims(id) ON DELETE SET NULL,
+  target_role TEXT,                           -- customer | data_holder | expert | any
+  blocks_action TEXT NOT NULL DEFAULT 'none', -- none | contact_choice | data_request | duration_analysis | prediction | quantified_savings_claim
+  priority INTEGER NOT NULL DEFAULT 2,        -- 1 vysoká … 3 nízka
+  status TEXT NOT NULL DEFAULT 'open',        -- open | answered | superseded
+  answer TEXT, answer_source TEXT, answered_at TEXT,
+  outcome_id INTEGER REFERENCES outreach_outcomes(id) ON DELETE SET NULL,
+  brief_id INTEGER REFERENCES domain_briefs(id) ON DELETE SET NULL,
+  history_json TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domain_questions_key ON domain_questions(domain_key, status);
+CREATE TABLE IF NOT EXISTS role_mappings (  -- rola kontaktu → kandidátne povolania (ESCO); nejednoznačné ostanú kandidátmi
+  id INTEGER PRIMARY KEY,
+  domain_key TEXT NOT NULL,
+  role_label TEXT NOT NULL,
+  candidates_json TEXT NOT NULL,              -- [{uri, label, score, basis}]
+  chosen_uri TEXT, chosen_by TEXT,            -- človek | pravidlo (iba jednoznačná zhoda názvu)
+  mapping_basis TEXT, source_version TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE (domain_key, role_label)
+);
+CREATE TABLE IF NOT EXISTS esco_concepts (  -- lokálny ESCO balík (stabilné URI, jazyk, verzia)
+  uri TEXT NOT NULL,
+  lang TEXT NOT NULL,
+  kind TEXT NOT NULL,                         -- occupation | skill
+  pref_label TEXT NOT NULL,
+  alt_labels TEXT, description TEXT, isco_group TEXT, code TEXT,
+  norm TEXT NOT NULL,                         -- normalizovaný text na fulltext (bez diakritiky)
+  version TEXT NOT NULL,
+  PRIMARY KEY (uri, lang)
+);
+CREATE TABLE IF NOT EXISTS esco_relations (  -- povolanie → zručnosť/znalosť
+  occupation_uri TEXT NOT NULL, skill_uri TEXT NOT NULL,
+  relation TEXT NOT NULL,                     -- essential | optional
+  version TEXT NOT NULL,
+  PRIMARY KEY (occupation_uri, skill_uri)
+);
+CREATE TABLE IF NOT EXISTS esco_imports (
+  id INTEGER PRIMARY KEY,
+  version TEXT NOT NULL, lang TEXT NOT NULL, license TEXT, source TEXT,
+  files_json TEXT, counts_json TEXT,
+  imported_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eventlog_requests (  -- žiadosť o event log (dvojstupňová) alebo alternatívny podklad
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER REFERENCES hypotheses(id) ON DELETE CASCADE,
+  organization_id INTEGER REFERENCES organizations(id) ON DELETE CASCADE,
+  outreach_id INTEGER REFERENCES outreach(id) ON DELETE SET NULL,
+  step INTEGER NOT NULL DEFAULT 1,            -- 1 = slovník + malá ukážka, 2 = väčší export po dohode
+  process_scope TEXT, case_definition TEXT NOT NULL,
+  fields_json TEXT NOT NULL, sample_scope TEXT NOT NULL, intended_output TEXT NOT NULL,
+  why_event_log TEXT, unknowns_json TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',       -- draft | sent | received | not_available | alternative | declined
+  alternative TEXT,                           -- walkthrough | state_schema | aggregate_report | manual_logging
+  text TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eventlog_imports (  -- import event logu do priestoru organizácie (DuckDB organizácie)
+  id INTEGER PRIMARY KEY,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  request_id INTEGER REFERENCES eventlog_requests(id) ON DELETE SET NULL,
+  hypothesis_id INTEGER REFERENCES hypotheses(id) ON DELETE SET NULL,
+  file_name TEXT, file_hash TEXT NOT NULL, file_format TEXT,
+  data_kind TEXT NOT NULL DEFAULT 'event_log', -- event_log | snapshot (snapshot sa nespracuje ako história)
+  columns_json TEXT,                          -- stĺpce a typy surového súboru
+  mapping_json TEXT, mapping_version INTEGER NOT NULL DEFAULT 0, mapping_confirmed INTEGER NOT NULL DEFAULT 0,
+  timezone_policy TEXT,                       -- napr. offset v dátach | Europe/Bratislava (dokumentované) | neznáma
+  case_definition TEXT, period TEXT,
+  transformations_json TEXT, quality_json TEXT, availability_json TEXT,
+  rows_total INTEGER, retained_rows INTEGER, quarantined_rows INTEGER,
+  status TEXT NOT NULL,                       -- uploaded | mapped | checked | failed
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  UNIQUE (organization_id, file_hash)
+);
+CREATE TABLE IF NOT EXISTS process_reports (  -- procesný report z importu (iba podporované metriky, menovatele, obmedzenia)
+  id INTEGER PRIMARY KEY,
+  import_id INTEGER NOT NULL REFERENCES eventlog_imports(id) ON DELETE CASCADE,
+  analysis_version TEXT NOT NULL, mapping_version INTEGER,
+  supported_json TEXT NOT NULL, results_json TEXT NOT NULL, denominators_json TEXT,
+  limitations_json TEXT, followups_json TEXT,
+  review_json TEXT,
+  status TEXT NOT NULL,                       -- ok | pending_review | needs_review
+  created_at TEXT NOT NULL
+);
+"""
+ESCO_FTS = "CREATE VIRTUAL TABLE IF NOT EXISTS esco_fts USING fts5(uri UNINDEXED, lang UNINDEXED, norm)"

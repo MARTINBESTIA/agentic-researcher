@@ -29,6 +29,21 @@ models:
     # Agenti s nástrojmi (scout, test hypotéz, zdroje Brány 1). Tu 9B; v GUI (Správca akcií → Modely) je od 12. 10. 2026
     # zvolený MoE radar-qwen3.6-35b-a3b (ollama/Modelfile.qwen3.6-35b-a3b): 32,8 tok/s, nástroje OK. Výber v GUI prepíše tento riadok.
     agent:    {model: radar-qwen3.5-9b, timeout_s: 900, max_tokens: 2048}
+    # Hodnotiteľ (reviewer): kontrola prehľadov domén, návrhov prínosu a oslovení – iný model než generátor.
+    # Rola môže bežať v cloude (provider = názov profilu nižšie, deployment = názov nasadenia v Azure, reasoning: true
+    # pre reasoning modely). Pohodlnejšie v GUI: Správca akcií → Cloudové modely (výber prežije reštart).
+    # reviewer: {provider: azure, deployment: moje-gpt-4-1-mini, reasoning: false, json_mode: json_schema}
+  # Cloudové profily (audit 15. 10. 2026). Kľúč NIKDY nepíš sem – iba názov premennej prostredia, v ktorej je.
+  # Nasadenia sa iba čítajú (Azure Resource Manager, token v mgmt_token_env) alebo pridajú ručne; nič sa nevytvára.
+  # providers:
+  #   azure:
+  #     kind: azure_openai
+  #     endpoint: https://<resource>.openai.azure.com/openai/v1/
+  #     api_key_env: AZURE_OPENAI_API_KEY
+  #     subscription_id: ""          # voliteľné: na načítanie nasadení
+  #     resource_group: ""
+  #     account_name: ""
+  #     mgmt_token_env: AZURE_MGMT_TOKEN   # napr. az account get-access-token --query accessToken
   profile: balanced              # fast | balanced | accurate (napr. víkendový beh: run-all --profile accurate)
   self_consistency_temperature: 0.7
   # Ollama nemá rozpočet uvažovania (--reasoning-budget); strop dáva max_tokens úlohy + thinking_extra_tokens.
@@ -361,7 +376,17 @@ outreach:
   linkedin_note_max_chars: 200                  # bezplatný účet; Premium 300
   phone_opener_max_words: 80
   forbidden_phrases: [ponúkame, naše riešenie, náš produkt, demo, zľava, akcia, bezplatná konzultácia, cenová ponuka]
+  offer_allowed_phrases: [demo, bezplatná skúška, skúška]   # povolené, keď správa ponúka demo/skúšku (veta o podmienkach)
   exclude_orgs: []                              # IČO alebo domény, ktoré sa nikdy neoslovujú (konflikt záujmov)
+  org_cooldown_days: 21                         # organizácia oslovená za posledných 21 dní nedostane ďalšie prvé oslovenie
+  # Ponuka dema a skúšky (schválená politika): demo a dohodnutá skúška bezplatne; platené používanie až pri riešení,
+  # ktoré funguje v prevádzke, preukázateľne prináša hodnotu a po výslovnej dohode. Rozsah a termín pilotu dohodneš ty.
+  value_offer:
+    demo_free: true
+    trial_free: true
+    paid_use_requires: [operational_product, demonstrated_customer_value, explicit_paid_agreement]
+    automatic_paid_conversion: false
+  value_proposals_max: 3                        # malé výstupy (návrh prínosu) na typ adresáta
 
 # ---------------------------------------------------------------- súkromie (R-PRIV)
 privacy:
@@ -373,6 +398,56 @@ privacy:
   retention_days_declined: 30
   retention_days_exports: 30
   pseudonymize_reports: true
+  # Smú úlohy s menami a kontaktmi (návrhy oslovení, ich kontrola, kontakty) ísť do cloudového modelu? Predvolene nie:
+  # také úlohy čakajú, kým ich rola beží v cloude. Do cloudu idú iba úlohy z cloud.allowed_tasks (verejné zdroje).
+  cloud_personal_data: false
+
+# ---------------------------------------------------------------- doménový výskum (dodatok 16. 10. 2026)
+# Ohraničený pokus o doménové podklady pre prioritné domény pred návrhom správy. Neblokuje Bránu 0: neúplný výsledok
+# (partial, needs_research) pokračuje s označenými otázkami; ostatné domény nečakajú. Limity sú prevádzkové nastavenia.
+domain_research:
+  enabled: true
+  initial_priority_domain_count: 3   # prvá dávka; ďalšie domény zaradíš ručne (Brána 0 → Doména a prínos)
+  max_queries_per_domain: 6
+  max_documents_per_domain: 10
+  max_evidence_chunks: 15
+  max_model_calls_per_pass: 2        # syntéza + kontrola hodnotiteľom
+  max_attempts_per_input_version: 1  # ten istý vstup sa znova neskúša (iba nové podklady alebo tvoja žiadosť)
+  max_wall_seconds_per_pass: 600     # pri pomalom lokálnom modeli môžeš zvýšiť
+  retry_only_on_new_evidence_or_explicit_request: true
+  semantic_search_enabled: false     # zatiaľ iba fulltext (sémantika až po zmeraní jeho chýb)
+  auto_send: false                   # systém nič neodosiela (iná hodnota sa neprijme)
+  esco_language: sk                  # ESCO balík: python -m radar esco-import --dir <rozbalený balík>
+  esco_fallback_language: en
+  max_role_candidates: 5
+
+# ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)
+# Dáta organizácie sú v oddelenom DuckDB súbore (data/eventlogs/org_<id>.duckdb), nikdy spolu s verejným korpusom
+# a predvolene neopúšťajú počítač. Import nič nemaže potichu: problémové riadky sa označia a report kvality povie,
+# ktoré analýzy dáta podporia.
+event_logs:
+  dir: data/eventlogs
+  max_file_mb: 500
+  keep_raw: true                   # pôvodný súbor podľa SHA-256 (rovnaký import sa nezdvojí)
+  default_timezone: ""             # "" = neznáma; Europe/Bratislava iba ak to organizácia potvrdila
+  truncation_window_days: 3        # prípad pri okraji sledovaného obdobia môže byť odrezaný
+  max_followups: 3                 # najviac 3 miesta na ďalšie preverenie v procesnom reporte
+
+# ---------------------------------------------------------------- cloudové modely (Azure OpenAI)
+# Vlastný rozpočet – nie zostatok Azure. Pred každým volaním sa rezervuje horný odhad ceny (vstup + max. výstup),
+# po odpovedi sa vyrovná podľa skutočných tokenov; timeout ostáva započítaný. Bez sadzby nasadenia sa nevolá.
+# Azure for Students: komerčné použitie (pilot so zákazníkom) si over v podmienkach predplatného.
+cloud:
+  budget_total_eur: 0.0            # 0 = cloud vypnutý; napr. 85.87 podľa zostatku kreditu (nastaviteľné aj v GUI)
+  budget_since: ""                 # od kedy sa ráta celkový rozpočet (YYYY-MM-DD)
+  budget_daily_eur: 2.0
+  budget_run_eur: 1.0
+  max_retries: 2                   # limit rýchlosti a dočasné chyby; potom položka čaká (žiadny drahší náhradný model)
+  chars_per_token: 2.0             # konzervatívny odhad tokenov promptu pri rezervácii
+  cache: true                      # rovnaký vstup + nasadenie + verzia promptu = odpoveď z cache (bez nákladov)
+  rates: {}                        # nasadenie → {input_per_1m, output_per_1m, currency, verified_at} z cenníka Azure
+  # allowed_tasks: [domain_brief, domain_brief_check, value_proposal, value_check, field_binding, entail, card_check,
+  #                 experiment_conclusion, critique]
 
 # ---------------------------------------------------------------- GUI (python -m radar gui)
 gui:

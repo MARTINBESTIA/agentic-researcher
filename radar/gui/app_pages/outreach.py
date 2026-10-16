@@ -3,13 +3,17 @@ from datetime import date, datetime, timezone
 import streamlit as st
 
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
+from radar.outcomes import FLAGS, RELEVANCE, REPLIES, OutcomeError, outcome_metrics, record_outcome
 from radar.outreach import (
-    OutreachError, approve, follow_up_text, mailto_link, mark_follow_up_sent, mark_sent, recheck, set_status,
+    MODE_LABEL, SEND_STATES, OutreachError, approve, confirm_manual_review, follow_up_text, mailto_link,
+    mark_follow_up_sent, mark_sent, recheck, send_state, set_status,
 )
 from radar.privacy import sender_placeholders
 
 d, c = db(), cfg()
-st.caption("Systém nič neodosiela. Návrh skontroluj, schváľ, skopíruj alebo otvor v pošte a pošli sám.")
+st.caption("Systém nič neodosiela. Návrh skontroluj, schváľ, skopíruj alebo otvor v pošte a pošli sám. Každý návrh "
+           "má reťazec prečo tento kontakt → predpokladaná potreba → čo môže dostať → čo minimálne potrebuješ; potreba je "
+           "hypotéza, kým ju kontakt nepotvrdí.")
 today = datetime.now(timezone.utc).date().isoformat()
 with st.container(horizontal=True):
     st.metric("Schválené dnes", f"{d.approvals_on(today)}/{c.outreach.daily_cap}", border=True)
@@ -22,21 +26,67 @@ if missing:
 hid = pick_hypothesis(d, "out_h")
 if hid is None:
     st.stop()
+metrics = outcome_metrics(d, [hid])
+if metrics["oslovené"]:
+    with st.expander(f"Učenie z odpovedí – po organizáciách (oslovené: {metrics['oslovené']})", icon=":material/school:"):
+        st.dataframe(metrics["riadky"], hide_index=True, alt="Postup po unikátnych organizáciách")
+        if metrics["režimy"]:
+            st.dataframe([{**m, "režim": MODE_LABEL.get(m["režim"], m["režim"])} for m in metrics["režimy"]],
+                         hide_index=True, alt="Oslovené organizácie a relevantné odpovede podľa režimu oslovenia")
+        st.caption(f"Príprava na kontakt (medián): {metrics['príprava_min_medián'] or '–'} min (n = {metrics['príprava_n']}) · "
+                   f"dodanie výstupu (medián): {metrics['dodanie_dni_medián'] or '–'} dní (n = {metrics['dodanie_n']}). "
+                   "Počíta sa po organizáciách, nie po počte správ.")
 STATUS = ["draft", "needs_edit", "approved", "sent", "replied", "scheduled", "interviewed", "no_reply", "declined",
           "bounced", "no_show", "blocked"]
-shown = st.pills("Stav", STATUS, selection_mode="multi", default=["draft", "needs_edit", "approved", "sent", "blocked"], key="out_st")
+shown = st.pills("Stav", STATUS, selection_mode="multi", default=["draft", "needs_edit", "approved", "sent", "replied",
+                                                                  "scheduled", "blocked"], key="out_st")
 items = [o for o in d.outreach_list(hid) if o["status"] in (shown or [])]
 if not items:
     st.caption("Žiadne oslovenia v zvolených stavoch (návrhy vytvorí krok drafts).")
     st.stop()
 
+READY = {"ready": "pripravené", "needs_input": "rozpracované"}
 for o in items:
     checks = json_or(o["checks_json"], {})
-    title = f"{o['full_name']} · {o['org_name'] or ''} · {o['channel']} {o['variant']} · {o['status']}"
+    pkg = json_or(o["package_json"], {})
+    who = o["full_name"] or "funkčný kontakt organizácie"
+    title = (f"{who} · {o['org_name'] or ''} · {MODE_LABEL.get(o['mode'] if pkg else None, o['mode'])} · {o['channel']} "
+             f"{o['variant']} · {o['status']}" + (f" · {READY.get(o['readiness'], o['readiness'])}" if o["readiness"] else ""))
     with st.expander(title, expanded=o["status"] in ("draft", "needs_edit")):
         if o["status"] == "blocked":
             st.warning(o["body"], icon=":material/gavel:")
             continue
+        state, state_reasons = send_state(c, d, o)
+        if state is not None:
+            box = {"ready_for_manual_send": st.success, "draft_ready": st.info}.get(state, st.warning)
+            box(f"Pripravenosť: **{SEND_STATES[state]}**" + ("".join(f"\n- {esc(r)}" for r in state_reasons)),
+                icon=":material/outgoing_mail:")
+            if state == "review_pending" and st.button("Skontroloval som ručne (hodnotiteľ bez výsledku)",
+                                                       key=f"o{o['id']}mr", icon=":material/person_check:"):
+                confirm_manual_review(d, o["id"])
+                refresh()
+        if pkg:
+            why, need = pkg.get("prečo_tento_kontakt") or {}, pkg.get("potreba") or {}
+            st.dataframe([
+                {"krok": "Prečo tento kontakt", "obsah": f"{why.get('text', '')} – {why.get('dôkaz', '')}",
+                 "zdroj": why.get("zdroj") or "chýba"},
+                {"krok": "Predpokladaná potreba", "obsah": need.get("text", ""),
+                 "zdroj": {"hypothesis": "hypotéza", "confirmed": "potvrdené kontaktom"}.get(need.get("stav"), need.get("stav"))},
+                {"krok": "Čo môže dostať", "obsah": pkg.get("výstup") or "– (iba otázka na skúsenosť)",
+                 "zdroj": f"pomôže: {pkg.get('rozhodnutie') or '–'}"},
+                {"krok": "Čo minimálne potrebujem", "obsah": pkg.get("minimálny_vstup") or "", "zdroj": ""},
+                {"krok": "Čo ešte nevieme", "obsah": pkg.get("čo_nevieme") or "", "zdroj": ""},
+            ], hide_index=True, alt="Reťazec dôvodov návrhu oslovenia")
+            if pkg.get("záväzok"):
+                st.caption(f"Schválený záväzok: {pkg['záväzok']}")
+            if pkg.get("hlavná_otázka"):
+                st.caption(f"Hlavná otázka prvého oslovenia: „{esc(pkg['hlavná_otázka']['text'])}“ (odpoveď odblokuje: "
+                           f"{pkg['hlavná_otázka']['blokuje']})")
+            if pkg.get("príprava_rozhovoru"):
+                with st.popover("Príprava rozhovoru (ďalšie otázky)", icon=":material/forum:"):
+                    st.markdown("\n".join(f"- {esc(q)}" for q in pkg["príprava_rozhovoru"]))
+            for r in pkg.get("pripravenosť") or []:
+                st.warning(r, icon=":material/edit_note:")
         problems = list(checks.get("problems", []))
         model = checks.get("model") or {}
         for p in model.get("problems", []):
@@ -96,3 +146,61 @@ for o in items:
             if new_status and st.button("Uložiť výsledok", key=key + "rs"):
                 set_status(c, d, o["id"], new_status)
                 refresh()
+        if o["status"] in ("sent", "replied", "scheduled", "interviewed", "no_reply", "declined", "no_show"):
+            past = d.outcomes_of_outreach(o["id"])
+            if any(r["problem_relevance"] == "confirmed" for r in past) and o["org_id"] and not any(
+                    r["outreach_id"] == o["id"] for r in d.eventlog_requests(o["hypothesis_id"])):
+                from radar.event_logs import EventLogError, build_request
+
+                if st.button("Pripraviť žiadosť o event log (slovník a malá ukážka)", key=key + "elr",
+                             icon=":material/timeline:", help="Kontakt potvrdil problém – ďalší krok môže byť malá "
+                                                              "ukážka histórie krokov. Žiadosť nájdeš na stránke Event log."):
+                    try:
+                        build_request(c, d, o["hypothesis_id"], o["org_id"], outreach_id=o["id"])
+                        st.toast("Žiadosť pripravená – stránka Event log a procesy.", icon=":material/check:")
+                    except EventLogError as exc:
+                        st.warning(str(exc))
+            if past:
+                st.dataframe([{"kedy": r["recorded_at"][:10], "odpoveď": REPLIES.get(r["reply"], r["reply"]),
+                               "problém": RELEVANCE.get(r["problem_relevance"] or "", "–"),
+                               "ďalej": ", ".join(lbl for f, lbl in FLAGS.items() if r[f]) or "–",
+                               "ďalší krok": r["next_action"] or ""} for r in past], hide_index=True,
+                             alt="Zapísané výsledky tohto oslovenia")
+            with st.form(key + "outcome", border=True):
+                st.markdown("**Zapísať výsledok** (učenie z odpovede)")
+                cols = st.columns(2)
+                reply = cols[0].selectbox("Odpoveď", list(REPLIES), format_func=REPLIES.get, key=key + "rep")
+                relevance = cols[1].selectbox("Problém", ["", *RELEVANCE], key=key + "rel",
+                                              format_func=lambda v: RELEVANCE.get(v, "nevieme"))
+                flag_cols = st.columns(len(FLAGS))
+                flags = {f: flag_cols[i].checkbox(lbl, key=key + f) for i, (f, lbl) in enumerate(FLAGS.items())}
+                rejection = st.text_input("Dôvod odmietnutia (ak odmietol)", key=key + "rr")
+                next_step = st.text_input("Ďalší krok", key=key + "nx")
+                note = st.text_area("Poznámka (čo potvrdil alebo vyvrátil – bez citlivých údajov)", key=key + "nt", height=80)
+                cols = st.columns(2)
+                prep = cols[0].number_input("Príprava na kontakt (min)", min_value=0.0, value=None, key=key + "pm")
+                delivery = cols[1].number_input("Dodanie výstupu (dni)", min_value=0.0, value=None, key=key + "dd")
+                from radar.value import domain_of
+
+                open_q = d.domain_questions(domain_of(d, o["hypothesis_id"])[0], "open")[:6]
+                answers = {}
+                if open_q:
+                    st.caption("Odpovede na otázky domény (vyplň iba tie, na ktoré kontakt odpovedal):")
+                    for q in open_q:
+                        qc = st.columns([4, 1])
+                        text = qc[0].text_input(q["question"], key=f"{key}q{q['id']}")
+                        contra = qc[1].checkbox("vyvracia", key=f"{key}qc{q['id']}",
+                                                help="Odpoveď vyvracia predpoklad prehľadu.")
+                        answers[q["id"]] = {"text": text, "contradicts": contra}
+                if st.form_submit_button("Uložiť výsledok oslovenia", icon=":material/fact_check:"):
+                    try:
+                        res = record_outcome(c, d, outreach_id=o["id"], reply=reply, problem_relevance=relevance or None,
+                                             rejection_reason=rejection, next_action=next_step, note=note,
+                                             prep_minutes=prep, delivery_days=delivery, answers=answers, **flags)
+                        msg = "Výsledok uložený"
+                        if res.get("prehľad_domény"):
+                            msg += " · prehľad domény sa aktualizuje pri najbližšom kroku value"
+                        st.toast(msg, icon=":material/check:")
+                        refresh()
+                    except OutcomeError as exc:
+                        st.error(str(exc))

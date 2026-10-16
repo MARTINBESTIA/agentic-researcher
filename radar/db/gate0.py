@@ -20,7 +20,7 @@ PERSON_FIELDS = {
 }
 OUTREACH_FIELDS = {
     "subject", "body", "facts_json", "checks_json", "status", "approved_at", "sent_at", "follow_up_due",
-    "follow_up_count", "contact_point_id",
+    "follow_up_count", "contact_point_id", "mode", "proposal_id", "package_json", "readiness", "message_version",
 }
 PERSON_STATUSES = ("candidate", "approved", "contacted", "replied", "interviewed", "declined", "excluded")
 OUTREACH_STATUSES = (
@@ -452,7 +452,7 @@ class Gate0Mixin:
     # -------------------------------------------------------------- oslovenia
     def insert_outreach(
         self,
-        person_id: int,
+        person_id: int | None,
         hid: int,
         channel: str,
         variant: str,
@@ -462,13 +462,27 @@ class Gate0Mixin:
         checks: dict[str, Any],
         status: str,
         contact_point_id: int | None = None,
+        *,
+        org_id: int | None = None,
+        mode: str = "discovery",
+        proposal_id: int | None = None,
+        package: dict[str, Any] | None = None,
+        readiness: str | None = None,
     ) -> int:
+        """Oslovenie osoby, alebo organizácie cez funkčný kontakt (person_id None, org_id povinné)."""
+        if person_id is None and org_id is None:
+            raise ValueError("Oslovenie potrebuje osobu alebo organizáciu.")
+        if org_id is None and person_id is not None:
+            row = self._one("SELECT org_id FROM people WHERE id = ?", (person_id,))
+            org_id = row["org_id"] if row is not None else None
         now = utcnow()
         cur = self._exec(
-            """INSERT INTO outreach (person_id, hypothesis_id, contact_point_id, channel, variant, subject, body, facts_json,
-                                     checks_json, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (person_id, hid, contact_point_id, channel, variant, subject, body, _dumps(facts), _dumps(checks), status, now, now),
+            """INSERT INTO outreach (person_id, org_id, hypothesis_id, contact_point_id, channel, variant, subject, body,
+                                     facts_json, checks_json, status, created_at, updated_at, mode, proposal_id,
+                                     package_json, readiness)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (person_id, org_id, hid, contact_point_id, channel, variant, subject, body, _dumps(facts), _dumps(checks),
+             status, now, now, mode, proposal_id, _dumps(package) if package is not None else None, readiness),
         )
         return int(cur.lastrowid)
 
@@ -478,7 +492,7 @@ class Gate0Mixin:
             raise ValueError(f"Neznáme polia oslovenia: {bad}")
         if "status" in fields and fields["status"] not in OUTREACH_STATUSES:
             raise ValueError(f"Neznámy stav oslovenia {fields['status']!r}")
-        for key in ("facts_json", "checks_json"):
+        for key in ("facts_json", "checks_json", "package_json"):
             if key in fields and not isinstance(fields[key], str):
                 fields[key] = _dumps(fields[key])
         sets = ", ".join(f"{k} = ?" for k in fields)
@@ -492,11 +506,18 @@ class Gate0Mixin:
             return self._all("SELECT * FROM outreach WHERE person_id = ? ORDER BY id", (person_id,))
         return self._all("SELECT * FROM outreach WHERE person_id = ? AND hypothesis_id = ? ORDER BY id", (person_id, hid))
 
+    def outreach_for_org(self, org_id: int, hid: int | None = None) -> list[sqlite3.Row]:
+        """Oslovenia organizácie cez funkčný kontakt (bez osoby)."""
+        if hid is None:
+            return self._all("SELECT * FROM outreach WHERE org_id = ? AND person_id IS NULL ORDER BY id", (org_id,))
+        return self._all("SELECT * FROM outreach WHERE org_id = ? AND person_id IS NULL AND hypothesis_id = ? ORDER BY id",
+                         (org_id, hid))
+
     def outreach_list(self, hid: int | None = None, statuses: tuple[str, ...] | None = None) -> list[sqlite3.Row]:
         sql = """SELECT x.*, p.full_name, p.role_title, p.titles, p.gender_hint, o.name AS org_name,
                         c.value AS contact_value, c.kind AS contact_kind
-                 FROM outreach x JOIN people p ON p.id = x.person_id
-                 LEFT JOIN organizations o ON o.id = p.org_id
+                 FROM outreach x LEFT JOIN people p ON p.id = x.person_id
+                 LEFT JOIN organizations o ON o.id = COALESCE(x.org_id, p.org_id)
                  LEFT JOIN contact_points c ON c.id = x.contact_point_id WHERE 1 = 1"""
         params: tuple = ()
         if hid is not None:
@@ -506,6 +527,14 @@ class Gate0Mixin:
             sql += f" AND x.status IN ({','.join('?' * len(statuses))})"
             params += tuple(statuses)
         return self._all(sql + " ORDER BY x.hypothesis_id, x.person_id, x.channel, x.variant", params)
+
+    def outreach_history(self) -> list[sqlite3.Row]:
+        """Všetky oslovenia s osobou, organizáciou a hodnotou kanála – stav komunikácie naprieč hypotézami."""
+        return self._all(
+            """SELECT x.id, x.person_id, x.hypothesis_id, x.status, x.channel, x.sent_at, x.approved_at, x.follow_up_due,
+                      x.created_at, x.mode, COALESCE(x.org_id, p.org_id) AS org_id, lower(c.value) AS contact_value
+               FROM outreach x LEFT JOIN people p ON p.id = x.person_id
+               LEFT JOIN contact_points c ON c.id = x.contact_point_id ORDER BY x.id""")
 
     def approvals_on(self, day: str) -> int:
         """Počet schválení na odoslanie v daný deň (YYYY-MM-DD, UTC)."""

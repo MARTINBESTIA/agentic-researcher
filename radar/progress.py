@@ -106,6 +106,9 @@ def customer_progress(cfg: Config, db: DB, ids: list[int] | None = None) -> dict
         for k, v in row.items():
             if isinstance(v, int) and k != "hypotéza":
                 total[k] = total.get(k, 0) + v
+    from .outcomes import outcome_metrics
+
+    org_metrics = outcome_metrics(db, [h["id"] for h in hyps if h is not None])
     ops = {"hypotézy": db._one("SELECT COUNT(*) AS n FROM hypotheses WHERE status != 'rejected'")["n"],
            "modelové_rozhodnutia": db._one("SELECT COUNT(*) AS n FROM model_judgments")["n"]}
-    return {"hypotézy": rows, "spolu": total, "prevádzkové": ops}
+    return {"hypotézy": rows, "spolu": total, "prevádzkové": ops, "organizácie": org_metrics}

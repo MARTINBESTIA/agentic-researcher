@@ -230,6 +230,14 @@ def stage_drafts(app, deadline: Deadline, hypothesis_ids: list[int] | None = Non
     return run_drafts(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids))
 
 
+def stage_value(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
+    """Prehľad domény a návrhy prínosu (zákazník, držiteľ dát, expert) – iba pri zmene podkladov."""
+    from .value import run_value
+
+    return run_value(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids), getattr(app, "searx", None),
+                     getattr(app, "fetcher", None))
+
+
 def stage_prepare_next(app, deadline: Deadline) -> dict:
     """Presný model pripraví filter segmentu a mapu rolí pre vybrané hypotézy, aby ďalší beh
     nemusel kvôli nim meniť model uprostred fázy rýchleho modelu."""
@@ -312,6 +320,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "contact-search": stage_contact_search,
     "people": stage_people,
     "people-rank": stage_people_rank,
+    "value": stage_value,
     "drafts": stage_drafts,
     "prepare-next": stage_prepare_next,
     "purge": stage_purge,
@@ -325,6 +334,8 @@ STAGE_HELP = {
     "validate-cluster": "Zaradenie iba tvrdení z testu hypotéz (presný model, bez zlučovania).",
     "profiles": "URL profilov LinkedIn z výsledkov vyhľadávania pre vybraných ľudí (nesťahuje sa).",
     "contacts": "E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu).",
+    "value": "Prehľad domény (5 minút čítania, zdieľaný v téme) a návrhy prínosu pre zákazníka, držiteľa dát a experta "
+             "– presný model navrhne, kód a hodnotiteľ skontrolujú; nové iba pri zmene podkladov.",
     "contact-search": "Hľadanie kontaktov podľa hypotézy: plán (zákazník, držiteľ dát, expert) a dopyty – rýchly model; "
                       "weby overí kód cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu.",
     "gate1-fields": "Brána 1: polia potrebné na riešenie problému (presný model).",
@@ -463,6 +474,55 @@ def cmd_contacts_add(app, args) -> int:
         return 1
     print(json.dumps(out, ensure_ascii=False, indent=2))
     print("Poradie a väzby: python -m radar people-rank (alebo akcia „Zbierať ľudí“); zoznam v GUI Brána 0 → Koho osloviť.")
+    return 0
+
+
+def cmd_esco_import(app, args) -> int:
+    """Lokálny ESCO index z ručne stiahnutého balíka CSV (stránka ESCO → Download, formát CSV, jazyk)."""
+    from .domain_sources import import_esco
+
+    try:
+        out = import_esco(app.db, args.dir, args.lang, args.version)
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_esco_search(app, args) -> int:
+    from .domain_sources import search_esco
+
+    for c in search_esco(app.cfg, app.db, args.query, None if args.kind == "all" else args.kind, args.limit):
+        print(f"{c['score']:>3}  {c['label']}  ({c['basis']}; {c['lang']}, {c['version']})  {c['uri']}")
+    return 0
+
+
+def cmd_domain_research(app, args) -> int:
+    """Ohraničený pokus o doménové podklady pre doménu hypotézy (výslovná žiadosť – aj pri rovnakom vstupe)."""
+    from .domain import request_research
+    from .domain_sources import research_domain
+    from .value import domain_of
+
+    key, title, _ = domain_of(app.db, args.hypothesis)
+    request_research(app.db, key, title)
+    out = research_domain(app.cfg, app.db, app.router, args.hypothesis, app.searx, app.fetcher,
+                          Deadline(args.minutes or 15), explicit=True)
+    print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def cmd_process_report(app, args) -> int:
+    """Procesný report z importu event logu (deterministicky); s --review aj posúdenie formulácií hodnotiteľom."""
+    from .event_logs import EventLogError
+    from .process_analysis import analyze, report_markdown
+
+    try:
+        rid = analyze(app.cfg, app.db, args.import_id, app.router if args.review else None)
+    except EventLogError as exc:
+        print(exc)
+        return 1
+    print(report_markdown(app.db.get_process_report(rid), app.db.get_eventlog_import(args.import_id)))
     return 0
 
 
@@ -671,6 +731,24 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--org", default="", help="názov organizácie, ak na stránke nie je IČO")
     p.add_argument("--ask", default="", help="čo od kontaktu žiadať")
 
+    p = sub.add_parser("esco-import", help="Lokálny ESCO index z rozbaleného balíka CSV (povolania, zručnosti, väzby).")
+    p.add_argument("--dir", required=True, help="priečinok s occupations_<jazyk>.csv, skills_<jazyk>.csv, …")
+    p.add_argument("--lang", default=None, help="jazyk balíka (predvolene podľa názvov súborov)")
+    p.add_argument("--version", default=None, help="verzia ESCO (napr. v1.2.0; predvolene z názvu priečinka)")
+
+    p = sub.add_parser("esco-search", help="Hľadanie v lokálnom ESCO (fulltext; skóre je zhoda textu, nie pravdivosť).")
+    p.add_argument("query")
+    p.add_argument("--kind", choices=["occupation", "skill", "all"], default="occupation")
+    p.add_argument("--limit", type=int, default=10)
+
+    p = sub.add_parser("domain-research", help="Doménové podklady (ESCO, web) a nová verzia prehľadu pre doménu hypotézy.")
+    p.add_argument("--hypothesis", type=int, required=True)
+    p.add_argument("--minutes", type=float, default=None)
+
+    p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
+    p.add_argument("--import", dest="import_id", type=int, required=True)
+    p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
+
     p = sub.add_parser("drafts", help="Návrhy oslovení (nič sa neodosiela).")
     p.add_argument("--hypothesis", type=int)
     p.add_argument("--minutes", type=float, default=None)
@@ -746,6 +824,10 @@ HANDLERS = {
     "people": cmd_people,
     "drafts": cmd_drafts,
     "contacts-add": cmd_contacts_add,
+    "esco-import": cmd_esco_import,
+    "esco-search": cmd_esco_search,
+    "domain-research": cmd_domain_research,
+    "process-report": cmd_process_report,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,
