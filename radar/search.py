@@ -52,6 +52,8 @@ class SearxClient:
             self.last_blocked = list(hit[2])
             return list(hit[1])
         self.stats["hľadania"] += 1
+        if self.healthy_engines():  # za hľadanie, nie za dopyt (opakovanie pri prázdnom výsledku sa neráta znova)
+            self.stats["s_vynechanými_vyhľadávačmi"] += 1
         results, blocked = self._query(query, n)
         if not results and blocked and self.cfg.retry_on_empty:
             self.penalty = min(self.cfg.max_backoff_s, max(4.0, self.penalty * 2))
@@ -103,7 +105,6 @@ class SearxClient:
         engines = self.healthy_engines()
         if engines:
             params["engines"] = ",".join(engines)
-            self.stats["s_vynechanými_vyhľadávačmi"] += 1
         try:
             resp = self.http.get(self.cfg.searxng_url.rstrip("/") + "/search", params=params)
         except httpx.ConnectError as exc:

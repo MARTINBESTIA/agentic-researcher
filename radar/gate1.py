@@ -149,6 +149,12 @@ def _hypotheses(cfg: Config, db: DB, ids: list[int] | None):
 
 # ======================================================================= plán behu (čas)
 GATE1_TAIL_MIN = 6.0  # reprodukcia, vstupy človeka a pripravenosť na konci akcie
+
+
+def time_reserves(cfg: Config, minutes: float) -> tuple[float, float]:
+    """(rezerva na kontrolu a sťahovanie, záver akcie). Pri krátkom behu pomerne (najviac 25 % a 15 % času) – inak
+    beh kratší ako rezervy spolu (15 + 6 min) nepustil modely k slovu, hoci plán hlásil hypotézu „s modelmi“."""
+    return min(cfg.gate1.download_reserve_minutes, minutes * 0.25), min(GATE1_TAIL_MIN, minutes * 0.15)
 EXTRACT_MIN = 2.0  # extrakcia zdrojov z prečítaných stránok presným modelom na hypotézu (~8 × 12 s)
 
 
@@ -243,7 +249,8 @@ def plan_run(cfg: Config, db: DB, ids: list[int] | None, minutes: float, now: da
         if w is not None:
             work.append((w[0], i, h["id"], w[1]))
     work.sort()
-    budget = max(0.0, minutes - cfg.gate1.download_reserve_minutes - GATE1_TAIL_MIN)
+    reserve, tail = time_reserves(cfg, minutes)
+    budget = max(0.0, minutes - reserve - tail)
     batch, used = [], 0.0
     for _prio, _i, hid, est in work:
         if batch and used + est > budget:

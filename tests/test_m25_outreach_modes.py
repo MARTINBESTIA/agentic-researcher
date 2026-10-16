@@ -162,3 +162,22 @@ def test_public_recipient_gets_no_offer_terms_and_fact_ids_never_reach_the_text(
     assert "Podľa správy to trvá." in row["body"]
     checks = check_draft(cfg, "email", "Predmet", row["body"].replace("trvá.", "trvá (F3)."), CORE, [], "https://ministerstvo-x.gov.sk/kontakt")
     assert any("značky faktov" in p for p in checks["problems"])
+
+
+def test_model_greeting_is_not_doubled_and_gendered_forms_become_neutral(tmp_path):
+    """16. 10. 2026 (test behu drafts): 10 návrhov malo „Dobrý deň,\n\ndobrý deň, …“ a 7 z 8 nových skončilo „na úpravu“
+    pre „chcel/rád by som“ – rod odosielateľa nie je nastavený a model 9B pokyn na neutrálne tvary ignoruje."""
+    from radar.outreach import GENDERED_FIRST_PERSON_RE
+
+    cfg, db, hid, pid, org_id, rec, router, dh, ex, firma = _world(tmp_path)
+    cfg.outreach.sender.gender = ""
+    rec.responses["DraftOut"] = {"subject": "Otázka k meškaniu dodávok", "facts_used": ["F1"],
+                                 "body": "dobrý deň, predpokladám, že sa vo vašom tíme môže objavovať ručné urgovanie "
+                                         "dodávok. Chcel by som sa opýtať, kedy sa to stalo naposledy. Rád by som sa "
+                                         "dozvedel, ako to riešite dnes."}
+    run_drafts(cfg, db, router, Deadline(1), [hid])
+    row = db.outreach_for_org(firma, hid)[0]
+    main = row["body"].split("\n--\n")[0]
+    assert main.lower().count("dobrý deň") == 1 and "Chcem sa opýtať" in main and "chcem sa dozvedieť" in main.lower()
+    assert not GENDERED_FIRST_PERSON_RE.search(main)
+    assert not any("Rodovo" in p for p in json.loads(row["checks_json"])["problems"])

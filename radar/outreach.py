@@ -81,6 +81,29 @@ def strip_fact_refs(text: str) -> str:
     return re.sub(r"[ \t]+([.,;:!?])", r"\1", FACT_REF_RE.sub("", text or "")).strip()
 
 
+# Pozdrav, ktorý model napíše napriek pokynu (pozdrav pridáva kód) – inak „Dobrý deň,\n\ndobrý deň, …“.
+LEADING_GREETING_RE = re.compile(r"^\s*(?:dobr[ýy] de[ňn]|zdrav[íi]m|v[áa][žz]en[ýáya] (?:p[áa]n|pani)[^,\n]*)\s*[,!.]?\s*", re.I)
+# Rodovo určená 1. osoba s náhradou bez rodu: „chcel by som sa opýtať“ → „chcem sa opýtať“, „rád by som sa opýtal“ →
+# „chcem sa opýtať“ (l-príčastie → neurčitok; kmeň na -e: vedel → vedieť).
+CHCEL_RE = re.compile(r"\b([Cc])hcel(?:a)? by som\b")
+RAD_RE = re.compile(r"\b([Rr])(?:ád|ada) by som((?: (?:sa|si|vás|vám|vas|vam))?) (\w+)l(?:a)?\b")
+
+
+def strip_leading_greeting(text: str) -> str:
+    out = LEADING_GREETING_RE.sub("", text or "", count=1)
+    return out[:1].upper() + out[1:] if out != (text or "") else out
+
+
+def neutralize_gender(text: str) -> str:
+    """Neutrálne tvary bez rodu odosielateľa (rod sa neodhaduje z mena). Čo sa takto nedá, nahlási kontrola."""
+    def rad(m: re.Match) -> str:
+        stem = m.group(3)
+        inf = stem[:-1] + "ieť" if stem.endswith("e") else stem + "ť"
+        return f"{'C' if m.group(1) == 'R' else 'c'}hcem{m.group(2)} {inf}"
+
+    return RAD_RE.sub(rad, CHCEL_RE.sub(lambda m: f"{m.group(1)}hcem", text or ""))
+
+
 def is_public_org(org) -> bool:
     """Verejná organizácia (ministerstvo, úrad, samospráva): podľa registra, inak podľa domény .gov.sk alebo názvu."""
     if org is None:
@@ -578,7 +601,9 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
                 stats["llm_failures"] += 1
                 continue
             out = res.value
-            out.body, out.subject = strip_fact_refs(out.body), strip_fact_refs(out.subject)
+            out.body, out.subject = strip_fact_refs(strip_leading_greeting(out.body)), strip_fact_refs(out.subject)
+            if not cfg.outreach.sender.gender:
+                out.body = neutralize_gender(out.body)
             source_url = contact["source_url"] if contact is not None else (person["source_url"] if person else "")
             subject, body = compose(cfg, channel, person, org["sector_kind"] if org is not None else None, out.body,
                                     out.subject, source_url, contact["value"] if contact is not None else None,

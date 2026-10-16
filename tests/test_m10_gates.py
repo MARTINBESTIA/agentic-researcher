@@ -1340,3 +1340,15 @@ def test_domain_index_follows_nested_sitemaps_and_is_cached(tmp_path):
     fetcher.htmls.clear()  # druhá osoba tej istej organizácie: z cache
     assert domain_index(db, fetcher, "fiktivne-mesto.sk") == urls
 
+
+
+def test_short_gate1_run_still_gives_models_time():
+    """16. 10. 2026: beh Brány 1 na 12 min preskočil polia aj zdroje („vypršal čas“) – pevné rezervy 15 + 6 min
+    zjedli celý čas, hoci plán hlásil hypotézu „s modelmi“. Pri krátkom behu sú rezervy pomerné."""
+    from radar.config import Config
+    from radar.gate1 import GATE1_TAIL_MIN, time_reserves
+
+    cfg = Config()
+    assert time_reserves(cfg, 120) == (cfg.gate1.download_reserve_minutes, GATE1_TAIL_MIN)
+    reserve, tail = time_reserves(cfg, 12)
+    assert 12 - reserve - tail >= 7

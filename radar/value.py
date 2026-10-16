@@ -348,7 +348,7 @@ def ensure_brief(cfg: Config, db: DB, llm: Any, hid: int, reason: str | None = N
                + "\n</untrusted_document>" if signals else ""))
     res = router.run_task("domain_brief", [{"role": "system", "content": DOMAIN_BRIEF_SYSTEM.format(
         lang=cfg.pipeline.output_language)}, {"role": "user", "content": user}], DomainBriefOut,
-        object_type="hypothesis", object_id=hid, max_tokens=3000)
+        object_type="hypothesis", object_id=hid, max_tokens=5000)  # 3000 orezalo prehľad 9B modelu (16. 10. 2026)
     if not res.ok:
         finish_attempt(db, key, title, "needs_research", f"syntéza prehľadu zlyhala ({res.reason or 'model'})",
                        "nový pokus pri nových podkladoch alebo na tvoju žiadosť; oslovenie môže pokračovať s otázkami")

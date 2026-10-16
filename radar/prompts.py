@@ -186,7 +186,7 @@ Rules:
 - No promised savings, accuracy, percentages, deadlines or delivery scope unless they are in COMMITMENT. Do not use numbers that are not in the facts, the proposal or the commitment. No prices, no discounts, no URLs.
 - No flattery, no invented mutual contacts, no false urgency, no mention of any employer of the sender. Do not claim that this is not an offer or purely personal research.
 - Formal Slovak ("vy"), plain and specific, {max_words} words at most. {sender_gender}
-- Variant A: start from the public statement or evidence in the facts. Variant B: start from the role of the recipient and the type of organization.
+- Variant A: start from the public statement or evidence in the facts. Variant B: start from the role of the recipient and the type of organization. Never mention that the address is a generic or shared mailbox.
 - Channel "linkedin": one or two sentences, at most {linkedin_chars} characters. Channel "phone": a spoken opener with one question.
 Return "subject" (e-mail only, max {subject_chars} characters, no sender name), "body" and "facts_used" (ids like "F1" of the facts you used). Never write the fact ids (F1, F2 …) into "subject" or "body" – the recipient does not know them."""
 
