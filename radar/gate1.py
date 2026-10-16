@@ -141,10 +141,19 @@ def eligible(hyp) -> bool:
     return (hyp["gate1_status"] or "not_started") in ELIGIBLE_STATUSES
 
 
+STATUS_ORDER = {"running": 0, "not_started": 1, "needs_revalidation": 2}
+
+
 def _hypotheses(cfg: Config, db: DB, ids: list[int] | None):
+    """Zadané hypotézy, inak najviac `gate1.max_hypotheses_per_run` oprávnených: najprv tie s prácou pre modely
+    (rozpracované, potom nezačaté), až potom ostatné (napr. „treba znova overiť“ bez práce s modelmi). Test 16. 10.:
+    limit sa uplatnil pred výberom a obe miesta vždy obsadili hypotézy „na preverenie“ bez práce – 31 nezačatých
+    sa nedostalo na rad."""
     if ids:
         return [h for h in (db.get_hypothesis(i) for i in ids) if h is not None]
-    return [h for h in db.gate1_hypotheses() if eligible(h)][: cfg.gate1.max_hypotheses_per_run]
+    cands = [h for h in db.gate1_hypotheses() if eligible(h)]
+    cands.sort(key=lambda h: (model_work(cfg, db, h) is None, STATUS_ORDER.get(h["gate1_status"] or "not_started", 3)))
+    return cands[: cfg.gate1.max_hypotheses_per_run]
 
 
 # ======================================================================= plán behu (čas)

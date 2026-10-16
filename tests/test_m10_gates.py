@@ -1352,3 +1352,24 @@ def test_short_gate1_run_still_gives_models_time():
     assert time_reserves(cfg, 120) == (cfg.gate1.download_reserve_minutes, GATE1_TAIL_MIN)
     reserve, tail = time_reserves(cfg, 12)
     assert 12 - reserve - tail >= 7
+
+
+def test_gate1_default_pick_prefers_hypotheses_with_model_work(tmp_path):
+    """16. 10. 2026: obe miesta behu (max_hypotheses_per_run = 2) obsadili hypotézy „treba znova overiť“ bez práce
+    s modelmi a nezačaté hypotézy sa nikdy nedostali na rad."""
+    from radar.config import Config
+    from radar.db import DB
+    from radar.gate1 import _hypotheses
+
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"))
+    db = DB(cfg.db_path)
+    old = []
+    for i in range(2):
+        hid = db.create_hypothesis(f"Prešlá {i}", "", "x")
+        db.set_people_selection(hid, True)
+        db.set_gate_status(hid, 1, "needs_revalidation")
+        old.append(hid)
+    new = db.create_hypothesis("Nezačatá", "", "x")
+    db.set_people_selection(new, True)
+    picked = [h["id"] for h in _hypotheses(cfg, db, None)]
+    assert new in picked and len(picked) == cfg.gate1.max_hypotheses_per_run
