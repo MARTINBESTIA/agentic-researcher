@@ -396,7 +396,7 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
     """Polia a agent zdrojov (modely) iba pre hypotézy, ktoré beh stihne (plan_run); kontrola a sťahovanie majú
     vyhradený čas a bežia pre všetky zadané – úloha #75 (58 hypotéz, 120 min): agent minul spoločný úsek, kontrola
     aj sťahovanie sa preskočili a žiadna hypotéza nedostala dáta."""
-    from .gate1 import plan_run, time_reserves
+    from .gate1 import binding_work, eligible, plan_run, time_reserves
 
     reserve, tail = time_reserves(app.cfg, deadline.remaining_minutes())
     plan = plan_run(app.cfg, app.db, ids, deadline.remaining_minutes())
@@ -406,7 +406,11 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
     report_progress(s_modelom=plan["s_modelom"], nabudúce=len(plan["nabudúce"]), preskočené=plan["vyhodnotené"])
     inputs = sorted({r["hypothesis_id"] for r in app.db.pending_gate1_inputs()
                      if not ids or r["hypothesis_id"] in ids})  # tvoje dáta sa posúdia aj pri vyhodnotenej hypotéze
-    if not plan["všetky"] and not inputs:
+    # vyhodnotená hypotéza s novými dátami: iba mapovanie polí na stĺpce (bez nového hľadania zdrojov). Autopilot ju
+    # pre túto prácu zaraďuje (autopilot.gate1_ids) – akcia ju predtým hneď preskočila a autopilot to skúšal každé kolo.
+    given = [h for h in (app.db.get_hypothesis(i) for i in ids) if h is not None] if ids else app.db.gate1_hypotheses()
+    bind = [h["id"] for h in given if h["gate1_status"] == "needs_input" and binding_work(app.db, h["id"])]
+    if not plan["všetky"] and not inputs and not bind:
         log.info("Brána 1: žiadna nezačatá ani rozpracovaná hypotéza – nič na prieskum (znova: Brána 1 → Prehľadať znova)")
         return
     if plan["s_modelom"]:
@@ -422,6 +426,10 @@ def _gate1(app, deadline: Deadline, run, ids, report_progress) -> None:
         # pole → stĺpec (presný model navrhne, kód overí): bez väzby pole nie je „nájdené“ (audit 14. 10. 2026)
         run("gate1-bindings", deadline.sub(max(1.0, (deadline.remaining_minutes() - 3) * 0.6)))
         run("gate1-repro", deadline.sub(max(0.0, deadline.remaining_minutes() - 3)))
+    if bind:
+        app.gate_ids, done_ids = bind, app.gate_ids
+        run("gate1-bindings", deadline.sub(max(1.0, (deadline.remaining_minutes() - 3) * 0.6)))
+        app.gate_ids = done_ids + [h for h in bind if h not in done_ids]
     app.gate_ids = app.gate_ids + [h for h in inputs if h not in app.gate_ids]
     run("gate1-user", Deadline(8))  # čakajúce vstupy človeka (bez nich bez modelu)
     run("gate1-finish", Deadline(2))

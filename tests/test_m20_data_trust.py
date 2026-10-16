@@ -367,3 +367,27 @@ def test_gate1_page_confirms_column_and_approves_import(tmp_path, monkeypatch):
     assert db.get_binding(bid)["validation_status"] == "confirmed" and db.get_binding(bid)["confirmed_by"] == "človek"
     assert db.get_dataset(ids[2])["status"] == "ok" and db.get_field(fid)["status"] == "found"
     db.close()
+
+
+def test_gate1_action_maps_fields_for_evaluated_hypothesis_with_new_data(tmp_path, monkeypatch):
+    """16. 10. 2026 (test autopilota): hypotéza „čaká na tvoje dáta“ s novými dátami na mapovanie – autopilot pre ňu
+    zaradil Bránu 1, akcia ju ako vyhodnotenú hneď preskočila a autopilot to skúšal v každom kole."""
+    from types import SimpleNamespace
+
+    from radar import workflows
+    from radar.config import Config
+    from radar.db import DB
+    from radar.util import Deadline
+
+    cfg = Config(db_path=str(tmp_path / "r.sqlite"))
+    db = DB(cfg.db_path)
+    hid = db.create_hypothesis("Meškanie dodávok", "", "výrobcovia")
+    db.set_people_selection(hid, True)
+    db.set_gate_status(hid, 1, "needs_input")
+    monkeypatch.setattr("radar.gate1.binding_work", lambda d, h: h == hid)
+    calls = []
+    app = SimpleNamespace(cfg=cfg, db=db)
+    workflows._gate1(app, Deadline(30), lambda stage, dl: calls.append((stage, list(app.gate_ids))), None,
+                     lambda **k: None)
+    assert ("gate1-bindings", [hid]) in calls
+    assert not any(stage in ("gate1-fields", "gate1-sources", "gate1-check") for stage, _ in calls)  # bez nového hľadania

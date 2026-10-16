@@ -196,8 +196,11 @@ def signature(db: DB, h) -> str:
         "brána1": [len(fields), sorted(Counter(f["status"] for f in fields).items()),
                    sum(1 for s in db.sources_for(hid) if s["status"] != "rejected"),
                    len(db.datasets_for(hid, only_ok=True)), len(db.pending_gate1_inputs([hid]))],
+        # neplatný alebo zlyhaný návrh nie je pokrok (test 16. 10.: H581 dostala 4× za sebou návrh experimentov, každý
+        # pridal neplatný plán a lievik to bral ako zmenu – pritom čakala na uzamknutie dvoch návrhov človekom)
         "brána2": [len(fam), sum(1 for i in fam if db.latest_card(i) is not None),
-                   sorted(Counter(f"{e['status']}:{bool(e['conclusion_json'])}" for e in exps).items())],
+                   sorted(Counter(f"{e['status']}:{bool(e['conclusion_json'])}" for e in exps
+                                  if e["status"] not in ("invalid", "failed")).items())],
     }
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
 

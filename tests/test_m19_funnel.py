@@ -203,3 +203,17 @@ def test_actions_page_shows_funnel_log_and_waiting_hypotheses(tmp_path, monkeypa
     assert any("krok" in t.columns and "Brána 1 – dáta" in list(t["krok"]) for t in tables)
     assert any("čaká na" in t.columns for t in tables)
     assert any("Čaká na teba 1" in w.value for w in at.warning)
+
+
+def test_invalid_experiment_plans_are_not_progress(tmp_path):
+    """16. 10. 2026: návrh experimentov, ktorý pridá iba neplatný plán, menil odtlačok stavu – lievik ho zopakoval
+    4× (limit behov), namiesto odloženia po 2 pokusoch bez zmeny."""
+    cfg, db = setup(tmp_path)
+    hid = db.create_hypothesis("Meškanie dodávok", "", "výrobcovia")
+    db.set_gate_status(hid, 1, "passed")
+    before = signature(db, db.get_hypothesis(hid))
+    bad = db.add_experiment(hid, None, None, "s", "m", "b", "r", {}, task="ranking")
+    db.update_experiment(bad, status="invalid")
+    assert signature(db, db.get_hypothesis(hid)) == before
+    db.add_experiment(hid, None, None, "s", "m", "b", "r", {}, task="ranking")  # platný návrh na uzamknutie je zmena
+    assert signature(db, db.get_hypothesis(hid)) != before
