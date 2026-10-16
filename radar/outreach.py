@@ -38,7 +38,7 @@ from .models import ModelRouter, as_router
 from .names import fold, public_salutation, split_titles
 from .privacy import forget, placeholders_in, require_lia, sender_placeholders
 from .prompts import DRAFT_CHECK_SYSTEM, DRAFT_SYSTEM
-from .util import Deadline, utcnow
+from .util import Deadline, domain_of, utcnow
 from .verify import apply_entailment, judge_entailment, numbers_missing_in_source
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,12 @@ URL_RE = re.compile(r"https?://[^\s<>\"')]+|www\.[^\s<>\"')]+", re.I)
 MINUTES_RE = re.compile(r"\b\d{1,2}\s*(?:(?:[–-]|až|do)\s*\d{1,2}\s*)?[–-]?\s*(?:minút\w*|minut\w*|min\.?)", re.I)
 FOOTER_MARK = "\n\n--\n"
 A_LINKS = ("quoted_about_problem", "org_affected")
+# Interné značky faktov z promptu („(F2, F3)“, „[F1]“) – adresát ich nemá vidieť.
+FACT_REF_RE = re.compile(r"\s*[(\[]\s*F\d+(?:\s*[,;]\s*F\d+)*\s*[)\]]")
+FACT_TOKEN_RE = re.compile(r"\bF\d{1,2}\b")
+# Verejný adresát bez sektora z registra (organizácia zo zmienky v dôkaze): doména .gov.sk alebo názov úradu.
+PUBLIC_NAME_RE = re.compile(r"^(ministerstv|urad\b|mesto\b|mestska cast|obec\b|krajsk|okresn|narodn|statn|kancelari|"
+                            r"nku\b|mirri\b|nases\b)|samospravn\w* kraj|\bvuc\b")
 
 
 class DraftOut(BaseModel):
@@ -70,6 +76,22 @@ class OutreachError(ValueError):
 
 
 # ======================================================================= pomocné
+def strip_fact_refs(text: str) -> str:
+    """Odstráni interné značky faktov (F1…), ktoré model občas vloží do textu správy."""
+    return re.sub(r"[ \t]+([.,;:!?])", r"\1", FACT_REF_RE.sub("", text or "")).strip()
+
+
+def is_public_org(org) -> bool:
+    """Verejná organizácia (ministerstvo, úrad, samospráva): podľa registra, inak podľa domény .gov.sk alebo názvu."""
+    if org is None:
+        return False
+    if org["sector_kind"]:
+        return org["sector_kind"] == "public"
+    if org["website"] and domain_of(org["website"]).endswith("gov.sk"):
+        return True
+    return bool(PUBLIC_NAME_RE.search(fold(org["name"])))
+
+
 def words(text: str) -> int:
     return len(re.findall(r"\w+", text or ""))
 
@@ -176,7 +198,8 @@ def policy_text(cfg: Config, mode: str | None, offer: bool, commercial: bool) ->
     vo = cfg.outreach.value_offer
     if mode is None or not (vo.demo_free and vo.trial_free):
         return None
-    if mode == "pilot" or (mode == "discovery" and offer) or (mode == "data_request" and offer and commercial):
+    # verejnému adresátovi (ministerstvo, úrad) nie: nákup ide cez verejné obstarávanie, nie cez ponuku v e-maile
+    if mode == "pilot" or (mode in ("discovery", "data_request") and offer and commercial):
         return POLICY_TEXT
     if mode == "expert_review" and offer and commercial:
         return POLICY_TEXT_TEAM
@@ -269,6 +292,8 @@ def check_draft(cfg: Config, channel: str, subject: str | None, body: str, core:
         problems.append("Text s ponukou dema alebo skúšky tvrdí, že nejde o ponuku alebo iba o osobný výskum.")
     if mode is not None and need_status != "confirmed" and core.strip() and not HEDGE_RE.search(core):
         problems.append("Potreba nie je potvrdená – formuluj ju ako predpoklad alebo otázku.")
+    if FACT_TOKEN_RE.search(f"{subject or ''} {main}"):
+        problems.append("V texte ostali interné značky faktov (F1…) – odstráň ich.")
     if not o.sender.gender:  # rod odosielateľa sa neodhaduje: buď neutrálne, alebo outreach.sender.gender
         gendered = sorted({m.group(0).lower() for m in GENDERED_FIRST_PERSON_RE.finditer(main)})
         if gendered:
@@ -390,7 +415,7 @@ def model_check(cfg: Config, router: ModelRouter, body: str, facts: list[dict[st
         object_type="outreach" if outreach_ref else None,
         object_id=outreach_ref,
         vote_key=lambda r: r.verdict,
-        max_tokens=600,
+        max_tokens=1200,  # rezerva na posudok viacerých viet po slovensky (ako pri value_check)
     )
     if not res.ok:
         return {"verdict": "undecided", "problems": []}
@@ -439,7 +464,7 @@ def build_package(cfg: Config, db: DB, hid: int, row: dict[str, Any], mode: str,
     confirmed = need_confirmed(db, hid, row.get("person_id"), row.get("org_id"))
     commitment = p.get("schválený_záväzok") if proposal is not None and proposal["delivery_commitment_approved"] else None
     brief = db.latest_brief(domain_of(db, hid)[0])
-    commercial = org is None or (org["sector_kind"] or "") != "public"
+    commercial = not is_public_org(org)
     policy = policy_text(cfg, mode, bool(p.get("deliverable")), commercial)
     package = {
         "režim": mode, "typ": group,
@@ -553,6 +578,7 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
                 stats["llm_failures"] += 1
                 continue
             out = res.value
+            out.body, out.subject = strip_fact_refs(out.body), strip_fact_refs(out.subject)
             source_url = contact["source_url"] if contact is not None else (person["source_url"] if person else "")
             subject, body = compose(cfg, channel, person, org["sector_kind"] if org is not None else None, out.body,
                                     out.subject, source_url, contact["value"] if contact is not None else None,

@@ -134,3 +134,31 @@ def test_missing_source_of_reason_marks_draft_for_completion():
     pkg = {"prečo_tento_kontakt": {"zdroj": ""}, "stav_návrhu_prínosu": "pending_review"}
     state, reasons = readiness_of(pkg, {"problems": []}, "Predmet", "Text bez zástupných polí")
     assert state == "needs_input" and any("zdroj dôvodu" in r for r in reasons) and any("hodnotiteľa" in r for r in reasons)
+
+
+def test_public_recipient_gets_no_offer_terms_and_fact_ids_never_reach_the_text(tmp_path):
+    """16. 10. 2026: ministerstvá dostali vetu o bezplatnom deme a platenom používaní (podľa DECISIONS iba komerčný
+    adresát) a v texte ostali interné značky faktov „(F2, F3)“."""
+    from radar.outreach import is_public_org, policy_text, strip_fact_refs
+
+    cfg, db, hid, pid, org_id, rec, router, dh, ex, firma = _world(tmp_path)
+    assert policy_text(cfg, "discovery", True, commercial=False) is None
+    assert policy_text(cfg, "discovery", True, commercial=True) == POLICY_TEXT
+    assert is_public_org({"sector_kind": None, "website": "https://mirri.gov.sk/", "name": "MIRRI SR"})
+    assert is_public_org({"sector_kind": None, "website": None, "name": "Ministerstvo obrany SR"})
+    assert not is_public_org({"sector_kind": None, "website": "https://gratex.sk/", "name": "Gratex"})
+    assert strip_fact_refs("zdržania pri príprave projektov (F2, F3). Chcem sa opýtať [F1] na prípad.") == \
+        "zdržania pri príprave projektov. Chcem sa opýtať na prípad."
+    ministry, _ = db.upsert_organization("Ministerstvo investícií", "ministerstvo investicii", "evidence",
+                                         website="https://mirri.gov.sk/")
+    db.link_org_hypothesis(ministry, hid, "segment_match")
+    db.add_contact_point(None, ministry, "email", "kontakt@mirri.gov.sk", "https://mirri.gov.sk/kontakt",
+                         "kontakt@mirri.gov.sk", "regex", True)
+    rec.responses["DraftOut"] = {"subject": "Otázka (F1)", "body": CORE + " Podľa správy (F1, F2) to trvá.",
+                                 "facts_used": ["F1"]}
+    run_drafts(cfg, db, router, Deadline(1), [hid])
+    row = db.outreach_for_org(ministry, hid)[0]
+    assert POLICY_TEXT not in row["body"] and "(F1" not in row["body"] and "F1" not in (row["subject"] or "")
+    assert "Podľa správy to trvá." in row["body"]
+    checks = check_draft(cfg, "email", "Predmet", row["body"].replace("trvá.", "trvá (F3)."), CORE, [], "https://mirri.gov.sk/kontakt")
+    assert any("značky faktov" in p for p in checks["problems"])

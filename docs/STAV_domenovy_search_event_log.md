@@ -33,5 +33,5 @@ Akceptačné scenáre dodatku (časť 9): 1–16 majú testy (pozri `docs/ACCEPT
   volania modelu) alebo `process-report --review`; nie je samostatnou akciou v Správcovi akcií.
 - **Retencia event logov:** dáta organizácie sa mažú iba ručne (`delete_import`, tlačidlo v GUI); automatická
   retencia ako pri osobných údajoch zatiaľ nie je.
-- **PM4Py:** adaptér je pripravený a overuje verziu, ale knižnica nie je v `requirements.txt` (nová závislosť by
-  potrebovala odôvodnenie) a reálne volanie `discover_dfg` nebolo overené na nainštalovanej verzii – iba na falošnom module.
+- **PM4Py:** voliteľne (`requirements-optional.txt`, 2.7.23.11); reálne volanie `discover_dfg` overené 16. 10. 2026
+  (zhoda s vlastným výpočtom). Licencia AGPL v3 – report počíta vlastným výpočtom a PM4Py iba porovnáva.

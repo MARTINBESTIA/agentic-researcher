@@ -25,7 +25,7 @@ from .config import Config
 from .db import DB
 from .event_logs import METRICS, EventLogError, _connect
 
-ANALYSIS_VERSION = "process-1"
+ANALYSIS_VERSION = "process-2"  # 16. 10. 2026: štart+complete = jeden výskyt, termín bez času do konca dňa
 PM4PY_TESTED = ("2.7",)  # verzie, voči ktorým je adaptér overený (discover_dfg)
 FORBIDDEN_RE = re.compile(r"úspor|garant|zaruč|chyb\w* pracovn|vin[ay]\b|strat[auy] \d|neefektívn\w* pracovn", re.I)
 # Formulácie, ktoré report o sebe nesmie povedať (kontrolujú testy na pevných šablónach kandidátov).
@@ -92,6 +92,11 @@ def compute(cfg: Config, db: DB, import_id: int) -> dict[str, Any]:
     by_case: dict[str, list[tuple]] = defaultdict(list)
     for e in ev:
         by_case[e[0]].append(e)
+    # výskyt aktivity: spárovaný štart a complete sú jeden výskyt (štart sa v sekvenciách a opakovaní nepočíta zvlášť,
+    # inak by „Prepis → Prepis“ vyzeral ako opakovaný krok v každom prípade)
+    paired_starts = {e[7] for e in ev if e[7]}
+    inst_by_case: dict[str, list[tuple]] = {cid: [e for e in items if e[4] not in paired_starts]
+                                            for cid, items in by_case.items()}
     n_cases = len(by_case)
     results: dict[str, Any] = {}
     denominators: dict[str, Any] = {"prípady": n_cases, "udalosti": len(ev)}
@@ -104,16 +109,19 @@ def compute(cfg: Config, db: DB, import_id: int) -> dict[str, Any]:
                             "možno_odrezané": trunc,
                             "bez_určených_hraníc": sum(1 for c in cases.values() if c["open"] is None)}
     if "frekvencie_aktivít" in ok:
-        freq = Counter(e[1] for e in ev)
+        freq = Counter(e[1] for items in inst_by_case.values() for e in items)
         case_freq = Counter(a for items in by_case.values() for a in {e[1] for e in items})
-        results["frekvencie_aktivít"] = [{"aktivita": a, "udalosti": n, "prípady": case_freq[a],
+        results["frekvencie_aktivít"] = [{"aktivita": a, "výskyty": n, "prípady": case_freq[a],
                                           "podiel_prípadov": round(case_freq[a] / max(1, n_cases), 4)}
                                          for a, n in freq.most_common()]
     # usporiadané prípady
     ordered = {cid: sorted(items, key=lambda e: (e[2], e[3] if e[3] is not None else float("inf")))
                for cid, items in by_case.items() if cases.get(cid, {}).get("ordered")}
     denominators["usporiadané_prípady"] = len(ordered)
-    sequences = {cid: [e[1] for e in items] for cid, items in ordered.items()}
+    if paired_starts:
+        denominators["spárované_štarty"] = len(paired_starts)  # štart+complete = jeden výskyt aktivity
+    ordered_inst = {cid: [e for e in items if e[4] not in paired_starts] for cid, items in ordered.items()}
+    sequences = {cid: [e[1] for e in items] for cid, items in ordered_inst.items()}
     if "varianty_a_nadväznosti" in ok and ordered:
         variants = Counter(tuple(s) for s in sequences.values())
         results["varianty"] = [{"priebeh": " → ".join(v), "prípady": n, "podiel": round(n / len(ordered), 4)}
@@ -121,7 +129,7 @@ def compute(cfg: Config, db: DB, import_id: int) -> dict[str, Any]:
         results["počet_variantov"] = len(variants)
         dfg: Counter = Counter()
         waits: dict[tuple[str, str], list[float]] = defaultdict(list)
-        for cid, items in ordered.items():
+        for cid, items in ordered_inst.items():
             for a, b in zip(items, items[1:]):
                 dfg[(a[1], b[1])] += 1
                 waits[(a[1], b[1])].append(_hours(a[2], b[2]))
@@ -143,7 +151,7 @@ def compute(cfg: Config, db: DB, import_id: int) -> dict[str, Any]:
     # opakovanie kroku
     if "opakovanie_kroku" in ok:
         rep = Counter()
-        for items in by_case.values():
+        for items in inst_by_case.values():
             counts = Counter(e[1] for e in items)
             for a, n in counts.items():
                 if n > 1:
@@ -216,7 +224,7 @@ def review_report(cfg: Config, router, report: dict[str, Any], import_id: int) -
         {"role": "system", "content": PROCESS_REPORT_REVIEW_SYSTEM.format(lang=cfg.pipeline.output_language)},
         {"role": "user", "content": f"REPORT SUMMARY:\n<untrusted_document>\n{json.dumps(summary, ensure_ascii=False)}"
                                     "\n</untrusted_document>"}], ReviewOut, object_type="eventlog_import",
-        object_id=import_id, max_tokens=700)
+        object_id=import_id, max_tokens=1500)
     if not res.ok:
         return {"verdict": "pending", "dôvod": res.reason, "problems": []}
     return {"verdict": res.value.verdict, "problems": [p.model_dump() for p in res.value.problems]}
@@ -265,9 +273,25 @@ def report_markdown(row, imp) -> str:
         lines += ["", f"## Najčastejšie priebehy (z {json.loads(row['denominators_json'])['usporiadané_prípady']} "
                       "usporiadaných prípadov)"]
         lines += [f"- {v['priebeh']} – {v['prípady']} ({v['podiel']:.0%})" for v in res["varianty"]]
+    if res.get("frekvencie_aktivít"):
+        lines += ["", "## Frekvencie aktivít (výskyty; štart a complete jednej aktivity = 1)"]
+        lines += [f"- {f['aktivita']}: {f.get('výskyty', f.get('udalosti'))} výskytov v {f['prípady']} prípadoch "
+                  f"({f['podiel_prípadov']:.0%})" for f in res["frekvencie_aktivít"][:12]]
     if res.get("trvanie_dni"):
         lines += ["", "## Trvanie prípadov (dni, kalendárny čas)"]
         lines += [f"- {k}: {v}" for k, v in res["trvanie_dni"].items()]
+    if res.get("opakovanie"):
+        lines += ["", "## Opakovanie kroku v tom istom prípade (kandidát na opravu alebo legitímny cyklus)"]
+        lines += [f"- {r['aktivita']}: {r['prípady_s_opakovaním']} prípadov ({r['podiel_prípadov']:.0%})"
+                  for r in res["opakovanie"][:10]]
+    if res.get("čas_aktivity_h"):
+        lines += ["", "## Čas výkonu aktivity (hodiny, spárovaný štart → complete)"]
+        lines += [f"- {a}: {v}" for a, v in res["čas_aktivity_h"].items()]
+    if res.get("odchýlka_od_termínu_dni"):
+        d = res["odchýlka_od_termínu_dni"]
+        lines += ["", "## Odchýlka od termínu (dni; kladná = po termíne, uzavreté prípady)",
+                  f"- termín: {d.get('termín')}; po termíne {d.get('neskoro')} z {d.get('n')}; "
+                  + json.dumps({k: d[k] for k in ('medián', 'p75', 'p90') if k in d}, ensure_ascii=False)]
     lines += ["", "## Obmedzenia"] + [f"- {x}" for x in json.loads(row["limitations_json"])]
     lines += ["", "## Na ďalšie preverenie (najviac 3)"]
     lines += [f"- **{f['miesto']}**: {f['zistenie']} – {f['preveriť']}" for f in fol["kandidáti"]] or ["- nič"]

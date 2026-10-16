@@ -262,6 +262,10 @@ class Gate0Mixin:
     def org_contacts(self, org_id: int) -> list[sqlite3.Row]:
         return self._all("SELECT * FROM contact_points WHERE org_id = ? AND person_id IS NULL ORDER BY kind, id", (org_id,))
 
+    def org_all_contacts(self, org_id: int) -> list[sqlite3.Row]:
+        """Funkčné kontakty organizácie aj kontakty jej ľudí."""
+        return self._all("SELECT * FROM contact_points WHERE org_id = ? ORDER BY kind, id", (org_id,))
+
     def hypotheses_with_people(self) -> set[int]:
         """Hypotézy, ku ktorým už sú vybraní ľudia (väzba s prioritou)."""
         return {r["hypothesis_id"] for r in self._all(
@@ -500,6 +504,14 @@ class Gate0Mixin:
 
     def get_outreach(self, outreach_id: int) -> sqlite3.Row | None:
         return self._one("SELECT * FROM outreach WHERE id = ?", (outreach_id,))
+
+    def delete_unsent_outreach_for_contacts(self, contact_ids: list[int]) -> int:
+        """Neodoslané návrhy (draft, needs_edit, blocked) na kontakty, ktoré sa odstraňujú (zlý zdroj kontaktu)."""
+        if not contact_ids:
+            return 0
+        marks = ",".join("?" * len(contact_ids))
+        return self._exec(f"DELETE FROM outreach WHERE contact_point_id IN ({marks}) AND status IN "
+                          "('draft', 'needs_edit', 'blocked') AND sent_at IS NULL", tuple(contact_ids)).rowcount
 
     def outreach_for_person(self, person_id: int, hid: int | None = None) -> list[sqlite3.Row]:
         if hid is None:

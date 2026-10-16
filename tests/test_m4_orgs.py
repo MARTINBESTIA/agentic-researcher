@@ -259,3 +259,41 @@ def test_name_resolution_uses_current_rpo_name_not_last_listed():
     rpo = RPOClient(db, delay_s=0, http=httpx.Client(transport=httpx.MockTransport(handler)))
     finder = OrgFinder(cfg, db, None, FakeSearx(), FakeFetcher(), rpo, None, Deadline(1))
     assert finder.resolve_name("Fiktívna Dôvera") is None  # historický názov inej organizácie nestačí
+
+
+def test_directory_naming_the_org_is_not_its_website_and_revoke_removes_its_contacts(tmp_path):
+    """16. 10. 2026: katalóg kontaktov (kontakttelefon.sk) spomínal názov ÚVO a overil sa ako jeho web; z katalógu sa potom
+    zobral e-mail inej firmy. Samotný názov stačí iba pri zhode domény s názvom; zoznam s viacerými IČO je katalóg."""
+    from radar.orgs import domain_matches_name, revoke_website
+
+    name = "Úrad pre verejné obstarávanie"
+    assert domain_matches_name("https://www.uvo.gov.sk/", name) and not domain_matches_name("https://www.kontakttelefon.sk/", name)
+    assert domain_matches_name("https://www.mfsr.sk/", "Ministerstvo financií Slovenskej republiky")
+    assert domain_matches_name("https://tv.nrsr.sk/", "Kancelária NR SR") and domain_matches_name("https://www.socpoist.sk/", "Sociálna poisťovňa")
+    assert not domain_matches_name("https://www.skupinazse.sk/", "Východoslovenská distribučná, a.s.")
+    cfg, db, hid, rec, router = setup(tmp_path)
+    directory = ("<html><body>Kontakty na úrady: Úrad pre verejné obstarávanie, IČO 31797903; Iný úrad IČO 11111111; "
+                 "Energetika IČO 22222222; Telekom IČO 33333333</body></html>")
+    finder = OrgFinder(cfg, db, router, FakeSearx({
+        f'"{name}" 31797903': [SearchResult("https://www.kontakty-uradov.sk/urady", "Kontakty", ""),
+                               SearchResult("https://www.uvo.gov.sk/kontakt", "ÚVO", "")],
+    }), FakeFetcher(htmls={
+        "https://www.kontakty-uradov.sk/": directory,
+        "https://www.uvo.gov.sk/": "<html><body><h1>Úrad pre verejné obstarávanie</h1> kontakt</body></html>",
+    }), None, None, Deadline(1))
+    org_id, _ = db.upsert_organization(name, "urad pre verejne obstaravanie", "procurement", ico="31797903")
+    assert finder.verify_website(org_id) is True  # uvo.gov.sk je v agregátoroch, no zodpovedá názvu
+    org = db.get_organization(org_id)
+    assert org["website"] == "https://www.uvo.gov.sk/" and "presný názov" in org["website_evidence"]
+    # staršie chybné overenie: zrušenie odstráni kontakty z cudzej stránky aj neodoslaný návrh na ne
+    bad, _ = db.upsert_organization("Iný úrad", "iny urad", "procurement", website="https://www.kontakttelefon.sk/")
+    db.update_organization(bad, website_verified=1, website_evidence="presný názov na https://www.kontakttelefon.sk/")
+    cid = db.add_contact_point(None, bad, "email", "kontakt@firma-x.sk", "https://www.kontakttelefon.sk/firma-x",
+                               "kontakt@firma-x.sk", "regex", True)
+    keep = db.add_contact_point(None, bad, "email", "podatelna@iny-urad.sk", "https://www.slovensko.sk/x",
+                                "podatelna@iny-urad.sk", "regex", True)
+    oid = db.insert_outreach(None, hid, "email", "B", "Predmet", "Text", [], {"ok": True}, "needs_edit", cid, org_id=bad)
+    assert revoke_website(db, bad, "katalóg") == {"kontakty": 1, "návrhy": 1}
+    org = db.get_organization(bad)
+    assert org["website"] is None and org["website_verified"] == 0 and "kontakttelefon" in org["website_evidence"]
+    assert db.get_contact(cid) is None and db.get_contact(keep) is not None and db.get_outreach(oid) is None

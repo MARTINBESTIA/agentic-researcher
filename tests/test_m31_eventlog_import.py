@@ -216,3 +216,18 @@ def test_delete_import_removes_tables_and_raw_file(tmp_path):
     con = duckdb.connect(str(org_store(cfg, a)), read_only=True)
     assert con.execute("SELECT COUNT(*) FROM information_schema.tables").fetchone()[0] == 0
     con.close()
+
+
+def test_slovak_column_names_and_process_hypotheses_are_recognized(tmp_path):
+    """16. 10. 2026: „Číslo dokladu“ sa nenavrhlo ako ID prípadu a hypotéza o ručnom prepisovaní dokladov nevyšla ako
+    procesná (event log sa dal žiadať iba s vlastným zdôvodnením)."""
+    from radar.event_logs import event_log_fit
+
+    mapping, notes = propose_mapping(["Číslo dokladu", "Udalosť", "Čas udalosti", "Pracovník", "Čas exportu"])
+    assert mapping["case_id"] == "Číslo dokladu" and mapping["timestamp"] == "Čas udalosti"
+    assert "Pracovník" not in mapping.values() and not any("chýba stĺpec" in n for n in notes)
+    cfg, db, a, b = env(tmp_path)
+    for title in ("Účtovné kancelárie strácajú čas ručným prepisovaním údajov z dokladov",
+                  "Malé realitné kancelárie nestíhajú rýchlo a kvalitne spracovať dopyty záujemcov"):
+        assert event_log_fit(db, db.create_hypothesis(title, "", "segment"))[0], title
+    assert not event_log_fit(db, db.create_hypothesis("Nízka spotreba mlieka bráni rozvoju odvetvia", "", "výrobcovia"))[0]

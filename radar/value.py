@@ -53,6 +53,8 @@ BUYER_RE = re.compile(r"\bkúp|\bcen[auy]\b|\bplaten|licenci|predplat", re.I)
 
 
 # ======================================================================= modely výstupov
+RANGE_RE = re.compile(r"(?<=\d)\s*[-–]\s*(?=\d)")  # rozsah „2-3“, „2–3“
+
 class Cited(BaseModel):
     text: str = ""
     claims: list[int] = Field(default_factory=list)
@@ -289,12 +291,17 @@ def code_check_brief(out: DomainBriefOut, allowed: set[int],
     return brief, checks
 
 
+# Strop výstupu hodnotiteľa: pri 900 tokenoch lokálny 27B orezal posudok troch návrhov prínosu (16. 10. 2026) a všetky
+# ostali „čaká na hodnotiteľa“. Posudok s niekoľkými vetami po slovensky potrebuje viac.
+REVIEW_MAX_TOKENS = 2400
+
+
 def review(cfg: Config, router, task: str, system: str, content: str, object_type: str, object_id: int | None,
            **fmt: Any) -> dict[str, Any]:
     """Kontrola hodnotiteľom; zlyhanie = čaká na hodnotenie (nikdy nie automatické schválenie)."""
     res = router.run_task(task, [{"role": "system", "content": system.format(lang=cfg.pipeline.output_language, **fmt)},
                                  {"role": "user", "content": content}], ReviewOut, object_type=object_type,
-                          object_id=object_id, max_tokens=900)
+                          object_id=object_id, max_tokens=REVIEW_MAX_TOKENS)
     if not res.ok:
         return {"verdict": "pending", "problems": [], "model": None}
     return {"verdict": res.value.verdict, "problems": [p.model_dump() for p in res.value.problems],
@@ -462,7 +469,12 @@ def code_check_value(item: ValueItem, kind: str, allowed: set[int], allowed_text
                                                        "benefit_hypothesis", "minimum_input", "success_metric"))
     if PROMISE_RE.search(text):
         problems.append("sľub (garancia, percentá) – prínos opíš ako hypotézu a meranie pri skúške")
-    missing = numbers_missing_in_source(text, allowed_text + " " + estimate_inputs)
+    # čísla tvrdení o adresátovi; minimálny vstup je naša žiadosť („2–3 projekty“, „20 riadkov“), nie tvrdenie, a rozsah
+    # „2-3“ nie je záporné číslo
+    claims = " ".join(str(data.get(k) or "") for k in ("need_statement", "deliverable", "decision_supported",
+                                                         "benefit_hypothesis", "success_metric"))
+    missing = numbers_missing_in_source(RANGE_RE.sub(" až ", claims),
+                                        RANGE_RE.sub(" až ", allowed_text + " " + estimate_inputs))
     if missing:
         problems.append("čísla bez podkladu: " + ", ".join(missing[:5]))
     if BIG_ASK_RE.search(data.get("minimum_input") or ""):

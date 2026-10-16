@@ -178,3 +178,14 @@ def test_gui_shows_esco_status_role_candidates_and_sources(tmp_path, monkeypatch
     box = next(b for b in at.selectbox if "referent" in b.label)
     assert box.value is None and "nejednoznačné" in box.label
     assert any("rozsah" in df.value.columns and "D1" in list(df.value["id"]) for df in at.dataframe)
+
+
+def test_esco_search_without_index_says_what_to_do(tmp_path, capsys):
+    """16. 10. 2026: esco-search bez naimportovaného balíka nevypísal nič."""
+    from types import SimpleNamespace
+
+    from radar.commands import cmd_esco_search
+
+    cfg, db, *_ = _world(tmp_path)
+    rc = cmd_esco_search(SimpleNamespace(cfg=cfg, db=db), SimpleNamespace(query="účtovník", kind="occupation", limit=5))
+    assert rc == 1 and "esco-import" in capsys.readouterr().out

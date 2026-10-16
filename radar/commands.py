@@ -493,7 +493,14 @@ def cmd_esco_import(app, args) -> int:
 def cmd_esco_search(app, args) -> int:
     from .domain_sources import search_esco
 
-    for c in search_esco(app.cfg, app.db, args.query, None if args.kind == "all" else args.kind, args.limit):
+    if app.db.esco_last_import() is None:
+        print("Lokálny ESCO index je prázdny: stiahni balík CSV zo stránky ESCO (Download, formát CSV, jazyk sk) a spusti "
+              "python -m radar esco-import --dir <rozbalený priečinok>.")
+        return 1
+    hits = search_esco(app.cfg, app.db, args.query, None if args.kind == "all" else args.kind, args.limit)
+    if not hits:
+        print(f"Žiadna zhoda pre „{args.query}“ (fulltext; skús iný tvar slova alebo --kind all).")
+    for c in hits:
         print(f"{c['score']:>3}  {c['label']}  ({c['basis']}; {c['lang']}, {c['version']})  {c['uri']}")
     return 0
 

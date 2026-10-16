@@ -55,6 +55,7 @@ Tento počítač je nastavený (11. 10. 2026). Postup pre iný počítač:
    ```
    python -m venv .venv
    .venv\Scripts\python -m pip install -r requirements.txt
+   .venv\Scripts\python -m pip install -r requirements-optional.txt   # voliteľne: PM4Py (licencia AGPL v3)
    ```
 2. **Modely v Ollame** (spolu ~24 GB):
    ```

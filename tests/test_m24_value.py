@@ -170,3 +170,20 @@ def test_gate0_page_shows_domain_brief_and_value_proposals(tmp_path, monkeypatch
     assert not at.exception, at.exception
     assert any("Krok jedna" in m.value and "Neznáme X" in m.value for m in at.markdown)
     assert any("deliverable" in df.value.columns and "Rozbor príčin" in list(df.value["deliverable"]) for df in at.dataframe)
+
+
+def test_ranges_in_own_ask_are_not_unsupported_numbers_and_review_has_room():
+    """16. 10. 2026: „2-3 projekty“ sa čítalo ako číslo -3 bez podkladu a hodnotiteľ s limitom 900 tokenov orezal posudok
+    troch návrhov – všetky ostali „čaká na hodnotiteľa“."""
+    from radar.value import REVIEW_MAX_TOKENS, ValueItem, code_check_value
+
+    item = ValueItem(need_statement="Predpokladáme, že prijímateľ nevidí zdržania včas.", deliverable="prehľad zdržaní",
+                     decision_supported="ktoré projekty riešiť skôr",
+                     minimum_input="potvrdenie relevantnosti pre 2-3 konkrétne projekty alebo vzorka 20 riadkov",
+                     success_metric="prijímateľ určí príčinu zdržania pri 2–3 projektoch")
+    _, problems = code_check_value(item, "customer", set(), "zdržania projektov 2 3", "")
+    assert not any("čísla" in p for p in problems), problems
+    item.need_statement = "Prijímateľ stráca 40 % prostriedkov."
+    _, problems = code_check_value(item, "customer", set(), "zdržania projektov 2 3", "")
+    assert any("40" in p for p in problems)  # číslo v tvrdení o adresátovi bez podkladu sa stále hlási
+    assert REVIEW_MAX_TOKENS >= 2000

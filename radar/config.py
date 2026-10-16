@@ -516,7 +516,7 @@ class PeopleConfig(BaseModel):
             "slovensko.sk", "facebook.com", "linkedin.com", "youtube.com", "kompass.com", "europages.com",
             "edb.sk", "detail.sk", "aktuality.sk", "sme.sk", "trend.sk", "hnonline.sk", "pravda.sk",
             "dnoviny.sk", "teraz.sk", "openiazoch.zoznam.sk", "slovensko.digital", "datahub.ekosystem.slovensko.digital",
-            "transparency.sk", "nku.gov.sk", "google.com", "bing.com", "mapy.cz", "rpvs.gov.sk",
+            "transparency.sk", "nku.gov.sk", "google.com", "bing.com", "mapy.cz", "rpvs.gov.sk", "kontakttelefon.sk",
         ]
     )
 

@@ -1,0 +1,4 @@
+# Voliteľné závislosti (bez nich všetko funguje). Inštalácia: pip install -r requirements-optional.txt
+# PM4Py: kontrola priamo nadväzujúcich krokov procesného reportu (adaptér overený na 2.7.23.11).
+# Licencia AGPL v3 – pri distribúcii alebo prevádzke ako služby treba zverejniť zdrojový kód alebo komerčnú licenciu.
+pm4py==2.7.23.11

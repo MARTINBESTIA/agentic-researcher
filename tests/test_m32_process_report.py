@@ -9,7 +9,7 @@ import pytest
 
 from radar.event_logs import EventLogError, confirm_mapping, import_file
 from radar.llm import LLMError
-from radar.process_analysis import FORBIDDEN_RE, analyze, compute, pm4py_dfg, report_markdown
+from radar.process_analysis import ANALYSIS_VERSION, FORBIDDEN_RE, analyze, compute, pm4py_dfg, report_markdown
 from tests.fakes import BoundFake, Recorder
 from tests.test_m31_eventlog_import import env, write
 
@@ -83,7 +83,7 @@ def test_review_failure_keeps_report_pending_and_results_traceable(tmp_path):
     assert "<untrusted_document>" in seen[0][-1]["content"] and "C0" not in seen[0][-1]["content"]  # iba agregáty
     imp = db.get_eventlog_import(iid)
     md = report_markdown(row, imp)
-    assert f"import #{iid}" in md and imp["file_hash"][:16] in md and "mapovanie v1" in md and "process-1" in md
+    assert f"import #{iid}" in md and imp["file_hash"][:16] in md and "mapovanie v1" in md and ANALYSIS_VERSION in md
     assert "IGNORE ALL INSTRUCTIONS" in md  # cudzí text je iba hodnota v dátach
 
 
@@ -164,3 +164,32 @@ def test_eventlog_page_analysis_tab(tmp_path, monkeypatch):
     assert any("Procesný report" in m.value for m in at.markdown)
     assert any("Formulácie čakajú na hodnotiteľa" in i.value for i in at.info)
     assert any("prechody" in df.value.columns for df in at.dataframe)
+
+
+def test_start_complete_is_one_occurrence_due_date_lasts_all_day_and_missing_start_is_separate(tmp_path):
+    """16. 10. 2026 (syntetický log 767 riadkov): štart a complete toho istého kroku vyšli ako „opakovanie v 95 % prípadov“,
+    termín bez času sa bral od polnoci (49 namiesto 34 po termíne), prípady bez potvrdenej začiatočnej aktivity sa rátali
+    medzi dokončené a odchýlka od termínu ani čas aktivity sa v reporte nezobrazili."""
+    cfg, db, a, b = env(tmp_path)
+    rows = []
+    for i in range(6):
+        d = 2 + i
+        rows += [[f"P{i}", "Prijatie", f"2026-04-{d:02d}T08:00:00Z", "complete", f"{d + 1:02d}.04.2026"],
+                 [f"P{i}", "Prepis", f"2026-04-{d:02d}T09:00:00Z", "start", ""],
+                 [f"P{i}", "Prepis", f"2026-04-{d:02d}T09:30:00Z", "complete", ""],
+                 [f"P{i}", "Vybavené", f"2026-04-{d + 1:02d}T{'10' if i < 4 else '07'}:00:00Z", "complete", ""]]
+    rows += [["Z1", "Prepis", "2026-04-15T09:00:00Z", "start", "16.04.2026"],  # bez začiatočnej aktivity
+             ["Z1", "Prepis", "2026-04-15T09:20:00Z", "complete", ""], ["Z1", "Vybavené", "2026-04-16T09:00:00Z", "complete", ""]]
+    iid, _ = import_file(cfg, db, a, write(tmp_path / "lc2.csv", ["case_id", "activity", "timestamp", "lifecycle", "due"], rows))
+    confirm_mapping(cfg, db, iid, {**MAP, "lifecycle": "lifecycle", "due_at": "due"}, end_activities=["Vybavené"],
+                    start_activities=["Prijatie"], due_definition="dohodnutý deň vybavenia", period=("2026-03-01", "2026-05-31"))
+    rep = compute(cfg, db, iid)
+    res = rep["výsledky"]
+    assert not any(r["aktivita"] == "Prepis" for r in res.get("opakovanie") or [])  # štart + complete = jeden výskyt
+    assert all("Prepis → Prepis" not in v["priebeh"] for v in res["varianty"])
+    assert next(f for f in res["frekvencie_aktivít"] if f["aktivita"] == "Prepis")["výskyty"] == 7
+    dev = res["odchýlka_od_termínu_dni"]
+    assert dev["n"] == 7 and dev["neskoro"] == 0  # vybavené v deň termínu (aj o 10:00) nie je po termíne (Z1 tiež)
+    assert res["počty"]["dokončené"] == 6 and res["počty"]["možno_odrezané"] == 1  # Z1 nemá potvrdený začiatok
+    md = report_markdown(db.get_process_report(analyze(cfg, db, iid)), db.get_eventlog_import(iid))
+    assert "Odchýlka od termínu" in md and "Čas výkonu aktivity" in md and "Prepis: 7 výskytov" in md

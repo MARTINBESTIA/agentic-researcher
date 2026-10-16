@@ -54,7 +54,8 @@ ALTERNATIVES = {"walkthrough": "prehliadka posledného konkrétneho prípadu po�
 REQUEST_STATUS = {"draft": "návrh", "sent": "odoslané", "received": "prijaté", "not_available": "event log nemajú",
                   "alternative": "dohodnutá alternatíva", "declined": "odmietnuté"}
 FIT_RE = re.compile(r"priebeh|proces|krok|mešk|oneskor|termín|lehot|opakov|schvaľ|odovzd|čakan|dĺžk|trvan|vybav|"
-                    r"workflow|urgen|eskal|reklamác|objednáv|dodáv", re.I)
+                    r"workflow|urgen|eskal|reklamác|objednáv|dodáv|spracov|prepis|nestíha|zdrž|zasek|evidenc|"
+                    r"ručn\w* (?:zad|zakl|prep|spra|kontrol)", re.I)
 DUE_RE = re.compile(r"termín|mešk|oneskor|lehot|plán|prísľub|due", re.I)
 FIRST_STEP = ("dátový slovník a malá pseudonymizovaná ukážka – napríklad 20–50 riadkov histórie niekoľkých celých "
               "prípadov (nie náhodné izolované udalosti); počet je príklad na overenie formátu a významu, nie minimum, "
@@ -160,7 +161,7 @@ def request_markdown(row) -> str:
 def draft_request_message(cfg: Config, db: DB, request_id: int) -> int:
     """Návrh správy so žiadosťou (oslovenie v režime data_request) pre kontakt pôvodného oslovenia alebo funkčný kontakt
     organizácie. Systém nič neodosiela – návrh ide do Oslovení na kontrolu, schválenie a ručné odoslanie."""
-    from .outreach import check_draft, compose, need_confirmed, policy_text, readiness_of
+    from .outreach import check_draft, compose, is_public_org, need_confirmed, policy_text, readiness_of
     from .value import policy_version
 
     row = db.get_eventlog_request(request_id)
@@ -175,7 +176,7 @@ def draft_request_message(cfg: Config, db: DB, request_id: int) -> int:
         contact = emails[0] if emails else None
     if contact is None:
         raise EventLogError("Chýba kontakt: žiadosť patrí k osloveniu alebo k organizácii so zverejneným e-mailom.")
-    commercial = org is None or (org["sector_kind"] or "") != "public"
+    commercial = not is_public_org(org)
     policy = policy_text(cfg, "data_request", True, commercial)
     core, subject_core = request_text(row, org, commercial, policy)
     source_url = contact["source_url"] or ""
@@ -232,7 +233,9 @@ TARGETS = ("case_id", "activity", "timestamp", "event_id", "lifecycle", "activit
 REQUIRED = ("case_id", "activity", "timestamp")
 SYNONYMS = {
     "case_id": ["case_id", "caseid", "case", "case:concept:name", "pripad", "id_pripadu", "cislo_pripadu", "order_id",
-                "objednavka", "cislo_objednavky", "ticket", "ticket_id", "doklad", "document_id", "zakazka"],
+                "objednavka", "cislo_objednavky", "ticket", "ticket_id", "doklad", "document_id", "zakazka",
+                "cislo_dokladu", "id_dokladu", "faktura", "cislo_faktury", "id_faktury", "cislo_zakazky", "spis",
+                "cislo_spisu", "ziadost", "cislo_ziadosti"],
     "activity": ["activity", "concept:name", "aktivita", "udalost", "event", "event_name", "krok", "step", "action",
                  "akcia"],
     "timestamp": ["timestamp", "time:timestamp", "cas", "cas_udalosti", "event_time", "datetime", "datum_cas", "time",
@@ -463,6 +466,7 @@ def _check(cfg: Config, db: DB, imp, mapping: dict[str, str], tz_policy: str, pe
     n = len(rows)
     zone = None
     transformations: list[str] = []
+    due_day_only = 0
     if tz_policy and tz_policy not in ("offset", "unknown"):
         try:
             zone = ZoneInfo(tz_policy)
@@ -516,7 +520,10 @@ def _check(cfg: Config, db: DB, imp, mapping: dict[str, str], tz_policy: str, pe
                     e["ts"], e["ts_kind"], e["ts_status"] = dt, "local", "ok"
                     if _dst_window(dt):
                         dst_naive += 1
-        due_dt, _ = parse_ts(due) if "due_at" in mapping else (None, None)
+        due_dt, due_precision = parse_ts(due) if "due_at" in mapping else (None, None)
+        if due_dt is not None and due_precision == "day":  # „splatné 15. 10.“ = do konca dňa, nie od polnoci
+            due_dt = due_dt.replace(hour=23, minute=59, second=59)
+            due_day_only += 1
         if due_dt is not None and due_dt.tzinfo is None and zone is not None:
             due_dt, _ = _localize(due_dt, zone)
         elif due_dt is not None and due_dt.tzinfo is not None:
@@ -532,6 +539,8 @@ def _check(cfg: Config, db: DB, imp, mapping: dict[str, str], tz_policy: str, pe
         transformations.append("časy bez zóny vylúčené z časových metrík (iné riadky majú offset, zóna neznáma)")
     if with_offset:
         transformations.append("časy s offsetom prevedené na UTC")
+    if due_day_only:
+        transformations.append(f"termín bez času ({due_day_only} riadkov) = koniec dňa 23:59:59")
     if without_offset and zone is not None:
         transformations.append(f"časy bez zóny prevedené zo zóny {tz_policy} na UTC")
     policy = ("offset v dátach" if with_offset and not without_offset else
@@ -623,7 +632,7 @@ def _check(cfg: Config, db: DB, imp, mapping: dict[str, str], tz_policy: str, pe
              "left_truncated": None, "right_truncated": None}
         if ordered and p_start is not None and p_end is not None:
             starts_ok = first["activity"] in start_set if start_set else None
-            c["left_truncated"] = bool(first["ts"] - p_start <= window) and starts_ok is not True
+            c["left_truncated"] = starts_ok is False or (bool(first["ts"] - p_start <= window) and starts_ok is not True)
             c["right_truncated"] = bool(p_end - last["ts"] <= window) and c["open"] is not False
         cases.append(c)
     n_cases = len(cases)
@@ -733,7 +742,8 @@ def _check(cfg: Config, db: DB, imp, mapping: dict[str, str], tz_policy: str, pe
     trunc_r = sum(1 for c in cases if c["right_truncated"])
     open_n = sum(1 for c in cases if c["open"])
     if trunc_l:
-        add("prípad možno odrezaný na začiatku obdobia", trunc_l, "trvanie sa uvedie zvlášť", "prípady")
+        add("prípad možno odrezaný na začiatku (pri začiatku obdobia alebo bez potvrdenej začiatočnej aktivity)",
+            trunc_l, "trvanie sa uvedie zvlášť", "prípady")
     if trunc_r:
         add("prípad možno odrezaný na konci obdobia alebo otvorený", trunc_r, "trvanie sa uvedie zvlášť", "prípady")
     if open_n:

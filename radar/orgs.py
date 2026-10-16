@@ -9,8 +9,8 @@ Zdroje v poradí priority (R-ORG-1):
    činnosti, veľkosti a regiónu (zložky zhody sa ukladajú zvlášť, R-ORG-5),
 4. verejné zoznamy importované z CSV (orgs --import).
 
-Web organizácie je overený iba vtedy, keď stránka obsahuje IČO alebo presný názov (R-ORG-4);
-inak sa z webu ľudia nezbierajú. Organizácie z outreach.exclude_orgs sa nikdy nezaradia (R-ORG-7).
+Web organizácie je overený iba vtedy, keď stránka obsahuje IČO alebo presný názov (R-ORG-4) – pri samotnom názve
+musí názvu zodpovedať aj doména a stránka s viacerými IČO je katalóg; inak sa z webu ľudia nezbierajú. Organizácie z outreach.exclude_orgs sa nikdy nezaradia (R-ORG-7).
 """
 
 from __future__ import annotations
@@ -95,6 +95,62 @@ def name_on_page(name: str, text: str) -> bool:
         return True
     words = [w for w in key.split() if len(w) >= 4]
     return bool(words) and all(f" {w} " in page for w in words)
+
+
+# Slová, ktoré nič nehovoria o konkrétnej organizácii (začiatok takého slova v doméne nie je zhoda s názvom).
+GENERIC_NAME_WORDS = {
+    "pre", "na", "vo", "zo", "ku", "and", "the", "of", "spol", "sro", "as", "ministerstvo", "urad", "uradu", "narodna",
+    "narodny", "narodnej", "statna", "statny", "statnej", "slovenskej", "slovenska", "slovensky", "slovenskeho",
+    "republiky", "republika", "spolocnost", "spolocnosti", "mesto", "mesta", "obec", "obce", "kraj", "samospravny",
+    "agentura", "institut", "centrum", "fond", "zdruzenie", "group", "company", "sluzby", "stredisko", "kancelaria",
+}
+# Viac rôznych IČO na stránke = katalóg alebo zoznam firiem, nie web jednej organizácie.
+DIRECTORY_MIN_ICOS = 4
+
+
+def _host_text(url: str) -> str:
+    """Doména bez TLD a „www“ spojená do jedného reťazca (napr. tv.nrsr.sk → tvnrsr, trnava-vuc.sk → trnavavuc)."""
+    labels = domain_of(url).split(".")
+    return "".join(labels[:-1] if len(labels) > 1 else labels).replace("-", "")
+
+
+def domain_matches_name(url: str, name: str) -> bool:
+    """Patrí doména k názvu organizácie? Skratka (Úrad pre verejné obstarávanie → uvo, Ministerstvo financií SR → mfsr),
+    začiatok výrazného slova (SLOVNAFT → slovn, Žilinský kraj → zilin) alebo spojenie začiatkov dvoch slov (Sociálna
+    poisťovňa → socpoi). Katalóg firiem či cudzí web (kontakttelefon.sk pri ÚVO) zhodou nie je – pri overení webu iba
+    podľa názvu na stránke to bráni tomu, aby sa za web organizácie považoval adresár, ktorý ju len spomína."""
+    host = _host_text(url)
+    words = re.findall(r"[a-z0-9]+", fold(name))
+    sig = [w for w in words if w not in {"a", "s", "r", "o", "v", "z", "k", "pre", "na", "vo", "zo", "ku", "and", "the", "of"}]
+    if not host or not sig:
+        return False
+    cands: set[str] = set()
+    for seq in (sig, sig[1:]):  # skratka celého názvu aj bez prvého slova („Kancelária NR SR“ → nrsr)
+        if len(seq) >= 2:
+            cands.add("".join(w[0] for w in seq))
+            cands.add("".join(w if len(w) <= 3 else w[0] for w in seq))
+    distinct = [w for w in sig if w not in GENERIC_NAME_WORDS and len(w) >= 4]
+    cands |= {w[:5] if len(w) >= 6 else w[:4] for w in distinct}
+    cands |= {a[:3] + b[:3] for a, b in zip(sig, sig[1:]) if len(a) >= 3 and len(b) >= 3}
+    return any(len(c) >= 3 and c in host for c in cands)
+
+
+def revoke_website(db: DB, org_id: int, reason: str) -> dict[str, int]:
+    """Zruší chybne overený web organizácie (napr. katalóg, ktorý ju len spomína): kontakty zo stránok tej domény
+    nie sú zverejnené samotnou organizáciou, preto sa odstránia spolu s neodoslanými návrhmi na ne. Odoslané
+    oslovenia a ľudia ostávajú (ľudia môžu mať iný zdroj, napr. register)."""
+    org = db.get_organization(org_id)
+    if org is None or not org["website"]:
+        return {"kontakty": 0, "návrhy": 0}
+    host = domain_of(org["website"])
+    bad = [c["id"] for c in db.org_all_contacts(org_id)
+           if c["source_url"] and (domain_of(c["source_url"]) == host or domain_of(c["source_url"]).endswith("." + host))]
+    drafts = db.delete_unsent_outreach_for_contacts(bad)
+    for cid in bad:
+        db.delete_contact_point(cid)
+    db.update_organization(org_id, website=None, website_verified=0,
+                           website_evidence=f"zrušené: {reason} (pôvodne {org['website']})")
+    return {"kontakty": len(bad), "návrhy": drafts}
 
 
 def is_excluded(cfg: Config, ico: str | None, website: str | None) -> bool:
@@ -266,7 +322,9 @@ class OrgFinder:
                 host = domain_of(r.url)
                 if not host or domain_blocked(r.url, self.cfg.blocked_domains()):
                     continue
-                if any(host == a or host.endswith("." + a) for a in self.cfg.people.aggregator_domains):
+                # doména zo zoznamu agregátorov je webom iba organizácie, ktorej názvu zodpovedá (ÚVO → uvo.gov.sk)
+                if any(host == a or host.endswith("." + a) for a in self.cfg.people.aggregator_domains) and \
+                        not domain_matches_name(r.url, org["name"]):
                     continue
                 url = root_url(r.url)
                 if url not in candidates:
@@ -298,9 +356,13 @@ class OrgFinder:
                 pages.append((link, sub.html))
         for page_url, html in pages:
             text = visible_text(html)
-            if org["ico"] and org["ico"] in icos_in(text):
+            icos = icos_in(text)
+            if len(icos) >= DIRECTORY_MIN_ICOS:  # katalóg alebo zoznam firiem (napr. kontakttelefon.sk), nie web organizácie
+                continue
+            if org["ico"] and org["ico"] in icos:
                 return f"IČO {org['ico']} na {page_url}"
-            if name_in(org["name"], text) and len(fold(org["name"])) >= 8:
+            # samotný názov na stránke stačí iba vtedy, keď mu zodpovedá aj doména (adresár názov spomína tiež)
+            if name_in(org["name"], text) and len(fold(org["name"])) >= 8 and domain_matches_name(page_url, org["name"]):
                 return f"presný názov na {page_url}"
         return None
 
