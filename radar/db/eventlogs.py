@@ -11,7 +11,7 @@ from ..util import utcnow
 
 REQUEST_FIELDS = {"hypothesis_id", "organization_id", "outreach_id", "step", "process_scope", "case_definition",
                   "fields_json", "sample_scope", "intended_output", "why_event_log", "unknowns_json", "status",
-                  "alternative", "text"}
+                  "alternative", "text", "card_id"}
 IMPORT_FIELDS = {"request_id", "hypothesis_id", "file_name", "file_format", "data_kind", "columns_json", "mapping_json",
                  "mapping_version", "mapping_confirmed", "timezone_policy", "case_definition", "period",
                  "transformations_json", "quality_json", "availability_json", "rows_total", "retained_rows",

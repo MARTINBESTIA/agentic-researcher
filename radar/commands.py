@@ -238,6 +238,14 @@ def stage_value(app, deadline: Deadline, hypothesis_ids: list[int] | None = None
                      getattr(app, "fetcher", None))
 
 
+def stage_org_cards(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
+    """Karty organizácií (sústredený zoznam, inak najvyššie odporúčané) a ohraničený výskum ich medzier."""
+    from .opportunity import run_org_cards
+
+    return run_org_cards(app.cfg, app.db, app.router, deadline, _ids(app, hypothesis_ids), getattr(app, "searx", None),
+                         getattr(app, "fetcher", None))
+
+
 def stage_prepare_next(app, deadline: Deadline) -> dict:
     """Presný model pripraví filter segmentu a mapu rolí pre vybrané hypotézy, aby ďalší beh
     nemusel kvôli nim meniť model uprostred fázy rýchleho modelu."""
@@ -321,6 +329,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "people": stage_people,
     "people-rank": stage_people_rank,
     "value": stage_value,
+    "org-cards": stage_org_cards,
     "drafts": stage_drafts,
     "prepare-next": stage_prepare_next,
     "purge": stage_purge,
@@ -336,6 +345,9 @@ STAGE_HELP = {
     "contacts": "E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu).",
     "value": "Prehľad domény (5 minút čítania, zdieľaný v téme) a návrhy prínosu pre zákazníka, držiteľa dát a experta "
              "– presný model navrhne, kód a hodnotiteľ skontrolujú; nové iba pri zmene podkladov.",
+    "org-cards": "Karty organizácií (organizácia × hypotéza × pracovný prípad × rola): presný model zostaví kartu "
+                 "z posúdených dôkazov, kód a hodnotiteľ skontrolujú oporu a použiteľnosť, tri pripravenosti; ohraničený "
+                 "výskum medzier (iba verejné zdroje); nová verzia iba pri zmene vstupov.",
     "contact-search": "Hľadanie kontaktov podľa hypotézy: plán (zákazník, držiteľ dát, expert) a dopyty – rýchly model; "
                       "weby overí kód cez IČO; držitelia dát z Brány 1 a kontaktné body datasetov z katalógu.",
     "gate1-fields": "Brána 1: polia potrebné na riešenie problému (presný model).",
@@ -516,6 +528,79 @@ def cmd_domain_research(app, args) -> int:
     out = research_domain(app.cfg, app.db, app.router, args.hypothesis, app.searx, app.fetcher,
                           Deadline(args.minutes or 15), explicit=True)
     print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def cmd_org_cards(app, args) -> int:
+    """Karty organizácií: zoznam, sústredený režim, vytvorenie/obnova s výskumom medzier a Markdown export."""
+    from pathlib import Path
+
+    from .opportunity import (cards_markdown, comparison_markdown, current_card, focus_settings, run_org_cards,
+                              set_focus)
+
+    hid = args.hypothesis
+    explicit = []
+    for spec in args.target or []:  # ORG:HYP[:ROLA]
+        parts = spec.split(":")
+        try:
+            explicit.append({"org_id": int(parts[0]), "hypothesis_id": int(parts[1]),
+                             "role": parts[2] if len(parts) > 2 else args.role})
+        except (IndexError, ValueError):
+            print(f"Neplatný cieľ {spec!r} (tvar ORG:HYP alebo ORG:HYP:ROLA).")
+            return 1
+    if args.focus:
+        if args.focus == "on" and not (hid and args.org):
+            print("Sústredený režim potrebuje --hypothesis a aspoň jednu --org.")
+            return 1
+        items = [{"org_id": o, "hypothesis_id": hid, "role": args.role} for o in args.org or []]
+        try:
+            value = set_focus(app.cfg, app.db, args.focus == "on", items or focus_settings(app.db)["items"])
+        except ValueError as exc:
+            print(exc)
+            return 1
+        print(json.dumps(value, ensure_ascii=False, indent=2))
+        if not (args.run or args.export):
+            return 0
+    if args.list:
+        for c in app.db.org_cards_for(hid):
+            ready = json.loads(c["readiness_json"] or "{}")
+            flags = " ".join(f"{k}:{'áno' if (ready.get(k) or {}).get('pripravené') else 'nie'}"
+                             for k in ("rozhovor", "skúška", "prínos"))
+            print(f"#{c['id']} H{c['hypothesis_id']} org {c['organization_id']} {c['org_name'][:40]} · {c['process_key']} · "
+                  f"{c['recipient_role']} · v{c['version']} · {c['status']}{' · zastarané' if c['stale_reason'] else ''} · {flags}")
+        return 0
+    targets = explicit or None
+    if args.org:
+        if not hid:
+            print("Pri --org zadaj aj --hypothesis.")
+            return 1
+        targets = (targets or []) + [{"org_id": o, "hypothesis_id": hid, "role": args.role} for o in args.org]
+    if args.compare:
+        if not targets:
+            print("Porovnanie potrebuje ciele (--target alebo --hypothesis s --org).")
+            return 1
+        path = Path(args.compare)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(comparison_markdown(app.cfg, app.db, targets, pseudonymize=not args.with_names), encoding="utf-8")
+        print(f"Porovnanie {len(targets)} organizácií: {path}")
+        return 0
+    if args.run:  # generovanie iba na výslovnú žiadosť (export a porovnanie nikdy nevolajú model)
+        out = run_org_cards(app.cfg, app.db, app.router, Deadline(args.minutes or 30), [hid] if hid else None,
+                            None if args.no_research else app.searx, None if args.no_research else app.fetcher,
+                            targets=targets, force=args.force)
+        print(json.dumps(out, ensure_ascii=False, indent=2, default=str))
+    if args.export:
+        if targets:
+            rows = [r for r in (current_card(app.db, t["org_id"], t["hypothesis_id"], t["role"]) for t in targets) if r]
+        else:
+            rows = list(app.db.org_cards_for(hid))
+        if not rows:
+            print("Žiadne karty na export.")
+            return 1
+        path = Path(args.export)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(cards_markdown(app.db, rows, with_names=False), encoding="utf-8")
+        print(f"Export {len(rows)} kariet (pseudonymizovaný): {path}")
     return 0
 
 
@@ -752,6 +837,21 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--hypothesis", type=int, required=True)
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("org-cards", help="Karty organizácií: vytvorenie/obnova, výskum medzier, export (nič sa neodosiela).")
+    p.add_argument("--hypothesis", type=int)
+    p.add_argument("--org", type=int, action="append", help="id organizácie (opakovateľné; najviac org_cards.focus_max_orgs)")
+    p.add_argument("--role", choices=["customer", "data_holder", "expert"], default="customer")
+    p.add_argument("--run", action="store_true", help="vytvoriť/obnoviť karty (bez --org: sústredený zoznam alebo odporúčané)")
+    p.add_argument("--force", action="store_true", help="nová verzia aj pri rovnakých vstupoch")
+    p.add_argument("--no-research", action="store_true", help="bez cieleného výskumu medzier (iba karta)")
+    p.add_argument("--focus", choices=["on", "off"], help="sústredený režim prípravy oslovení pre zadané organizácie")
+    p.add_argument("--list", action="store_true", help="vypíše aktuálne karty a ich pripravenosť")
+    p.add_argument("--export", default=None, help="cesta k Markdown exportu kariet (pseudonymizovaný)")
+    p.add_argument("--target", action="append", help="cieľ ORG:HYP[:ROLA] (opakovateľné, aj naprieč hypotézami)")
+    p.add_argument("--compare", default=None, help="cesta k porovnaniu starého a nového formátu (Markdown)")
+    p.add_argument("--with-names", action="store_true", help="porovnanie s názvami organizácií (iba do reports/)")
+    p.add_argument("--minutes", type=float, default=None)
+
     p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
     p.add_argument("--import", dest="import_id", type=int, required=True)
     p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
@@ -835,6 +935,7 @@ HANDLERS = {
     "esco-search": cmd_esco_search,
     "domain-research": cmd_domain_research,
     "process-report": cmd_process_report,
+    "org-cards": cmd_org_cards,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

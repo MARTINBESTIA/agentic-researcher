@@ -124,6 +124,12 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "process_report_review": _route("reviewer"),  # formulácie procesného reportu (iba agregáty)
     "draft": _route("accurate"),
     "draft_check": _route("reviewer", True),
+    # Karta organizácie a ponuka (zadanie 17. 10. 2026): relevantnosť dôkazov (voliteľne; inak iba pravidlá kódu),
+    # karta a odpoveď na výskumnú otázku presným modelom, dvojitá kontrola karty hodnotiteľom.
+    "evidence_relevance": _route("fast"),
+    "org_card": _route("accurate"),
+    "org_card_check": _route("reviewer"),
+    "gap_answer": _route("accurate"),
 }
 
 
@@ -563,6 +569,25 @@ class DomainResearchConfig(BaseModel):
     max_role_candidates: int = 5
 
 
+class OrgCardsConfig(BaseModel):
+    """Karty organizácií a ponuka z nich (zadanie 17. 10. 2026). Limity sú prevádzkové nastavenia, nie optimum."""
+
+    enabled: bool = True
+    model_relevance: bool = False  # spresnenie relevantnosti dôkazov modelom (strop kódu neprekročí); inak iba pravidlá
+    max_evidence: int = 25          # najviac citátov v podkladoch karty / prehľadu (po skupinách)
+    per_document: int = 2           # najviac citátov z jedného dokumentu (viac citátov jednej stránky nie je viac potvrdení)
+    focus_max_orgs: int = 3         # režim prípravy oslovení: najviac organizácií naraz
+    max_options: int = 3            # možnosti riešenia na karte
+    max_interview_questions: int = 5
+    # cielený výskum medzier karty (otázka → zdroj → výsledok)
+    research_max_tasks_per_card: int = 3
+    research_max_queries_per_task: int = 2
+    research_max_documents_per_task: int = 3
+    research_max_seconds_per_card: int = 300
+    research_max_attempts: int = 1  # rovnaká úloha sa automaticky znova neskúša (iba na výslovnú žiadosť)
+    research_model_calls: bool = True  # krátka odpoveď na otázku z nájdených doslovných úryvkov (inak iba úryvky)
+
+
 class EventLogConfig(BaseModel):
     """Import event logov (dodatok 16. 10. 2026): dáta organizácie v oddelenom priestore (DuckDB súbor na organizáciu),
     nikdy spolu s verejným korpusom; predvolene iba lokálne."""
@@ -690,7 +715,10 @@ class CloudConfig(BaseModel):
     # (návrhy oslovení, kontrola návrhov, kontakty) iba s privacy.cloud_personal_data.
     allowed_tasks: list[str] = Field(default_factory=lambda: [
         "domain_brief", "domain_brief_check", "value_proposal", "value_check", "field_binding", "entail", "card_check",
-        "experiment_conclusion", "critique"])
+        "experiment_conclusion", "critique",
+        # karta organizácie: iba verejné údaje o právnickej osobe (bez mien a kontaktov ľudí); karta fyzickej osoby
+        # (živnostník) ostáva lokálne – volanie s personal=True
+        "evidence_relevance", "org_card", "org_card_check", "gap_answer"])
 
 
 class Config(BaseModel):
@@ -715,6 +743,7 @@ class Config(BaseModel):
     people: PeopleConfig = Field(default_factory=PeopleConfig)
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
+    org_cards: OrgCardsConfig = Field(default_factory=OrgCardsConfig)
     event_logs: EventLogConfig = Field(default_factory=EventLogConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)

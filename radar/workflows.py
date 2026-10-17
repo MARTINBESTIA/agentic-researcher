@@ -72,6 +72,13 @@ ACTIONS: dict[str, Action] = {
         "oslovenia napíše presný model návrh podľa účelu (zákazník, držiteľ dát, expert) iba z overených faktov; kód a "
         "hodnotiteľ skontrolujú dĺžky, čísla, sľuby a pätičku. Nič sa neodosiela – posielaš ručne.",
         "návrhy oslovení na kontrolu", "presný", 60, "selected", needs_lia=True),
+    "org_cards": Action(
+        "Karty organizácií a ponuky",
+        "Pre sústredený zoznam (najviac 3 organizácie, Brána 0 → Doména a prínos), inak najvyššie odporúčané organizácie: "
+        "posúdenie dôkazov voči organizácii → karta (prečo ona, pracovný prípad, prekážka, kto môže konať, dnešné riešenie, "
+        "najviac 3 možnosti, malá skúška, otázky, ponuka) → kontrola kódom a hodnotiteľom (opora / použiteľnosť) → tri "
+        "pripravenosti → ohraničený výskum medzier z verejných zdrojov → ďalšia verzia. Nič sa neodosiela.",
+        "karty organizácií, výskumné úlohy, ponuky pre návrhy oslovení", "presný + hodnotiteľ", 30, "selected"),
     "evidence": Action(
         "Spracovať zásobník dôkazov",
         "Presný model posúdi čakajúce tvrdenia (citát už overil kód), zaradí overené do hypotéz alebo založí nové "
@@ -356,6 +363,12 @@ def _drafts(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("drafts", deadline)
 
 
+def _org_cards(app, deadline: Deadline, run, ids, report_progress) -> None:
+    app.people_ids = ids
+    run("value", deadline.sub(deadline.remaining_minutes() * 0.3))  # spoločný prehľad domény (iba pri zmene)
+    run("org-cards", deadline)
+
+
 def _contacts(app, deadline: Deadline, run, ids, report_progress) -> None:
     app.people_ids = ids
     run("contacts", deadline.sub(deadline.remaining_minutes() * 0.7))
@@ -502,6 +515,7 @@ def _run_all(app, minutes: float, run_stage, report_progress, results: dict[str,
 
 FLOWS: dict[str, Callable[..., None]] = {
     "scout": _scout, "validate": _validate, "people": _people, "drafts": _drafts, "contacts": _contacts,
+    "org_cards": _org_cards,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval, "funnel": _funnel,
 }

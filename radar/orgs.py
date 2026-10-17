@@ -44,8 +44,6 @@ log = logging.getLogger(__name__)
 ICO_RE = re.compile(r"\bI[ČC]O?\b\s*[:.]?\s*(\d{2}\s?\d{3}\s?\d{3}|\d{6})(?!\d)", re.I)
 PROCUREMENT_TERMS = ("prípravné trhové konzultácie", "pripravne trhove konzultacie", "výzva na predkladanie ponúk",
                      "verejné obstarávanie", "súťažné podklady", "zákazka", "oznámenie o vyhlásení")
-ACTIVE_PROCUREMENT = ("prípravné trhové konzultácie", "pripravne trhove konzultacie", "výzva na predkladanie ponúk",
-                      "súťažné podklady", "lehota na predkladanie")
 PROCUREMENT_DOMAINS = ("uvo.gov.sk", "josephine.proebiz.com", "eks.sk", "crz.gov.sk", "eo.eks.sk", "tender.sk")
 # Výsledky vyhľadávania, ktoré sú katalógom alebo rebríčkom firiem, nie webom jednej organizácie.
 DIRECTORY_TITLE = re.compile(r"\b(zoznam|katal[oó]g|najlep[sš]|top\s*\d+|porovnanie|recenzi|firmy\s+v|adres[aá]r|\d+\s+firiem)", re.I)
@@ -405,8 +403,11 @@ class OrgFinder:
                 org_id = self.store(mention.name, "evidence", info, source_url=claim["url"])
                 if org_id is None:
                     continue
-                if self.db.link_org_hypothesis(org_id, hyp["id"], "mentioned_with_problem", claim["id"], claim["url"],
-                                               fit={"dôkaz o probléme": "áno (C%d)" % claim["id"]}):
+                solution = claim["claim_type"] == "existing_solution"
+                relation = "uses_solution" if solution else "mentioned_with_problem"
+                fit = ({"používa riešenie": "C%d – historický problém alebo riešenie, nie potvrdená aktuálna potreba" % claim["id"]}
+                       if solution else {"dôkaz o probléme": "áno (C%d)" % claim["id"]})
+                if self.db.link_org_hypothesis(org_id, hyp["id"], relation, claim["id"], claim["url"], fit=fit):
                     self.stats["linked_evidence"] += 1
 
     # ------------------------------------------------------- zdroj 2: obstarávanie
@@ -441,7 +442,9 @@ class OrgFinder:
                 if not res.ok:
                     self.stats["llm_failures"] += 1
                     continue
-                active = any(fold(t) in fold(text) for t in ACTIVE_PROCUREMENT)
+                from .recipients import assess_procurement
+
+                proc = assess_procurement(r.url, r.title, r.snippet, hyp["title"])
                 for mention in res.value.organizations[:2]:
                     if mention.relation != "affected" or not name_in(mention.name, text):
                         continue
@@ -452,9 +455,15 @@ class OrgFinder:
                     new = self.db.link_org_hypothesis(org_id, hyp["id"], "procured_related", None, r.url,
                                                       fit={"dôkaz o probléme": "obstaráva súvisiacu vec"})
                     self.stats["linked_procurement"] += int(new)
-                    if active:
-                        self.db.set_org_hypothesis(org_id, hyp["id"], procurement_active=1,
-                                                   procurement_note=f"Možné prebiehajúce obstarávanie: {r.url}")
+                    current = self.db.org_hypothesis(org_id, hyp["id"])
+                    if current is not None and current["procurement_status"] == "confirmed" and proc["status"] != "confirmed":
+                        continue  # potvrdený stav neprepíše slabší nález
+                    self.db.set_org_hypothesis(
+                        org_id, hyp["id"], procurement_status=proc["status"],
+                        procurement_active=int(proc["status"] == "confirmed"), procurement_url=r.url,
+                        procurement_subject=proc["subject"], procurement_date=proc["date"],
+                        procurement_note=f"{proc['reason']} · ďalej: {proc['next_step']}")
+                    self.stats[f"procurement_{proc['status']}"] += 1
 
     # ------------------------------------------------------------ zdroj 3: segment
     def segment_filter(self, hyp) -> SegmentFilter | None:

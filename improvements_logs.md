@@ -130,3 +130,15 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   v okolí mena a doslovne uložil. Najprv zmerať na referenčnej vzorke `contact_role`. · 1 deň.
 - **2026-10-15 – autopilot – ladenie podielu zberu a počtu priorít.** 25 % a 3 priority sú pracovné nastavenie z auditu;
   po 2 týždňoch porovnať postup k zákazníkovi (Prehľad) a počet nových hypotéz a upraviť. · 0,5 dňa.
+- **2026-10-17 – karty – živý cielený výskum medzier.** Vyhodnotenie troch kariet bežalo bez SearXNG (Docker nebol
+  spustený); verejné medzery ostali otvorené. Po spustení SearXNG pustiť `org-cards --run --target …` a zmerať, koľko
+  medzier sa reálne zodpovie (nájdené / verejne nezistiteľné) a či rozsah „organizácia“ pri úryvkoch sedí. · 0,5 dňa.
+- **2026-10-17 – karty – názov pracovného prípadu s diakritikou.** `process_key` je slug bez diakritiky („prepis
+  uctovnych dokladov“) a tak sa zobrazuje aj v otázkach medzier; uložiť zvlášť čitateľný názov z výstupu modelu. · 1 h.
+- **2026-10-17 – karty – porovnanie kariet 27B a gpt-6-luna.** Karty vo vyhodnotení písal gpt-6-luna (kópia
+  s presnou rolou v cloude); v hlavnej konfigurácii ide `org_card` na lokálny 27B – zmerať kvalitu (hodnotiaca tabuľka,
+  výhrady kódu a hodnotiteľa) a čas na tých istých troch organizáciách. · 0,5 dňa.
+- **2026-10-17 – karty – overenie obstarávania z konkrétneho záznamu ÚVO.** `assess_procurement` je heuristika nad
+  titulkom a útržkom; s povoleným čítaním vestníka by sa dal overiť predmet a lehota zo stránky záznamu. · 1 deň.
+- **2026-10-17 – karty – pseudonymizácia v porovnaní a exporte.** Kmeňové nahrádzanie názvov radšej nahradí viac;
+  pri reálnom zdieľaní ešte prezrieť názvy produktov (referencie dodávateľov môžu prezradiť organizáciu). · 0,5 dňa.

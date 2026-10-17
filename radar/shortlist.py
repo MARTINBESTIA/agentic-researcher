@@ -23,8 +23,9 @@ from .contact_scout import DEFAULT_ASK, KIND_LABEL, target_ask, target_roles
 from .contacts import is_generic_email
 from .db import DB
 from .people import LINK_STRENGTH
+from .recipients import procurement_of
 
-TIERS = ("oslov najprv", "oslov", "doplň kontakt", "neoslovovať")
+TIERS = ("oslov najprv", "oslov", "doplň kontakt", "preveriť rolu", "neoslovovať")
 GROUP_OF_RELATION = {"data_holder": "data_holder", "expert_org": "expert"}
 LINK_LABEL = {"quoted_about_problem": "verejne o probléme", "role_owner": "vlastník procesu", "data_holder": "drží dáta",
               "process_user": "používateľ (zažíva problém)", "org_affected": "vedenie dotknutej org.",
@@ -100,8 +101,8 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
             blockers.append({"excluded": "vylúčený", "declined": "odmietol"}[link["person_status"]])
         if org is not None and org["excluded"]:
             blockers.append("organizácia vylúčená")
-        if org is not None and "procurement_active" in org.keys() and org["procurement_active"]:
-            blockers.append("prebiehajúce obstarávanie")
+        if org is not None and procurement_of(org)["status"] == "confirmed":
+            blockers.append("prebiehajúce obstarávanie: " + (procurement_of(org)["subject"] or "konkrétny záznam"))
         strong = (link["link_type"] in STRONG_LINKS and (comp.get("role_fit") or 0) >= 0.5) or link["link_type"] == "quoted_about_problem"
         if blockers:
             tier = "neoslovovať"
@@ -145,7 +146,8 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
         target = targets.get(org["target_id"]) if org["target_id"] else None
         roles = target_roles(target) if target is not None else []
         blockers = (["organizácia vylúčená"] if org["excluded"] or org["oh_status"] == "excluded" else []) + (
-            ["prebiehajúce obstarávanie"] if org["procurement_active"] else [])
+            ["prebiehajúce obstarávanie: " + (procurement_of(org)["subject"] or "konkrétny záznam")]
+            if procurement_of(org)["status"] == "confirmed" else [])
         ask = _org_ask(org, targets, group)
         if roles:
             ask = f"Požiadať o nasmerovanie na: {', '.join(roles[:3])}. {ask}"
@@ -153,6 +155,7 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
         why = {"data_holder": f"drží dáta k hypotéze ({fit.get('zdroj dát') or fit.get('cieľ') or 'zdroj Brány 1'})",
                "expert": "expertná organizácia"}.get(group) or {
             "mentioned_with_problem": "organizácia v dôkaze", "quoted_person": "citovaná osoba je z nej",
+            "uses_solution": "používa riešenie (podľa zdroja) – over zostávajúcu medzeru",
             "procured_related": "obstaráva súvisiacu vec", "contact_search": "hľadanie podľa hypotézy",
             "segment_match": "zhoda so segmentom", "manual": "zoznam"}.get(org["relation"], org["relation"])
         rows.append({
@@ -167,11 +170,53 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
             "priorita": None, "väzba_sila": 0.0, "kanál": 0.4, "role_fit": 0.0,
             "person_id": None, "org_id": org["id"], "skupina": group,
         })
+    _recipient_columns(db, hid, rows, orgs)
     rows.sort(key=lambda r: (TIERS.index(r["odporúčanie"]), -r["väzba_sila"], -(r["kanál"] or 0), -(r["role_fit"] or 0),
                              r["organizácia"], r["osoba"]))
     apply_queue(cfg, db, hid, rows)
     _value_columns(db, hid, rows)
     return rows
+
+
+def _recipient_columns(db: DB, hid: int, rows: list[dict[str, Any]], orgs: dict[int, Any]) -> None:
+    """Adresát posúdený zvlášť (zadanie 17. 10. 2026): zhoda so segmentom, stav potreby, používané riešenie, obstarávanie.
+    Zákazník mimo segmentu: s dátovou/expertnou väzbou prejde do tejto roly, inak „preveriť rolu“ (mimo fronty)."""
+    from .recipients import NEED_LABEL, need_state, segment_fit
+
+    hyp = db.get_hypothesis(hid)
+    cards = {}
+    try:
+        for c in db.org_cards_for(hid):
+            cards.setdefault(c["organization_id"], c)
+    except Exception:  # noqa: BLE001 – staršia schéma bez kariet
+        cards = {}
+    for r in rows:
+        org = orgs.get(r["org_id"]) if r["org_id"] else None
+        if org is None and r["org_id"]:
+            org = db.get_organization(r["org_id"])
+        relation = org["relation"] if org is not None and "relation" in org.keys() else None
+        fit = segment_fit(db, org, hyp) if org is not None else {"zhoda": "neznáme", "dôvod": "bez organizácie"}
+        r["zhoda_segmentu"] = f"{fit['zhoda']} – {fit['dôvod']}"
+        r["stav_potreby"] = NEED_LABEL.get(need_state(db, hid, r["org_id"], relation), "")
+        proc = procurement_of(org) if org is not None else {"status": "none"}
+        r["obstarávanie"] = proc["status"] if proc["status"] != "none" else ""
+        if proc["status"] == "candidate":
+            r["dôvody"] += f"; ⚠ obstarávanie neoverené – over na {proc['url'] or 'webe organizácie'} (schválenie čaká)"
+        card = cards.get(r["org_id"])
+        if card is not None:
+            data = json.loads(card["card_json"] or "{}")
+            tools = [(s.get("tool") or {}).get("text") for s in data.get("current_solution") or [] if isinstance(s, dict)]
+            r["riešenie"] = ", ".join(t for t in tools if t) or ""
+        else:
+            r["riešenie"] = "zdroj: používa riešenie" if relation == "uses_solution" else ""
+        if r["skupina"] == "customer" and fit["zhoda"] == "nie" and r["odporúčanie"] != "neoslovovať":
+            if relation in ("data_holder", "expert_org"):
+                r["skupina"] = GROUP_OF_RELATION[relation]
+                r["typ"] = KIND_LABEL.get(r["skupina"], r["skupina"])
+                r["dôvody"] += f"; rola upravená: {fit['dôvod']}"
+            else:
+                r["odporúčanie"] = "preveriť rolu"
+                r["dôvody"] += f"; ⚠ nesúlad so segmentom: {fit['dôvod']}"
 
 
 def _value_columns(db: DB, hid: int, rows: list[dict[str, Any]]) -> None:

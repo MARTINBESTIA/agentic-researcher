@@ -18,7 +18,7 @@ from typing import Callable
 
 from .schema import (
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12,
-    SCHEMA_V13, SCHEMA_V13_OUTREACH, SCHEMA_V14, ESCO_FTS, V1_COLUMNS,
+    SCHEMA_V13, SCHEMA_V13_OUTREACH, SCHEMA_V14, SCHEMA_V15, ESCO_FTS, V1_COLUMNS, V15_COLUMNS,
     V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS, V10_COLUMNS, V12_COLUMNS,
 )
 
@@ -138,9 +138,39 @@ def migrate_v14(conn: sqlite3.Connection) -> None:
         pass
 
 
+def migrate_v15(conn: sqlite3.Connection) -> None:
+    """Od doménového prehľadu ku konkrétnej ponuke (zadanie 17. 10. 2026): posúdenia dôkazov voči cieľu, karty
+    organizácií, výskumné úlohy a väzby návrhu, výsledku a žiadosti o event log na verziu karty (iba pridávanie).
+    Staré nejasné údaje sa označia, nič sa nevymýšľa ani nemaže:
+    - „prebiehajúce obstarávanie“ odvodené zo všeobecnej stránky je kandidát na overenie (nie potvrdený stav),
+    - väzba organizácie z citátu typu existujúce riešenie je „používa riešenie“, nie „problém“,
+    - položka potrebných dát bez odkazu je návrh požadovaného vstupu, nie zdrojový fakt."""
+    conn.executescript(SCHEMA_V15)
+    for table, cols in V15_COLUMNS.items():
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols:
+            if name not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.execute(
+        """UPDATE org_hypotheses SET procurement_status = 'candidate', procurement_active = 0,
+                  procurement_url = TRIM(REPLACE(COALESCE(procurement_note, ''), 'Možné prebiehajúce obstarávanie:', '')),
+                  procurement_note = COALESCE(procurement_note, '') || ' [v15: neoverené – iba stránka obstarávania]'
+           WHERE procurement_active = 1""")
+    conn.execute(
+        """UPDATE org_hypotheses SET relation = 'uses_solution'
+           WHERE relation = 'mentioned_with_problem' AND evidence_claim_id IN (
+             SELECT id FROM claims WHERE claim_type = 'existing_solution')""")
+    conn.execute(
+        """UPDATE domain_claims SET status = 'proposal',
+                  applicability = 'požadovaný vstup – nie zdrojový fakt o dostupnosti dát (označené pri migrácii v15)'
+           WHERE part = 'data' AND status = 'source_fact'
+             AND COALESCE(json_array_length(json_extract(evidence_json, '$.claims')), 0) = 0
+             AND COALESCE(json_array_length(json_extract(evidence_json, '$.evidence')), 0) = 0""")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
                                                           migrate_v6, migrate_v7, migrate_v8, migrate_v9, migrate_v10,
-                                                          migrate_v11, migrate_v12, migrate_v13, migrate_v14]
+                                                          migrate_v11, migrate_v12, migrate_v13, migrate_v14, migrate_v15]
 LATEST = len(MIGRATIONS)
 
 

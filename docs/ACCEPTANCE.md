@@ -281,3 +281,19 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M32 | scenár 16: pôvod zistení (import, hash, mapovanie, verzia analýzy); cudzí text je iba hodnota | `test_review_failure_keeps_report_pending_and_results_traceable` |
 | M32 | čas aktivity iba zo spárovaných start/complete; odchýlka od termínu s významom termínu; snapshot bez sekvencií | `test_activity_time_only_from_unambiguous_pairs_and_deadline_deviation`, `test_snapshot_and_unchecked_import_give_no_sequence_metrics` |
 | M32 | PM4Py voliteľný a overený podľa verzie; GUI Analýza | `test_pm4py_adapter_is_optional_and_version_checked`, `test_eventlog_page_analysis_tab` |
+| M33 | 1: eurofondový postup nie je dôkaz procesu komerčnej kancelárie | `test_m33_org_cards.py::test_eu_funds_accounting_is_not_evidence_of_commercial_firm_process` |
+| M33 | 2: referencia produktu ≠ aktuálny problém, ostáva pri riešeniach; väzba uses_solution | `test_m33_org_cards.py::test_product_reference_is_existing_solution_not_confirmed_current_problem`, `test_org_from_existing_solution_quote_is_linked_as_uses_solution` |
+| M33 | 3: funkcia dodávateľa na porovnanie, úspora sa neprenáša | `test_m33_org_cards.py::test_vendor_feature_is_for_comparison_but_its_savings_do_not_transfer` |
+| M33 | 4: prázdny proces / data_needed bez odkazu → bez falošnej pripravenosti a source_fact | `test_m33_org_cards.py::test_empty_process_or_unreferenced_data_needed_gives_no_false_readiness` |
+| M33 | 5: návrh merania prejde, rovnaký obsah ako fakt bez zdroja nie | `test_m33_org_cards.py::test_reasoned_measurement_proposal_passes_but_same_content_as_unsourced_fact_does_not` |
+| M33 | 6: dve organizácie, rôzne nástroje → odlišné ponuky | `test_m33_org_cards.py::test_two_orgs_with_same_domain_and_different_tools_get_different_offers` |
+| M33 | 7: nesprávny segment nie je zákazník, dátová rola ostáva | `test_m33_org_cards.py::test_wrong_segment_is_not_customer_but_data_or_expert_role_can_stay` |
+| M33 | 8: rozcestník = kandidát (schválenie čaká), konkrétny aktívny záznam = pravidlá | `test_m33_org_cards.py::test_generic_procurement_hub_is_only_candidate_and_specific_active_record_keeps_rules` |
+| M33 | 9: výskum – rozpočet, cache, stop, výpadok bez vymyslenej odpovede | `test_m33_org_cards.py::test_targeted_research_respects_budget_cache_stop_and_keeps_question_on_outage` |
+| M33 | 10: odpoveď jednej organizácie nemení druhú; bez odpovede ≠ vyvrátenie; rozpor po schválení | `test_m33_org_cards.py::test_reply_of_one_org_does_not_change_another_no_reply_is_not_refutation_conflict_after_approval_visible` |
+| M33 | 11: event log iba s časmi → žiadna úspora pracovného času; bez logu iná skúška | `test_m33_org_cards.py::test_timestamps_only_event_log_gives_no_working_time_saving_and_missing_log_allows_other_trial` |
+| M33 | 12: horší než benchmark / zlá sémantika / syntetické → bez tvrdenia o prínose | `test_m33_org_cards.py::test_result_worse_than_benchmark_or_wrong_entity_semantics_cannot_support_benefit_claim` |
+| M33 | 13: migrácia zachová údaje; zmena verzie označí iba závislé | `test_m33_org_cards.py::test_migration_v15_keeps_data_and_version_change_marks_only_dependent_outputs` |
+| M33 | 14: celý tok dôkazy → karta → medzery → skúška → návrh → odpoveď → nová verzia → export | `test_m33_org_cards.py::test_full_flow_evidence_card_gaps_trial_draft_reply_new_version_export` |
+| M33 | GUI: Doména a prínos – karta, pripravenosti, bez volania modelu pri vykreslení | `test_m33_org_cards.py::test_gate0_value_tab_shows_card_answers_readiness_and_no_model_call_on_render` |
+| M33 | súkromie: funkcie ľudí nejdú do cloudu bez povolenia | `test_m33_org_cards.py::test_people_functions_stay_local_when_card_runs_in_cloud_without_personal_data_permission` |

@@ -6,6 +6,7 @@
 - ops.py: provenance volaní modelov, kontrola, labely, benchmark, štatistiky, cache, eval, úlohy,
 - dossier.py: čítanie všetkého k hypotéze pre dosiér (export),
 - value.py: prehľady domén, návrhy prínosu, výsledky oslovení, cloudové náklady a cache,
+- opportunity.py: posúdenia dôkazov voči cieľu, karty organizácií (verzie, pripravenosť) a výskumné úlohy z medzier,
 - domain.py: doménový výskum (stav, podklady, tvrdenia, otázky, mapovanie rolí), lokálny ESCO index,
 - eventlogs.py: žiadosti o event log, importy (udalosti sú v DuckDB organizácie), procesné reporty,
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
@@ -23,6 +24,7 @@ from .evidence import ACTIVE_STATUSES, ASSIGNABLE_STATUSES, EXTRACTABLE_KINDS, H
 from .gate0 import Gate0Mixin
 from .gates import GatesMixin
 from .migrations import LATEST, migrate
+from .opportunity import OpportunityMixin
 from .ops import OpsMixin
 from .themes import ThemesMixin
 from .value import ValueMixin
@@ -39,7 +41,8 @@ __all__ = [
 SCHEMA_VERSION = LATEST
 
 
-class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin):
+class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin,
+         OpportunityMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

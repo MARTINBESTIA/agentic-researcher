@@ -248,6 +248,7 @@ class ModelRouter:
         max_tokens: int | None = None,
         review: bool = False,
         review_detail: dict[str, Any] | None = None,
+        personal: bool = False,
     ) -> TaskResult[T]:
         """Spustí úlohu (k hlasov pri self-consistency). Nikdy nevyhodí LLMError ani timeout.
 
@@ -257,7 +258,9 @@ class ModelRouter:
         """
         route = self.route(task)
         k = route.k
-        if self.is_cloud(route.role) and not self.cloud_allowed(task):
+        # personal=True: podklady obsahujú údaje fyzickej osoby (napr. karta živnostníka) – do cloudu iba s povolením
+        if self.is_cloud(route.role) and (not self.cloud_allowed(task) or
+                                          (personal and not self.cfg.privacy.cloud_personal_data)):
             log.warning("Úloha %s: podklady nesmú ísť do cloudového modelu roly %s (cloud.allowed_tasks, "
                         "privacy.cloud_personal_data) – položka čaká", task, route.role)
             return TaskResult(task=task, undecided=True, reason="cloud_not_allowed", role=route.role, model=route.model)

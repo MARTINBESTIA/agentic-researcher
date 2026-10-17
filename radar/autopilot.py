@@ -33,7 +33,11 @@ PRIORITY: list[tuple[str, int]] = [
     ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30),
 ]
 DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30)]
-ROUND: list[tuple[str, int]] = PRIORITY + DISCOVERY
+# Sústredený režim prípravy oslovení (zadanie 17. 10. 2026, časť E): karty zvolených organizácií a návrhy pred
+# všetkým ostatným; nový všeobecný zber iba zo zvyšného času (bez vyhradeného podielu). Mimo režimu sa karty
+# v autopilote nevytvárajú (iba akciou na žiadosť) – žiadna hromadná regenerácia.
+FOCUS: list[tuple[str, int]] = [("org_cards", 30), ("drafts", 30)]
+ROUND: list[tuple[str, int]] = PRIORITY + DISCOVERY + FOCUS[:1]
 AGING_KEY = "autopilot_aging"  # akcia → počet kôl, v ktorých mala prácu, ale nezmestila sa
 MIN_SLICE = 10  # kratší úsek nemá zmysel (načítanie modelu, prvé kroky)
 GATE1_PER_JOB = 3
@@ -125,6 +129,9 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
         g1 = gate1_ids(db)
         if g1:
             work["gate1"] = "hypotézy " + ", ".join(f"H{i}" for i in g1)
+    focus = focus_work(cfg, db)
+    if focus:
+        work["org_cards"] = focus
     inputs = sorted({r["hypothesis_id"] for r in db.pending_gate1_inputs()})
     if inputs:
         work["gate1-input"] = "tvoje dáta na posúdenie: " + ", ".join(f"H{i}" for i in inputs)
@@ -153,6 +160,26 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     return work
 
 
+def focus_work(cfg: Config, db: DB) -> str:
+    """Práca sústredeného režimu: organizácia bez karty, so zastaranou kartou alebo s otvorenou verejnou medzerou."""
+    from .opportunity import PUBLIC_SOURCES, current_card, focus_settings
+
+    focus = focus_settings(db)
+    if not focus.get("enabled") or not cfg.org_cards.enabled:
+        return ""
+    todo = []
+    for it in focus.get("items") or []:
+        card = current_card(db, it["org_id"], it["hypothesis_id"], it.get("role") or "customer")
+        if card is None:
+            todo.append(f"org {it['org_id']}: bez karty")
+        elif card["stale_reason"]:
+            todo.append(f"org {it['org_id']}: zastaraná karta")
+        elif any(t["status"] == "open" and t["best_source"] in PUBLIC_SOURCES
+                 and t["attempts"] < cfg.org_cards.research_max_attempts for t in db.research_tasks_for(card["id"])):
+            todo.append(f"org {it['org_id']}: otvorené medzery")
+    return ("sústredený režim – " + ", ".join(todo)) if todo else ""
+
+
 def in_hours(window: list[int] | None, when: datetime) -> bool:
     """Je čas `when` (miestny) v okne [od, do)? Okno cez polnoc: od > do. Bez okna vždy áno."""
     if not window or len(window) != 2:
@@ -179,15 +206,23 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
     # starnutie: akcia s prácou, ktorá sa `autopilot_aging_rounds` kôl nezmestila, ide na začiatok kola
     aged = [(kd, m) for kd, m in PRIORITY if kd in work and aging.get(kd, 0) >= wf.autopilot_aging_rounds]
     priority = aged + [(kd, m) for kd, m in PRIORITY if (kd, m) not in aged]
+    focus_on = "org_cards" in work
+    if focus_on:  # karty a návrhy zvolených organizácií prvé (drafts sa nepresúva dvakrát)
+        priority = FOCUS + [(kd, m) for kd, m in priority if kd not in dict(FOCUS)]
     has_priority = any(kd in work for kd, _ in PRIORITY)
     has_discovery = any(kd in work for kd, _ in DISCOVERY)
     reserve = 0.0
-    if has_priority and has_discovery:  # pevný podiel na nový zber; bez inej práce má zber celý čas
+    if has_priority and has_discovery and not focus_on:  # pevný podiel na nový zber; bez inej práce má zber celý čas
         reserve = left * wf.autopilot_discovery_share
         reserve = reserve if reserve >= MIN_SLICE else 0.0
     used = 0.0
     ids_for = {"gate1": gate1_ids(db, wf.autopilot_max_priorities), "people": priority_ids(cfg, db),
                "contacts": priority_ids(cfg, db), "drafts": priority_ids(cfg, db)}
+    if focus_on:
+        from .opportunity import focus_settings
+
+        focus_ids = sorted({it["hypothesis_id"] for it in focus_settings(db)["items"]})
+        ids_for.update(org_cards=focus_ids, drafts=focus_ids)
 
     def plan(kind: str, minutes: int, budget: float) -> float:
         if kind not in work:
@@ -224,7 +259,8 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
              f"#{next_job}" if next_job else "nie", until.isoformat(timespec="minutes"))
     return {"kolo": round_no, "do": until.isoformat(timespec="minutes"), "naplánované": planned,
             "preskočené": skipped, "ďalšie_kolo": next_job, "naplánované_o": utcnow(),
-            "rezerva_na_zber_min": round(reserve), "prioritné_hypotézy": ids_for["people"]}
+            "rezerva_na_zber_min": round(reserve), "prioritné_hypotézy": ids_for["people"],
+            "sústredený_režim": focus_on}
 
 
 def until_for(job, minutes: float) -> datetime:

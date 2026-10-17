@@ -929,3 +929,72 @@ CREATE TABLE IF NOT EXISTS process_reports (  -- procesný report z importu (iba
 );
 """
 ESCO_FTS = "CREATE VIRTUAL TABLE IF NOT EXISTS esco_fts USING fts5(uri UNINDEXED, lang UNINDEXED, norm)"
+
+# v15 (zadanie 17. 10. 2026 – od doménového prehľadu ku konkrétnej ponuke): posúdenie použiteľnosti dôkazu voči cieľu
+# (doména alebo karta organizácie), karta organizácie s verziou a výskumné úlohy z medzier karty. Pridávanie stĺpcov
+# a tabuliek; staré prehľady, návrhy, poznámky a odpovede ostávajú.
+SCHEMA_V15 = """
+CREATE TABLE IF NOT EXISTS evidence_assessments (  -- použiteľnosť zdroja voči konkrétnemu cieľu (metadáta zdroja ostávajú v claims/documents)
+  id INTEGER PRIMARY KEY,
+  target_key TEXT NOT NULL,                   -- domain:<kľúč> | card:<org>:<hypotéza>:<proces>:<rola>
+  claim_id INTEGER REFERENCES claims(id) ON DELETE CASCADE,
+  domain_evidence_id INTEGER REFERENCES domain_evidence(id) ON DELETE CASCADE,
+  organization_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,  -- o kom zdroj hovorí (ak je známe)
+  publisher_type TEXT,                        -- government | media | research | association | vendor | other
+  meaning TEXT NOT NULL,                      -- problem | process | existing_solution | product_feature | post_deployment | counterargument | context
+  relevance TEXT NOT NULL,                    -- direct | analogy | context | unrelated | unclear
+  relevance_reason TEXT,
+  need_state TEXT NOT NULL DEFAULT 'unknown', -- current_confirmed | historical | solved_per_source | unknown
+  process TEXT, role TEXT, program TEXT, jurisdiction TEXT,
+  published_at TEXT, event_period TEXT, retrieved_at TEXT,  -- samostatné dátumy; neznáme ostávajú prázdne
+  assessed_by TEXT NOT NULL,                  -- code | model | human
+  model TEXT, logic_version TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (target_key, claim_id, domain_evidence_id, logic_version)
+);
+CREATE INDEX IF NOT EXISTS idx_assess_target ON evidence_assessments(target_key);
+CREATE TABLE IF NOT EXISTS org_cards (         -- karta organizácie: organizácia + hypotéza + pracovný prípad + rola adresáta
+  id INTEGER PRIMARY KEY,
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  process_key TEXT NOT NULL,                  -- krátky kľúč pracovného prípadu (jedna organizácia môže mať viac kariet)
+  recipient_role TEXT NOT NULL,               -- customer | data_holder | expert (+ voliteľná funkcia v card_json)
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,                       -- draft | checked | needs_review | pending_review | stale | superseded | edited
+  card_json TEXT NOT NULL, sources_json TEXT, checks_json TEXT, readiness_json TEXT, evaluation_json TEXT,
+  selected_option INTEGER,                    -- vybraná možnosť riešenia / skúška (človek)
+  brief_id INTEGER REFERENCES domain_briefs(id) ON DELETE SET NULL,
+  inputs_hash TEXT NOT NULL, schema_version TEXT, prompt_version TEXT, policy_version TEXT,
+  provider TEXT, model TEXT,
+  stale_reason TEXT, conflict_json TEXT,       -- nový rozpor (napr. odpoveď po schválení) – zobrazí sa aj pri schválenej karte
+  approved_at TEXT, author TEXT NOT NULL DEFAULT 'model',  -- model | human (ručná oprava = nová verzia)
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_org_cards ON org_cards(organization_id, hypothesis_id, process_key, recipient_role, version);
+CREATE TABLE IF NOT EXISTS research_tasks (    -- cielené doplnenie medzery karty (otázka → zdroj → výsledok)
+  id INTEGER PRIMARY KEY,
+  card_id INTEGER NOT NULL REFERENCES org_cards(id) ON DELETE CASCADE,
+  question TEXT NOT NULL, gap_part TEXT,
+  decision_changed TEXT NOT NULL,             -- recipient | solution | trial
+  best_source TEXT NOT NULL,                  -- public_doc | tool_docs | contact | sample | event_log
+  queries_json TEXT,
+  status TEXT NOT NULL DEFAULT 'open',        -- open | found | partial | conflict | not_public | unavailable
+  result_json TEXT, sources_json TEXT, next_step TEXT,
+  priority INTEGER NOT NULL DEFAULT 2, attempts INTEGER NOT NULL DEFAULT 0, cost_json TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_tasks_card ON research_tasks(card_id);
+"""
+V15_COLUMNS = {
+    "value_proposals": [("card_id", "INTEGER REFERENCES org_cards(id) ON DELETE SET NULL"), ("card_version", "INTEGER"),
+                        ("recipient_role", "TEXT"), ("stale_reason", "TEXT")],
+    "outreach_outcomes": [("card_id", "INTEGER REFERENCES org_cards(id) ON DELETE SET NULL"), ("card_version", "INTEGER"),
+                          ("question_id", "INTEGER"), ("team_role", "TEXT"), ("last_case", "TEXT"), ("frequency", "TEXT"),
+                          ("tool_used", "TEXT"), ("unsolved_part", "TEXT"), ("process_owner", "TEXT"),
+                          ("buying_process", "TEXT"), ("data_availability", "TEXT"), ("decline_reason", "TEXT"),
+                          ("needs_human_review", "INTEGER NOT NULL DEFAULT 0"), ("source", "TEXT")],
+    "org_hypotheses": [("procurement_status", "TEXT"), ("procurement_subject", "TEXT"), ("procurement_date", "TEXT"),
+                       ("procurement_url", "TEXT"), ("procurement_checked_at", "TEXT"), ("segment_fit_json", "TEXT")],
+    "eventlog_requests": [("card_id", "INTEGER REFERENCES org_cards(id) ON DELETE SET NULL")],
+    "outreach": [("card_id", "INTEGER"), ("card_version", "INTEGER")],
+}

@@ -21,6 +21,7 @@ PERSON_FIELDS = {
 OUTREACH_FIELDS = {
     "subject", "body", "facts_json", "checks_json", "status", "approved_at", "sent_at", "follow_up_due",
     "follow_up_count", "contact_point_id", "mode", "proposal_id", "package_json", "readiness", "message_version",
+    "card_id", "card_version",
 }
 PERSON_STATUSES = ("candidate", "approved", "contacted", "replied", "interviewed", "declined", "excluded")
 OUTREACH_STATUSES = (
@@ -29,8 +30,8 @@ OUTREACH_STATUSES = (
 )
 # Poradie dôvodov zaradenia organizácie (R-ORG-5): nižšie číslo = vyššia priorita. data_holder (drží dáta k hypotéze),
 # contact_search (zákazník z hľadania podľa hypotézy) a expert_org (zväz, výskum, watchdog) pribudli v schéme v10.
-RELATION_RANK = {"mentioned_with_problem": 0, "quoted_person": 1, "procured_related": 2, "data_holder": 3,
-                 "contact_search": 4, "segment_match": 5, "expert_org": 6, "manual": 7}
+RELATION_RANK = {"mentioned_with_problem": 0, "quoted_person": 1, "uses_solution": 2, "procured_related": 2,
+                 "data_holder": 3, "contact_search": 4, "segment_match": 5, "expert_org": 6, "manual": 7}
 CONTACT_TARGET_KINDS = ("customer", "data_holder", "expert")
 
 
@@ -123,12 +124,15 @@ class Gate0Mixin:
         return False
 
     def set_org_hypothesis(self, org_id: int, hid: int, **fields: Any) -> None:
-        allowed = {"status", "procurement_active", "procurement_note", "fit_json"}
+        allowed = {"status", "procurement_active", "procurement_note", "fit_json", "procurement_status",
+                   "procurement_subject", "procurement_date", "procurement_url", "procurement_checked_at",
+                   "segment_fit_json", "relation"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"Neznáme polia: {bad}")
-        if "fit_json" in fields and not isinstance(fields["fit_json"], str):
-            fields["fit_json"] = _dumps(fields["fit_json"])
+        for key in ("fit_json", "segment_fit_json"):
+            if key in fields and fields[key] is not None and not isinstance(fields[key], str):
+                fields[key] = _dumps(fields[key])
         sets = ", ".join(f"{k} = ?" for k in fields)
         self._exec(f"UPDATE org_hypotheses SET {sets} WHERE org_id = ? AND hypothesis_id = ?", (*fields.values(), org_id, hid))
 
@@ -138,7 +142,9 @@ class Gate0Mixin:
         rank = " ".join(f"WHEN '{k}' THEN {v}" for k, v in RELATION_RANK.items())
         return self._all(
             f"""SELECT o.*, oh.relation, oh.evidence_claim_id, oh.evidence_url, oh.fit_json, oh.status AS oh_status,
-                       oh.procurement_active, oh.procurement_note, oh.hypothesis_id, oh.target_id
+                       oh.procurement_active, oh.procurement_note, oh.hypothesis_id, oh.target_id,
+                       oh.procurement_status, oh.procurement_subject, oh.procurement_date, oh.procurement_url,
+                       oh.segment_fit_json
                 FROM org_hypotheses oh JOIN organizations o ON o.id = oh.org_id
                 WHERE oh.hypothesis_id = ? {excl}
                 ORDER BY CASE oh.relation {rank} ELSE 9 END, o.website_verified DESC, o.id""",
@@ -472,6 +478,8 @@ class Gate0Mixin:
         proposal_id: int | None = None,
         package: dict[str, Any] | None = None,
         readiness: str | None = None,
+        card_id: int | None = None,
+        card_version: int | None = None,
     ) -> int:
         """Oslovenie osoby, alebo organizácie cez funkčný kontakt (person_id None, org_id povinné)."""
         if person_id is None and org_id is None:
@@ -483,10 +491,11 @@ class Gate0Mixin:
         cur = self._exec(
             """INSERT INTO outreach (person_id, org_id, hypothesis_id, contact_point_id, channel, variant, subject, body,
                                      facts_json, checks_json, status, created_at, updated_at, mode, proposal_id,
-                                     package_json, readiness)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                     package_json, readiness, card_id, card_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (person_id, org_id, hid, contact_point_id, channel, variant, subject, body, _dumps(facts), _dumps(checks),
-             status, now, now, mode, proposal_id, _dumps(package) if package is not None else None, readiness),
+             status, now, now, mode, proposal_id, _dumps(package) if package is not None else None, readiness,
+             card_id, card_version),
         )
         return int(cur.lastrowid)
 
@@ -517,6 +526,12 @@ class Gate0Mixin:
         if hid is None:
             return self._all("SELECT * FROM outreach WHERE person_id = ? ORDER BY id", (person_id,))
         return self._all("SELECT * FROM outreach WHERE person_id = ? AND hypothesis_id = ? ORDER BY id", (person_id, hid))
+
+    def delete_procurement_placeholders(self, org_id: int, hid: int) -> int:
+        """Zástupné riadky „návrh sa nevytvoril – obstarávanie“ (bez obsahu) po zmene stavu obstarávania."""
+        return self._exec("""DELETE FROM outreach WHERE org_id = ? AND hypothesis_id = ? AND status = 'blocked'
+                             AND sent_at IS NULL AND subject IS NULL AND body LIKE 'Návrh sa nevytvoril: organizácia možno%'""",
+                          (org_id, hid)).rowcount
 
     def outreach_for_org(self, org_id: int, hid: int | None = None) -> list[sqlite3.Row]:
         """Oslovenia organizácie cez funkčný kontakt (bez osoby)."""

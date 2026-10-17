@@ -32,6 +32,14 @@ FLAGS = {"sample_obtained": "vzorka dát", "interview_agreed": "rozhovor dohodnu
          "pilot_agreed": "pilot dohodnutý", "value_shown": "preukázaná hodnota", "paid": "platené"}
 STATUS_FOR_REPLY = {"relevant": "replied", "redirect": "replied", "not_relevant": "replied", "declined": "declined"}
 FINAL_STATUSES = {"interviewed", "declined", "bounced", "blocked"}
+# Dôvod nezáujmu (zadanie 17. 10. 2026, časť F): odmietnutie nie je automaticky vyvrátenie problému
+DECLINE_REASONS = {"no_problem": "problém neexistuje", "already_solved": "už vyriešené", "wrong_recipient": "nesprávny adresát",
+                   "low_priority": "nízka priorita", "budget": "rozpočet", "unfit_offer": "nevhodná ponuka", "other": "iné",
+                   "unknown": "nezistené"}
+# Štruktúrované časti odpovede (podľa dostupnosti; prázdne = nezistené)
+STRUCTURED = {"team_role": "tím / rola", "last_case": "posledný prípad", "frequency": "frekvencia",
+              "tool_used": "používaný nástroj", "unsolved_part": "nevyriešená časť", "process_owner": "vlastník procesu",
+              "buying_process": "spôsob rozhodovania o kúpe", "data_availability": "dostupnosť dát"}
 BRIEF_REASON_KEY = "brief_update_reasons"  # doména → dôvod ďalšej verzie prehľadu („odpoveď kontaktu …“)
 
 
@@ -76,10 +84,15 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
                    person_id: int | None = None, org_id: int | None = None, reply: str = "none",
                    problem_relevance: str | None = None, rejection_reason: str = "", next_action: str = "",
                    note: str = "", prep_minutes: float | None = None, delivery_days: float | None = None,
-                   answers: dict[int, dict[str, Any]] | None = None, **flags: bool) -> dict[str, Any]:
+                   answers: dict[int, dict[str, Any]] | None = None, card_id: int | None = None,
+                   question_id: int | None = None, decline_reason: str | None = None, structured: dict[str, str] | None = None,
+                   source: str = "human", contradicts: bool = False, **flags: bool) -> dict[str, Any]:
     """Zapíše výsledok oslovenia (ručne zadaný človekom) a premietne ho do stavu oslovenia, potreby a prehľadu.
     answers: odpovede na otázky domény {id otázky: {"text": …, "contradicts": bool}} – otázka sa uzavrie s históriou
-    a vznikne tvrdenie „uviedol kontakt“ (výpoveď, nie meraný výsledok)."""
+    a vznikne tvrdenie „uviedol kontakt“ (výpoveď, nie meraný výsledok).
+    v15: odpoveď sa viaže na organizáciu, tím/rolu, otázku a verziu karty; štruktúrované časti (`structured`), dôvod
+    nezáujmu; automaticky vyťažené (source != human) ide na kontrolu človekom. Na obnovu sa označia iba karty a návrhy
+    tejto organizácie; nová odpoveď proti schválenej karte je viditeľný rozpor."""
     from .outreach import set_status
     from .value import brief_inputs
 
@@ -101,6 +114,21 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
     for value, label in ((prep_minutes, "čas prípravy"), (delivery_days, "čas dodania")):
         if value is not None and value < 0:
             raise OutcomeError(f"{label} nemôže byť záporný.")
+    if decline_reason not in (None, "", *DECLINE_REASONS):
+        raise OutcomeError(f"Neznámy dôvod nezáujmu {decline_reason!r}.")
+    bad = set(structured or {}) - set(STRUCTURED)
+    if bad:
+        raise OutcomeError(f"Neznáme časti odpovede: {', '.join(sorted(bad))}.")
+    card_version = None
+    if card_id is None and row is not None and "card_id" in row.keys():
+        card_id = row["card_id"]
+    if card_id:
+        card = db.get_org_card(card_id)
+        if card is None:
+            raise OutcomeError("Karta organizácie neexistuje.")
+        if org_id and card["organization_id"] != org_id:
+            raise OutcomeError("Karta patrí inej organizácii – odpoveď jednej organizácie nemení kartu druhej.")
+        card_version = card["version"]
     key = brief_inputs(db, hid)[0]
     before = brief_inputs(db, hid)[-1]
     outcome_id = db.add_outcome(
@@ -109,7 +137,11 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
         message_version=row["message_version"] if row is not None else None, reply=reply,
         problem_relevance=problem_relevance or None, rejection_reason=(rejection_reason or "").strip() or None,
         next_action=(next_action or "").strip() or None, note=mask_text((note or "").strip()) or None,
-        prep_minutes=prep_minutes, delivery_days=delivery_days, **{k: bool(v) for k, v in flags.items()})
+        prep_minutes=prep_minutes, delivery_days=delivery_days, card_id=card_id, card_version=card_version,
+        question_id=question_id, decline_reason=decline_reason or None, source=source,
+        needs_human_review=int(source != "human"),
+        **{k: mask_text(str(v).strip())[:500] for k, v in (structured or {}).items() if str(v or "").strip()},
+        **{k: bool(v) for k, v in flags.items()})
     result: dict[str, Any] = {"id": outcome_id}
     if answers:
         from .domain import record_answer
@@ -125,6 +157,13 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
             result["stav_oslovenia"] = new
     kind = recipient_kind(db, outreach_id)
     result["potreba"] = refresh_need_status(db, hid, kind)
+    try:
+        from .opportunity import on_outcome
+
+        result["karty"] = on_outcome(cfg, db, hid, org_id, outcome_id, contradicts=contradicts or any(
+            (a or {}).get("contradicts") for a in (answers or {}).values()))
+    except Exception as exc:  # noqa: BLE001 – staršia schéma bez kariet: zápis odpovede sa nesmie stratiť
+        result["karty"] = {"chyba": type(exc).__name__}
     if brief_inputs(db, hid)[-1] != before:  # potvrdenie/vyvrátenie mení podklady prehľadu domény
         reasons = db.get_setting(BRIEF_REASON_KEY, {}) or {}
         reasons[key] = f"odpoveď kontaktu (výsledok #{outcome_id}: {RELEVANCE.get(problem_relevance or '', '')})"

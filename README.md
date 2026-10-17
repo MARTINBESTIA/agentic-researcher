@@ -135,6 +135,11 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    podľa typu (zákazník, držiteľ dát, expert), „Chcem osloviť“, odkaz `mailto:`. Tu je aj plán kontaktov
    (dá sa navrhnúť znova) a **pridanie kontaktu zo stránky** (URL + meno; meno aj kontakt overí kód na
    stránke) – rovnako `python -m radar contacts-add --hypothesis 1 --url … --name "…" --kind data`.
+   **v15:** stĺpce *zhoda so segmentom*, *stav potreby*, *riešenie* a *obstarávanie*; zákazník mimo segmentu (napr.
+   NBS pri malých realitných kanceláriách) ide do úrovne **„preveriť rolu“** mimo fronty, s dátovou alebo expertnou
+   väzbou ostane v tej roli. Všeobecná stránka obstarávania je iba **kandidát**: návrh smie vzniknúť, schválenie čaká,
+   kým v sekcii „Obstarávanie na overenie“ označíš *nič súvisiace neprebieha* alebo *potvrdené* (potom iba oficiálna
+   cesta).
 4. **GUI → Ľudia a kontakty:** karta „Všetky problémy“ = ľudia a firmy ku všetkým vybraným problémom
    so značkami (citovaný v dôkaze, rola sedí, web overený, IČO v RPO, zdroj zaradenia firmy,
    zverejnený kontakt, LinkedIn, expert, obstarávanie), e-mailom, telefónom a odkazom na LinkedIn.
@@ -159,6 +164,17 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    sa namapujú na kandidátne povolania (nejednoznačné vyberieš v GUI); a web cez SearXNG: najviac 6 dopytov,
    10 stránok a 15 doslovných úryvkov na doménu (bez e-mailov a telefónov). Ručne: `python -m radar domain-research
    --hypothesis 1`.
+   **Karta organizácie (v15, `docs/organization_opportunities.md`):** v tej istej záložke vyber organizáciu a rolu →
+   *Vytvoriť / obnoviť kartu* → *Spustiť akciu Karty organizácií* (úloha na pozadí). Karta odpovie na päť otázok
+   (komu pomáham → v akom úkone → čo sa zmení → aký minimálny vstup → ako overíme prínos), ukáže tri nezávislé
+   pripravenosti (**na rozhovor / na návrh skúšky / na tvrdenie o prínose**), ďalší krok, hodnotenie položiek
+   (jasné s podkladom / jasná hypotéza / chýba / rozpor), dôkazy s relevantnosťou pre túto organizáciu a medzery
+   s cieleným výskumom (iba verejné zdroje; interné otázky idú do rozhovoru). Každý výrok má stav poznania; všeobecný
+   fakt o odvetví je pre organizáciu hypotéza, úspora dodávateľa sa neprenáša, referencia „používa produkt“ nie je
+   aktuálny problém. Ručná oprava = nová verzia; odpoveď zapísaná ku karte označí na obnovu iba karty tejto
+   organizácie. **Sústredený režim** (najviac 3 organizácie): autopilot najprv dopĺňa ich karty a návrhy. CLI:
+   `python -m radar org-cards --run --target 4:4 --target 100:4` (ORG:HYP), `--list`, `--export exports/karty.md`,
+   `--compare reports/porovnanie.md`, `--focus on --hypothesis 4 --org 4`.
 6. **`drafts`** → **GUI → Oslovenia:** návrh podľa účelu – **zákazník** (rozhovor o skúsenosti, prípadne
    ponuka malého výstupu), **držiteľ dát** (vysvetlenie polí, vzorka), **expert** (posúdenie postupu),
    **pilot** až po potvrdení problému kontaktom; aj organizácia cez funkčný kontakt bez vymyslenej osoby.
@@ -166,7 +182,9 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
    bezplatné. O platenom používaní by sme sa dohodli až vtedy, keď by riešenie fungovalo vo vašej
    prevádzke a preukázateľne vám prinášalo hodnotu.“ (`outreach.value_offer`). Každý návrh ukazuje
    reťazec prečo tento kontakt → predpokladaná potreba → čo môže dostať → čo minimálne potrebuješ → čo
-   ešte nevieme a pripravenosť: **chýba podklad o kontakte** (zdroj dôvodu výberu – schválenie zablokované),
+   ešte nevieme (v15: **ponuka zákazníkovi pochádza z karty jeho organizácie** s verziou; bez karty iba situačná
+   otázka, všeobecný návrh hypotézy je len označený podklad) a pripravenosť: **obstarávanie neoverené** (schválenie
+   čaká na tvoje overenie), **chýba podklad o kontakte** (zdroj dôvodu výberu – schválenie zablokované),
    **čaká na hodnotiteľa** (napr. výpadok Azure; môžeš potvrdiť „Skontroloval som ručne“), **návrh na tvoju
    kontrolu**, **pripravené na ručné odoslanie**, **blokované** (odmietnutie, potlačenie, vylúčená organizácia).
    Prvé oslovenie má jednu hlavnú otázku; ostatné sú v „Príprave rozhovoru“. E-mail (varianty A podľa dôkazu

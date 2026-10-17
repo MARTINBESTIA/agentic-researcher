@@ -21,6 +21,15 @@ def _world(tmp_path, sender=REAL_SENDER):
                                             "ktoré zákazky urgovať", "minimum_input": "vysvetlenie polí termínov",
                                             "limitations": "nevieme, či majú pôvodný plán"},
                           need_status="hypothesis", status="checked")
+    # v15 (zadanie 17. 10. 2026): ponuka zákazníkovi pochádza z karty jeho organizácie – bez karty iba situačná otázka
+    db.add_org_card(org_id, hid, "urgovanie-dodavok", "customer", {
+        "obstacle": {"observed": [{"text": "Plánovač možno ručne urguje dodávky.", "kind": "hypothesis",
+                                   "rationale": "segment", "falsify": "neurgujú"}]},
+        "authority": {"what_changes": {"text": "ktoré zákazky urgovať", "kind": "hypothesis"}},
+        "partner_ask": {"first_step": "vysvetlenie polí termínov"},
+        "offer": {"deliverable": "prehľad odchýlok dodania", "open_questions": ["nevieme, či majú pôvodný plán"]},
+        "main_question": {"text": "Kedy ste naposledy ručne urgovali dodávku?", "decision_changed": "adresát"}},
+        inputs_hash="test", status="checked")
     urad, _ = db.upsert_organization("Štatistický úrad", "statisticky urad", "gate1_source", sector_kind="public",
                                      website="https://urad.sk/")
     dh = db.insert_person(urad, "Eva Dátová", "eva datova", "https://urad.sk/k", "Eva Dátová, analytička", hid,
@@ -151,7 +160,8 @@ def test_public_recipient_gets_no_offer_terms_and_fact_ids_never_reach_the_text(
         "zdržania pri príprave projektov. Chcem sa opýtať na prípad."
     ministry, _ = db.upsert_organization("Ministerstvo investícií", "ministerstvo investicii", "evidence",
                                          website="https://ministerstvo-x.gov.sk/")
-    db.link_org_hypothesis(ministry, hid, "segment_match")
+    # v15: ministerstvo nie je zákazník súkromného segmentu (nesúlad → „preveriť rolu“); ako držiteľ dát ostáva
+    db.link_org_hypothesis(ministry, hid, "data_holder")
     db.add_contact_point(None, ministry, "email", "kontakt@ministerstvo-x.gov.sk", "https://ministerstvo-x.gov.sk/kontakt",
                          "kontakt@ministerstvo-x.gov.sk", "regex", True)
     rec.responses["DraftOut"] = {"subject": "Otázka (F1)", "body": CORE + " Podľa správy (F1, F2) to trvá.",

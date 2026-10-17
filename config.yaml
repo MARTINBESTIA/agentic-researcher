@@ -424,6 +424,24 @@ domain_research:
   esco_fallback_language: en
   max_role_candidates: 5
 
+# ---------------------------------------------------------------- karty organizácií (zadanie 17. 10. 2026)
+# Karta = organizácia × hypotéza × pracovný prípad × rola adresáta (docs/organization_opportunities.md). Nová verzia
+# vzniká iba pri zmene vstupov alebo na tvoju žiadosť; zmena verzie promptu/politiky kartu iba označí ako zastaranú.
+org_cards:
+  enabled: true
+  model_relevance: false           # spresnenie relevantnosti dôkazov rýchlym modelom (strop pravidiel kódu neprekročí)
+  max_evidence: 25                 # citátov do karty aj prehľadu domény (po skupinách, rôznorodosť)
+  per_document: 2                  # najviac 2 citáty z jedného dokumentu
+  focus_max_orgs: 3                # sústredený režim prípravy oslovení: najviac 3 organizácie naraz
+  max_options: 3                   # možnosti riešenia na karte
+  max_interview_questions: 5
+  research_max_tasks_per_card: 3   # cielený výskum medzier – iba verejné zdroje (interné otázky idú na kontakt)
+  research_max_queries_per_task: 2
+  research_max_documents_per_task: 3
+  research_max_seconds_per_card: 300
+  research_max_attempts: 1         # úloha sa po pokuse neopakuje (výpadok = zdroj nedostupný, otázka ostáva)
+  research_model_calls: true       # posúdenie nájdených úryvkov modelom (gap_answer); false = iba uložiť úryvky
+
 # ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)
 # Dáta organizácie sú v oddelenom DuckDB súbore (data/eventlogs/org_<id>.duckdb), nikdy spolu s verejným korpusom
 # a predvolene neopúšťajú počítač. Import nič nemaže potichu: problémové riadky sa označia a report kvality povie,

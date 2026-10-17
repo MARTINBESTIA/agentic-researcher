@@ -50,7 +50,12 @@ ACCOMPANYING = ["stručný dátový slovník (význam polí a hodnôt)", "defin�
 ALTERNATIVES = {"walkthrough": "prehliadka posledného konkrétneho prípadu počas rozhovoru",
                 "state_schema": "opis stavov a schéma systému (aktuálny stav, nie história)",
                 "aggregate_report": "existujúci agregovaný report",
-                "manual_logging": "dohodnuté krátke manuálne zaznamenávanie krokov"}
+                "manual_logging": "dohodnuté krátke manuálne zaznamenávanie krokov",
+                "documents": "niekoľko vhodných dokumentov a ich správny výsledok (pri vyťažovaní dokladov)"}
+# Otázka karty, na ktorú event log odpovedá: poradie a trvanie krokov, čakanie, vrátenia, termíny (nie obsah dokladov)
+CARD_LOG_RE = re.compile(r"priebeh|poradi|trvan|čakan|odstup|lehot|termín|mešk|vráten|opakovan|odovzd|schvaľovan|"
+                         r"koľko dní|ako dlho", re.I)
+DOCUMENT_RE = re.compile(r"doklad|faktúr|vyťaž|prepis|rozpozn|ocr|dokument", re.I)
 REQUEST_STATUS = {"draft": "návrh", "sent": "odoslané", "received": "prijaté", "not_available": "event log nemajú",
                   "alternative": "dohodnutá alternatíva", "declined": "odmietnuté"}
 FIT_RE = re.compile(r"priebeh|proces|krok|mešk|oneskor|termín|lehot|opakov|schvaľ|odovzd|čakan|dĺžk|trvan|vybav|"
@@ -87,6 +92,24 @@ def event_log_fit(db: DB, hid: int) -> tuple[bool, str]:
                    "cenník, záznamy o kvalite údajov); event log žiadaj iba s vlastným zdôvodnením")
 
 
+def card_log_need(card: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    """Potrebuje karta event log? Iba ak ním vie odpovedať na jej konkrétnu otázku (poradie, trvanie, čakanie,
+    vrátenia, termíny). Inak primeraná alternatíva – pri vyťažovaní dokladov vhodné dokumenty a správny výsledok.
+    Vráti (potrebný, dôvod, alternatívy)."""
+    trial = card.get("trial") or {}
+    questions = [(card.get("main_question") or {}).get("text") or ""] + [
+        q.get("text") or "" for q in card.get("interview_questions") or []]
+    text = " ".join([trial.get("metric") or "", trial.get("input") or "", trial.get("comparison") or ""] + questions)
+    hits = sorted({m.group(0).lower() for m in CARD_LOG_RE.finditer(text)})
+    alternatives = ["walkthrough", "manual_logging"]
+    if DOCUMENT_RE.search(text) and not hits:
+        return False, "otázka karty je o obsahu dokladov, nie o priebehu – stačia vhodné dokumenty a správny výsledok", [
+            "documents", "walkthrough"]
+    if hits:
+        return True, "otázku karty („" + ", ".join(hits[:3]) + "“) vie zodpovedať história udalostí", alternatives
+    return False, "otázka karty nepotrebuje históriu udalostí – najprv rozhovor o poslednom konkrétnom prípade", alternatives
+
+
 def _org(db: DB, org_id: int | None):
     return db.get_organization(org_id) if org_id else None
 
@@ -114,12 +137,28 @@ def request_text(row, org, commercial: bool, policy: str | None) -> tuple[str, s
 
 
 def build_request(cfg: Config, db: DB, hid: int, org_id: int | None, case_definition: str = "",
-                  outreach_id: int | None = None, step: int = 1, why: str = "", process_scope: str = "") -> int:
+                  outreach_id: int | None = None, step: int = 1, why: str = "", process_scope: str = "",
+                  card_id: int | None = None) -> int:
     """Žiadosť o event log s účelom, definíciou prípadu, minimálnou schémou, malým prvým krokom, prínosom
-    a neznámymi. Pri nevhodnej hypotéze iba s vlastným zdôvodnením (`why`)."""
+    a neznámymi. Pri nevhodnej hypotéze iba s vlastným zdôvodnením (`why`). S kartou organizácie (v15) iba vtedy,
+    keď log odpovedá na jej otázku; prípad, výstup a rozsah sa berú z karty."""
     from .domain import BLOCKS
     from .value import best_proposal, domain_of
 
+    card = None
+    if card_id is not None:
+        row = db.get_org_card(card_id)
+        if row is None or (org_id and row["organization_id"] != org_id):
+            raise EventLogError("Karta neexistuje alebo patrí inej organizácii.")
+        card = json.loads(row["card_json"] or "{}")
+        need, need_why, alts = card_log_need(card)
+        if not need and not why.strip():
+            raise EventLogError(need_why + ". Alternatívy: " + "; ".join(ALTERNATIVES[a] for a in alts))
+        org_id = row["organization_id"]
+        why = why.strip() or need_why
+        unit = ((card.get("work_case") or {}).get("unit") or {}).get("text") or ""
+        case_definition = case_definition or unit
+        process_scope = process_scope or row["process_key"]
     fit, fit_why = event_log_fit(db, hid)
     if not fit and not why.strip():
         raise EventLogError(fit_why)
@@ -129,7 +168,7 @@ def build_request(cfg: Config, db: DB, hid: int, org_id: int | None, case_defini
         fields.append(DUE_FIELD)
     proposal = best_proposal(db, hid, "customer")
     p = json.loads(proposal["proposal_json"]) if proposal is not None else {}
-    output = p.get("deliverable") or DEFAULT_OUTPUT
+    output = ((card or {}).get("trial") or {}).get("output") or p.get("deliverable") or DEFAULT_OUTPUT
     key = domain_of(db, hid)[0]
     unknowns = ["či systém uchováva históriu krokov (nie iba aktuálny stav)", "časová zóna a presnosť časov",
                 "otvorené a odrezané prípady vo výbere"]
@@ -142,7 +181,7 @@ def build_request(cfg: Config, db: DB, hid: int, org_id: int | None, case_defini
                                                                            "požiadavka": "k exportu",
                                                                            "význam": "; ".join(ACCOMPANYING)}],
         sample_scope=FIRST_STEP if step == 1 else SECOND_STEP, intended_output=output,
-        why_event_log=why.strip() or fit_why, unknowns_json=unknowns, status="draft")
+        why_event_log=why.strip() or fit_why, unknowns_json=unknowns, status="draft", card_id=card_id)
 
 
 def request_markdown(row) -> str:

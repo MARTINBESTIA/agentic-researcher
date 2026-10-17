@@ -432,6 +432,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "topics": ["collect", "screen", "extract", "verify-code", "source-types", "embed", "verify", "cluster", "report"],
         "critique": ["critique", "market"],
         "drafts": ["value", "drafts"],
+        "org_cards": ["value", "org-cards"],  # v15: karty organizácií (zadanie 17. 10. 2026)
         "contacts": ["contacts", "profiles"],
         "gate1": ["gate1-fields", "gate1-sources", "gate1-check", "gate1-datasets", "gate1-bindings", "gate1-repro", "gate1-user",
                   "gate1-finish"],

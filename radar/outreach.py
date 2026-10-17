@@ -477,15 +477,25 @@ def need_confirmed(db: DB, hid: int, person_id: int | None, org_id: int | None) 
 
 
 def build_package(cfg: Config, db: DB, hid: int, row: dict[str, Any], mode: str, org) -> tuple[dict[str, Any], str | None, str]:
-    """Reťazec „prečo tento kontakt → predpokladaná potreba → výstup → minimálny vstup“ pre návrh (z kontaktu,
-    návrhu prínosu a prehľadu domény). Vráti (balík, veta o podmienkach alebo None, povolený text pre čísla)."""
+    """Reťazec „prečo tento kontakt → predpokladaná potreba → výstup → minimálny vstup“ pre návrh. Ponuka pochádza
+    z aktuálnej karty organizácie pre túto rolu (zadanie 17. 10. 2026); bez karty dostane zákazník iba situačnú otázku
+    (všeobecný návrh hypotézy ostáva v balíku ako označený podklad), držiteľ dát a expert všeobecný návrh pre svoju rolu.
+    Vráti (balík, veta o podmienkach alebo None, povolený text pre čísla)."""
+    from .opportunity import offer_for
     from .value import best_proposal, domain_of, policy_version
 
     group = row.get("skupina") or "customer"
+    card = offer_for(db, row.get("org_id"), hid, group)
     proposal = best_proposal(db, hid, group)
-    p = json.loads(proposal["proposal_json"]) if proposal is not None else {}
+    general = json.loads(proposal["proposal_json"]) if proposal is not None else {}
+    use_general = card is None and group != "customer"  # rola bez kupujúceho: návrh podľa jej vlastného prospechu
+    p = general if use_general else {}
+    if card is not None:
+        p = {"need_statement": card["potreba"], "deliverable": card["výstup"], "decision_supported": card["rozhodnutie"],
+             "minimum_input": card["minimálny_vstup"], "limitations": card["čo_nevieme"]}
     confirmed = need_confirmed(db, hid, row.get("person_id"), row.get("org_id"))
-    commitment = p.get("schválený_záväzok") if proposal is not None and proposal["delivery_commitment_approved"] else None
+    commitment = (general.get("schválený_záväzok") if use_general and proposal is not None
+                  and proposal["delivery_commitment_approved"] else None)
     brief = db.latest_brief(domain_of(db, hid)[0])
     commercial = not is_public_org(org)
     policy = policy_text(cfg, mode, bool(p.get("deliverable")), commercial)
@@ -499,8 +509,17 @@ def build_package(cfg: Config, db: DB, hid: int, row: dict[str, Any], mode: str,
         "výstup": p.get("deliverable") or "", "rozhodnutie": p.get("decision_supported") or "",
         "minimálny_vstup": p.get("minimum_input") or row.get("čo_žiadať") or "",
         "čo_nevieme": p.get("limitations") or "", "záväzok": commitment,
-        "návrh_prínosu": proposal["id"] if proposal is not None else None,
-        "stav_návrhu_prínosu": proposal["status"] if proposal is not None else "chýba",
+        "návrh_prínosu": proposal["id"] if proposal is not None and use_general else None,
+        "stav_návrhu_prínosu": (proposal["status"] if proposal is not None and use_general else
+                                "karta" if card is not None else "chýba"),
+        "karta": {k: card[k] for k in ("card_id", "card_version", "process_key", "stav", "zastarané", "rozpor")}
+        if card is not None else None,
+        "zdroj_ponuky": (f"karta organizácie v{card['card_version']}" if card is not None else
+                         "všeobecný návrh pre rolu" if use_general and proposal is not None else
+                         "bez karty – iba situačná otázka (ponuka po vytvorení karty organizácie)"),
+        "všeobecný_podklad": {"id": proposal["id"], "výstup": general.get("deliverable") or "",
+                              "označenie": "všeobecný návrh hypotézy – nie personalizovaná ponuka"}
+        if proposal is not None and not use_general else None,
         "prehľad_domény": {"id": brief["id"], "verzia": brief["version"]} if brief is not None else None,
         "politika": policy_version(cfg), "veta_o_podmienkach": policy,
     }
@@ -511,11 +530,16 @@ def build_package(cfg: Config, db: DB, hid: int, row: dict[str, Any], mode: str,
         state = db.research_get(key)
         package["stav_podkladov_domény"] = state["status"] if state is not None else "not_requested"
         main = main_question(db, key, group)
-        if main is not None:
-            package["hlavná_otázka"] = {"id": main["id"], "text": main["question"],
-                                        "blokuje": BLOCKS.get(main["blocks_action"], main["blocks_action"])}
-        package["príprava_rozhovoru"] = [q["question"] for q in interview_questions(
-            db, key, group, skip=main["id"] if main is not None else None)]
+        if card is not None and (card["hlavná_otázka"] or {}).get("text"):  # otázka z karty: posledný konkrétny prípad
+            package["hlavná_otázka"] = {"id": None, "text": card["hlavná_otázka"]["text"],
+                                        "blokuje": card["hlavná_otázka"].get("decision_changed") or ""}
+            package["príprava_rozhovoru"] = card["otázky"]
+        else:
+            if main is not None:
+                package["hlavná_otázka"] = {"id": main["id"], "text": main["question"],
+                                            "blokuje": BLOCKS.get(main["blocks_action"], main["blocks_action"])}
+            package["príprava_rozhovoru"] = [q["question"] for q in interview_questions(
+                db, key, group, skip=main["id"] if main is not None else None)]
     except Exception as exc:  # noqa: BLE001 – doménové podklady sú obohatenie, návrh nesmú zablokovať
         log.warning("Doménové otázky pre H%s: %s", hid, exc)
     allowed = " ".join(str(p.get(k) or "") for k in ("need_statement", "deliverable", "decision_supported",
@@ -540,6 +564,11 @@ def readiness_of(package: dict[str, Any], checks: dict[str, Any], subject: str |
         reasons.append("hodnotiteľ našiel problémy")
     if package.get("stav_návrhu_prínosu") == "pending_review":
         reasons.append("návrh prínosu čaká na hodnotiteľa")
+    card = package.get("karta") or {}
+    if card.get("rozpor"):
+        reasons.append("karta organizácie má nový rozpor: " + str((card["rozpor"] or {}).get("text", ""))[:160])
+    if card.get("zastarané"):
+        reasons.append(f"karta organizácie je zastaraná ({card['zastarané']}) – obnov ju alebo skontroluj ručne")
     return ("ready" if not reasons else "needs_input"), reasons
 
 
@@ -553,10 +582,17 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
         return stats
     org = db.get_organization(org_id) if org_id else None
     existing = db.outreach_for_person(pid, hyp["id"]) if pid else db.outreach_for_org(org_id, hyp["id"])
+    oh = db.org_hypothesis(org_id, hyp["id"]) if org_id else None
+    from .recipients import procurement_of
+
+    proc = procurement_of(oh) if oh is not None else {"status": "none"}
+    if existing and proc["status"] != "confirmed" and org_id and all(e["status"] == "blocked" for e in existing):
+        # staré zástupné riadky „obstarávanie“ zo všeobecnej stránky – stav je teraz iba kandidát na overenie
+        if db.delete_procurement_placeholders(org_id, hyp["id"]):
+            existing = db.outreach_for_person(pid, hyp["id"]) if pid else db.outreach_for_org(org_id, hyp["id"])
     if (mode == "pilot" and any(e["mode"] == "pilot" for e in existing)) or (mode != "pilot" and existing):
         return stats  # návrhy už existujú (úpravy robí človek v GUI)
-    oh = db.org_hypothesis(org_id, hyp["id"]) if org_id else None
-    if oh is not None and oh["procurement_active"]:
+    if proc["status"] == "confirmed":
         # R-OUT-13: počas súťaže iba oficiálna cesta (PTK, vysvetľovanie súťažných podkladov)
         db.insert_outreach(pid, hyp["id"], "email", "-", None,
                            "Návrh sa nevytvoril: organizácia možno práve obstaráva súvisiacu vec. Komunikuj iba "
@@ -626,7 +662,9 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
             db.insert_outreach(pid, hyp["id"], channel, variant, subject, body, facts, checks, status,
                                contact["id"] if contact is not None else None, org_id=org_id, mode=mode,
                                proposal_id=package["návrh_prínosu"],
-                               package={**package, "pripravenosť": reasons}, readiness=readiness)
+                               package={**package, "pripravenosť": reasons}, readiness=readiness,
+                               card_id=(package.get("karta") or {}).get("card_id"),
+                               card_version=(package.get("karta") or {}).get("card_version"))
             stats[status] += 1
             stats[f"mode_{mode}"] += 1
     return stats
@@ -743,13 +781,14 @@ def recheck(cfg: Config, db: DB, outreach_id: int, body: str, subject: str | Non
 
 SEND_STATES = {"needs_contact_evidence": "chýba podklad o kontakte", "draft_ready": "návrh na tvoju kontrolu",
                "review_pending": "čaká na hodnotiteľa", "ready_for_manual_send": "pripravené na ručné odoslanie",
-               "suppressed": "blokované"}
+               "suppressed": "blokované", "procurement_unverified": "obstarávanie neoverené"}
 DONE_STATUSES = {"sent", "replied", "scheduled", "interviewed", "no_reply", "no_show", "bounced"}
 
 
 def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
     """Pripravenosť oslovenia (dodatok 16. 10. 2026), nezávislá od úplnosti doménovej karty:
-    needs_contact_evidence | draft_ready | review_pending | ready_for_manual_send | suppressed; None = už odoslané.
+    needs_contact_evidence | draft_ready | review_pending | ready_for_manual_send | suppressed | procurement_unverified;
+    None = už odoslané.
     Vráti stav a presné dôvody (čo chýba)."""
     from .orgs import is_excluded
     from .privacy import Suppression
@@ -769,6 +808,15 @@ def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
     contact = db.get_contact(row["contact_point_id"]) if row["contact_point_id"] else None
     if contact is not None and contact["kind"] == "email" and Suppression(cfg, db).is_suppressed(email=contact["value"]):
         return "suppressed", ["adresa je v zozname potlačenia (námietka alebo výmaz)"]
+    oh = db.org_hypothesis(row["org_id"], row["hypothesis_id"]) if row["org_id"] else None
+    if oh is not None:
+        from .recipients import procurement_of
+
+        proc = procurement_of(oh)
+        if proc["status"] == "candidate":  # návrh smie vzniknúť, schválenie čaká na overenie človekom
+            return "procurement_unverified", [
+                "možné súvisiace obstarávanie nie je overené: " + (proc["note"] or proc["url"] or "")
+                + " – v Bráne 0 → Koho osloviť označ „obstarávanie overené: žiadne“ alebo „potvrdené“"]
     pkg = json.loads(row["package_json"] or "{}") if row["package_json"] else {}
     checks = json.loads(row["checks_json"] or "{}")
     if status == "approved":
@@ -808,7 +856,7 @@ def approve(cfg: Config, db: DB, outreach_id: int, now: datetime | None = None) 
     if row["status"] != "draft":
         raise OutreachError(f"Schváliť sa dá iba návrh bez problémov (stav je {row['status']}).")
     state, reasons = send_state(cfg, db, row)
-    if state in ("needs_contact_evidence", "suppressed", "review_pending"):
+    if state in ("needs_contact_evidence", "suppressed", "review_pending", "procurement_unverified"):
         raise OutreachError(f"Nedá sa schváliť ({SEND_STATES[state]}): " + "; ".join(reasons))
     missing = sender_placeholders(cfg)
     if missing:

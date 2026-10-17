@@ -516,6 +516,8 @@ def write(cfg: Config, db: DB, hid: int, personal: bool = False, data_mode: str 
             for arc, text in sorted(dos.texts.items()):
                 put_bytes(arc, (text or "").encode("utf-8"))
             scrub = dos.summary.get("scrub")
+            for arc, text in org_card_files(db, dos.hids, personal).items():  # v15: karty organizácií a prehľad domény
+                put_bytes(arc, (scrub.text(text) if scrub is not None else text).encode("utf-8"))
             for arc, path in dos.files.items():
                 data = path.read_bytes()
                 if scrub is not None and path.suffix.lower() in (".html", ".md", ".txt"):
@@ -549,6 +551,27 @@ def write(cfg: Config, db: DB, hid: int, personal: bool = False, data_mode: str 
     log.info("Dosiér H%s: %s (%s, dáta %s, %.1f MB)", hid, final.name, "osobne" if personal else "pseudonym", data_mode,
              final.stat().st_size / 1e6)
     return final
+
+
+def org_card_files(db: DB, hids: list[int], personal: bool) -> dict[str, str]:
+    """Aktuálne karty organizácií hypotéz (Markdown s pripravenosťou, ponukou, otázkami, zdrojmi a medzerami) a verzia
+    prehľadu domény, z ktorej vychádzajú. Fyzická osoba – podnikateľ je bez mena, ak nejde o export s menami."""
+    from .opportunity import card_markdown
+    from .value import brief_markdown
+
+    out: dict[str, str] = {}
+    try:
+        for hid in hids:
+            for row in db.org_cards_for(hid):
+                out[f"brana0/karty/H{hid}_org{row['organization_id']}_{row['process_key']}_{row['recipient_role']}_"
+                    f"v{row['version']}.md"] = card_markdown(db, row, with_names=personal)
+                if row["brief_id"] and f"brana0/prehlad_domeny_{row['brief_id']}.md" not in out:
+                    brief = db.get_brief(row["brief_id"])
+                    if brief is not None:
+                        out[f"brana0/prehlad_domeny_{row['brief_id']}.md"] = brief_markdown(brief, db)
+    except Exception as exc:  # noqa: BLE001 – staršia schéma bez kariet
+        log.warning("Karty organizácií do dosiéru: %s", exc)
+    return out
 
 
 # ======================================================================= README
@@ -611,6 +634,20 @@ def _readme(cfg: Config, db: DB, dos: Dossier, entries: list[dict[str, Any]], da
             f"- všeobecné kontakty organizácií: {s['org_contacts']}",
             f"- oslovenia: {sum(outreach.values())}" + (f" ({', '.join(f'{k} {v}' for k, v in outreach.items())})" if outreach else ""),
             f"- rozhovory: {len(dos.table('brana0/rozhovory'))}", ""]
+    try:
+        cards = [c for h in dos.hids for c in db.org_cards_for(h)]
+    except Exception:  # noqa: BLE001
+        cards = []
+    if cards:
+        out += ["## Karty organizácií", "", "| org | pracovný prípad | rola | verzia | stav | rozhovor | skúška | prínos |",
+                "|---|---|---|---|---|---|---|---|"]
+        for c in cards:
+            r = json.loads(c["readiness_json"] or "{}")
+            yes = {k: "áno" if (r.get(k) or {}).get("pripravené") else "nie" for k in ("rozhovor", "skúška", "prínos")}
+            out.append(f"| org {c['organization_id']} | {c['process_key']} | {c['recipient_role']} | v{c['version']} | "
+                       f"{c['status']}{' (zastarané)' if c['stale_reason'] else ''} | {yes['rozhovor']} | {yes['skúška']} | "
+                       f"{yes['prínos']} |")
+        out += ["", "Celé karty: `brana0/karty/`, prehľad domény, z ktorého vychádzajú: `brana0/prehlad_domeny_<id>.md`.", ""]
     if main.get("parent_id") and "rodič" not in dict(dos.scope).values():
         out += ["Ľudia a organizácie rozdelenej hypotézy ostávajú pri rodičovi – exportuj so súvisiacimi hypotézami.", ""]
 

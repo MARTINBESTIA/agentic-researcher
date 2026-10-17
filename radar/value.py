@@ -32,7 +32,6 @@ from .config import Config
 from .db import DB
 from .models import as_router
 from .prompts import DOMAIN_BRIEF_CHECK_SYSTEM, DOMAIN_BRIEF_SYSTEM, VALUE_CHECK_SYSTEM, VALUE_PROPOSAL_SYSTEM
-from .strength import is_vendor
 from .util import Deadline
 from .verify import numbers_missing_in_source
 
@@ -157,16 +156,42 @@ def domain_of(db: DB, hid: int) -> tuple[str, str, list[int]]:
     return f"hypothesis:{hid}", h["title"] if h is not None else f"H{hid}", [hid]
 
 
-def _evidence(db: DB, ids: list[int]) -> list:
-    """Overené tvrdenia domény bez dodávateľov (najprv hlavnej hypotézy), najviac MAX_EVIDENCE."""
+def _domain_claims(db: DB, ids: list[int]) -> list:
+    """Overené tvrdenia domény vrátane dodávateľov (tí idú iba do skupiny existujúcich riešení, označení)."""
     out, seen = [], set()
     for hid in ids:
         for e in db.evidence_for(hid):
-            if e["id"] in seen or e["status"] != "verified" or is_vendor(e):
+            if e["id"] in seen or e["status"] != "verified":
                 continue
             seen.add(e["id"])
             out.append(e)
-    return out[:MAX_EVIDENCE]
+    return out
+
+
+def domain_target(db: DB, hid: int):
+    """Cieľ posúdenia pre prehľad domény: segment a program hlavnej hypotézy."""
+    from .relevance import Target, programs_in
+
+    key, title, _ = domain_of(db, hid)
+    h = db.get_hypothesis(hid)
+    seg = (h["segment"] if h is not None else "") or ""
+    return Target(key=f"domain:{key}", title=title, segment=seg,
+                  programs=programs_in(f"{h['title'] if h is not None else ''} {h['description'] if h is not None else ''} {seg}"))
+
+
+def domain_buckets(db: DB, hid: int, limit: int = MAX_EVIDENCE, per_doc: int = 2) -> dict[str, list]:
+    """Podklady prehľadu po skupinách (relevantnosť voči doméne, rôznorodosť, bez nesúvisiacich)."""
+    from .relevance import assess_target, select_buckets
+
+    _, _, ids = domain_of(db, hid)
+    pairs = assess_target(None, db, domain_target(db, hid), _domain_claims(db, ids))
+    return select_buckets(pairs, limit=limit, per_doc=per_doc)
+
+
+def _evidence(db: DB, ids: list[int]) -> list:
+    """Citáty pre prehľad (spätne kompatibilné): skupiny podkladov okrem „iba kontext“ – kontext nie je dôkaz procesu."""
+    buckets = domain_buckets(db, ids[0]) if ids else {}
+    return [e for name in ("process_problem", "organization", "solutions", "counter") for e, _ in buckets.get(name) or []]
 
 
 def evidence_text(evidence: list) -> str:
@@ -229,22 +254,31 @@ def brief_inputs(db: DB, hid: int, max_chunks: int = 15) -> tuple[str, str, list
     signals = _need_signals(db, ids) + answers
     roles = sorted({r for h in ids for t in db.contact_targets_for(h) for r in json.loads(t["roles_json"] or "[]")})
     dom = [(e["id"], e["content_hash"]) for e in domain_evidence_items(db, key, max_chunks)]
-    digest = _hash([(e["id"], e["quote"]) for e in evidence], cards, signals, roles, *([dom] if dom else []))
+    from .relevance import LOGIC_VERSION
+
+    digest = _hash([(e["id"], e["quote"]) for e in evidence], cards, signals, roles, *([dom] if dom else []),
+                   LOGIC_VERSION)  # zmena logiky relevantnosti = nová verzia (obnoví sa iba pri spustení kroku value)
     return key, title, ids, evidence, cards, signals, digest
 
 
 # ======================================================================= prehľad domény
-def code_check_brief(out: DomainBriefOut, allowed: set[int],
+def code_check_brief(out: DomainBriefOut, allowed: set[int] | dict[str, set[int]],
                      allowed_evidence: set[int] | frozenset[int] = frozenset()) -> tuple[dict[str, Any], dict[str, Any]]:
     """Kontroly kódom: počty častí, platné citáty a doménové podklady; tvrdenie bez opory sa presunie medzi neznáme
-    (a ako hypotéza s otázkou do tvrdení domény). Vráti (prehľad na uloženie, kontroly)."""
+    (a ako hypotéza s otázkou do tvrdení domény). `allowed` môže byť po častiach (proces, riešenia, alternatívy):
+    citát z inej skupiny (napr. iba kontext, dodávateľ pri procese) nie je opora. Vráti (prehľad na uloženie, kontroly)."""
     problems: list[str] = []
     moved: list[str] = []
     moved_parts: list[list[str]] = []
     unknowns = [u.strip() for u in out.unknowns if u.strip()]
 
+    def ok_claims(part: str) -> set[int]:
+        if isinstance(allowed, dict):
+            return allowed.get({"solutions": "solutions", "alternatives": "alternatives"}.get(part, "process"), set())
+        return allowed
+
     def cited(item: Cited, label: str, part: str = "other") -> dict[str, Any]:
-        claims = [c for c in item.claims if c in allowed]
+        claims = [c for c in item.claims if c in ok_claims(part)]
         evidence = [e for e in item.evidence if e in allowed_evidence]
         text = item.text.strip()
         if text and not claims and not evidence:
@@ -258,7 +292,7 @@ def code_check_brief(out: DomainBriefOut, allowed: set[int],
     steps = [s for s in steps if s["text"]]
     if len(out.process_steps) > 5:
         problems.append(f"proces má {len(out.process_steps)} krokov (najviac 5) – ponechaných prvých 5")
-    terms = [{"term": t.term.strip(), "explanation": t.explanation.strip(), "claims": [c for c in t.claims if c in allowed],
+    terms = [{"term": t.term.strip(), "explanation": t.explanation.strip(), "claims": [c for c in t.claims if c in ok_claims("terms")],
               "evidence": [e for e in t.evidence if e in allowed_evidence]} for t in out.terms if t.term.strip()][:5]
     if len(terms) != 5:
         problems.append(f"pojmov je {len(terms)} (treba 5)")
@@ -269,7 +303,7 @@ def code_check_brief(out: DomainBriefOut, allowed: set[int],
     for d in out.data_needed[:5]:
         if d.field.strip():
             data.append({"field": d.field.strip(), "meaning_pitfall": d.meaning_pitfall.strip(),
-                         "claims": [c for c in d.claims if c in allowed],
+                         "claims": [c for c in d.claims if c in ok_claims("data")],
                          "evidence": [e for e in d.evidence if e in allowed_evidence]})
     solutions = [x for x in (cited(s, f"existujúce riešenie {i + 1}", "solutions")
                              for i, s in enumerate(out.existing_solutions[:5])) if x["text"]]
@@ -347,8 +381,14 @@ def ensure_brief(cfg: Config, db: DB, llm: Any, hid: int, reason: str | None = N
         return previous
     start_attempt(db, key, title, digest)
     router = as_router(llm, cfg, db)
+    from .relevance import allowed_for, bucket_text
+
+    buckets = domain_buckets(db, hid, cfg.org_cards.max_evidence, cfg.org_cards.per_document)
     user = (f"DOMAIN: {title}\n\nPROBLEM CARDS:\n<untrusted_document>\n{cards or '-'}\n</untrusted_document>\n\n"
-            f"EVIDENCE (cite in \"claims\"):\n<untrusted_document>\n{evidence_text(evidence) or '-'}\n</untrusted_document>"
+            "EVIDENCE in groups (cite ids in \"claims\"; process, roles, decision and data only from PROCESS AND PROBLEM or "
+            "ABOUT THIS ORGANIZATION; vendors only describe existing solutions and their claimed savings are not facts; "
+            "CONTEXT ONLY is never evidence of the process):\n<untrusted_document>\n"
+            f"{bucket_text(buckets) or '-'}\n</untrusted_document>"
             + (f"\n\nDOMAIN SOURCES (cite in \"evidence\"; occupation/sector scope is general, never a fact about a "
                f"specific organization):\n<untrusted_document>\n{domain_evidence_text(dom)}\n</untrusted_document>"
                if dom else "")
@@ -361,8 +401,11 @@ def ensure_brief(cfg: Config, db: DB, llm: Any, hid: int, reason: str | None = N
         finish_attempt(db, key, title, "needs_research", f"syntéza prehľadu zlyhala ({res.reason or 'model'})",
                        "nový pokus pri nových podkladoch alebo na tvoju žiadosť; oslovenie môže pokračovať s otázkami")
         return previous
-    allowed = {e["id"] for e in evidence}
+    allowed = {"process": allowed_for(buckets, ("process_problem", "organization")),
+               "solutions": allowed_for(buckets, ("solutions", "process_problem", "organization")),
+               "alternatives": allowed_for(buckets, ("counter", "process_problem", "solutions"))}
     allowed_ev = {e["id"] for e in dom}
+    evidence = [e for name in ("process_problem", "organization", "solutions", "counter") for e, _ in buckets.get(name) or []]
     brief, checks = code_check_brief(res.value, allowed, allowed_ev)
     checks["hodnotiteľ"] = review(cfg, router, "domain_brief_check", DOMAIN_BRIEF_CHECK_SYSTEM,
                                   f"EVIDENCE:\n<untrusted_document>\n{evidence_text(evidence)}\n</untrusted_document>\n\n"

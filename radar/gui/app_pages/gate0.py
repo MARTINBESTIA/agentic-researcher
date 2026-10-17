@@ -51,6 +51,7 @@ with tab_who:
     table = [{k: r[k] for k in ("odporúčanie", "stav_komunikácie", "ďalšia_akcia", "typ", "osoba", "funkcia", "účel",
                                 "organizácia", "e-mail", "telefón", "prečo", "čo_dostanú", "potrebný_vstup", "čo_nevieme",
                                 "dôvody", "dôkaz_účelu")}
+             | {k: r.get(k, "") for k in ("zhoda_segmentu", "stav_potreby", "riešenie", "obstarávanie")}
              | {"zdroj": safe_url(r["zdroj_kontaktu"])} for r in shown]
     if not rows:
         st.info("Zatiaľ nikto. Spusti hľadanie: organizácie → plán kontaktov podľa hypotézy (zákazník, držiteľ dát, "
@@ -60,6 +61,30 @@ with tab_who:
                      column_config={"zdroj": st.column_config.LinkColumn("Zdroj kontaktu", display_text="zdroj"),
                                     "potrebný_vstup": st.column_config.TextColumn("Potrebný vstup", width="large"),
                                     "dôvody": st.column_config.TextColumn("Dôvody", width="medium")})
+    from radar.recipients import PROCUREMENT_STATUS, procurement_of, set_procurement
+
+    proc_orgs = [o for o in d.orgs_for_hypothesis(hid) if procurement_of(o)["status"] in ("candidate", "confirmed")]
+    if proc_orgs:
+        with st.expander(f"Obstarávanie na overenie ({len(proc_orgs)})", icon=":material/gavel:"):
+            st.caption("Všeobecný rozcestník obstarávania je iba kandidát: návrh oslovenia smie vzniknúť, schválenie na "
+                       "odoslanie čaká, kým to overíš. Potvrdené súvisiace obstarávanie = iba oficiálna cesta (PTK, "
+                       "vysvetľovanie súťažných podkladov).")
+            for o in proc_orgs:
+                pr = procurement_of(o)
+                with st.container(border=True):
+                    st.markdown(f"**{esc(o['name'])}** · {PROCUREMENT_STATUS.get(pr['status'], pr['status'])}")
+                    st.caption(esc(pr["note"])[:400])
+                    if safe_url(pr["url"]):  # iba http/https
+                        st.link_button("Otvoriť stránku obstarávania", safe_url(pr["url"]), icon=":material/open_in_new:")
+                    with st.container(horizontal=True):
+                        if st.button("Overené: nič súvisiace neprebieha", key=f"g0_proc_none_{o['id']}",
+                                     icon=":material/check:"):
+                            set_procurement(d, o["id"], hid, "none", "overené na stránke obstarávania")
+                            refresh()
+                        if st.button("Potvrdené súvisiace obstarávanie", key=f"g0_proc_yes_{o['id']}",
+                                     icon=":material/block:"):
+                            set_procurement(d, o["id"], hid, "confirmed", "overené človekom")
+                            refresh()
     start_job_button("people", "Hľadať ďalšie kontakty k tejto hypotéze", 90, [hid], key=f"g0_search_{hid}",
                      icon=":material/person_search:", disabled=not c.privacy.lia_completed,
                      help="Organizácie → plán kontaktov a dopyty → ľudia a kontakty z webov → poradie → kontakty k osobám.")
@@ -263,7 +288,13 @@ with tab_value:
                            "stav": {"open": "otvorená", "answered": "zodpovedaná"}.get(q["status"], q["status"]),
                            "odpoveď": q["answer"] or "", "zdroj odpovede": q["answer_source"] or ""}
                           for q in questions], hide_index=True, alt="Otázky domény: komu, čo blokujú, odpovede")
-    st.markdown("**Návrh prínosu podľa typu adresáta** – hypotéza potreby → výstup → podporené rozhodnutie → minimálny vstup")
+    from radar.gui.org_card_panel import render as render_org_card
+
+    st.divider()
+    render_org_card(c, d, hid)
+    st.divider()
+    st.markdown("**Všeobecný návrh prínosu podľa typu adresáta** (podklad; ponuka zákazníkovi sa berie z karty "
+                "organizácie) – hypotéza potreby → výstup → podporené rozhodnutie → minimálny vstup")
     st.caption("Potreba je hypotéza, kým ju nepotvrdí odpoveď kontaktu. Bez meraní žiadne číselné úspory; konkrétny "
                "rozsah a termín sľúbi návrh až po tvojom potvrdení záväzku.")
     VSTATUS = {"checked": "skontrolované", "needs_edit": "na úpravu", "pending_review": "čaká na hodnotiteľa",

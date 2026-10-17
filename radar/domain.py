@@ -27,11 +27,17 @@ from .util import utcnow
 
 STATUS_LABEL = {"not_requested": "nepožiadané", "queued": "v poradí", "researching": "prebieha", "ready": "pripravené",
                 "partial": "čiastočné", "needs_research": "treba doplniť"}
-PARTS = {"roles": "roly", "process": "proces", "solutions": "dnešné a existujúce riešenia", "data": "význam dát",
+PARTS = {"roles": "roly", "process": "proces", "decision": "rozhodnutie alebo pracovný úkon a kto môže konať",
+         "solutions": "dnešné a existujúce riešenia", "data": "význam dát",
          "alternatives": "alternatívne vysvetlenia (prečo nový nástroj nemusí pomôcť)"}
-EXTRA_PARTS = {"decision": "rozhodnutie", "terms": "pojmy", "other": "iné"}
+EXTRA_PARTS = {"terms": "pojmy", "other": "iné"}
 CLAIM_STATUS = {"source_fact": "zo zdroja", "hypothesis": "hypotéza", "contact_reported": "uviedol kontakt",
-                "data_observed": "pozorované v dátach", "contradicted": "vyvrátené"}
+                "data_observed": "pozorované v dátach", "contradicted": "vyvrátené",
+                "proposal": "návrh požadovaného vstupu (nie zdrojový fakt)", "unknown": "neznáme"}
+# Pokrytie časti: podložené / hypotéza (výrok bez zdroja na overenie) / len otázka / chýba. Otázka sama časť
+# nepokrýva (zadanie 17. 10. 2026: prázdny proces s otázkou hlásil „pripravené – pokrytie všetkých častí“).
+COVERAGE_LABELS = ("podložené", "hypotéza", "len otázka", "chýba")
+CORE_PARTS = ("process", "decision")  # bez nich nie je „pripravené“ ani pri inak dobrom pokrytí
 SUPPORTED = ("source_fact", "contact_reported", "data_observed")
 SCOPES = {"occupation": "všeobecne pre povolanie – nie fakt o konkrétnej organizácii",
           "sector": "pre odvetvie podľa zdroja – nie fakt o konkrétnej organizácii",
@@ -131,7 +137,9 @@ def finish_attempt(db: DB, key: str, title: str, status: str, stop_reason: str, 
 
 # ======================================================================= pokrytie, tvrdenia, otázky
 def coverage(db: DB, key: str) -> tuple[dict[str, str], str]:
-    """Pokrytie častí (podložené / hypotéza a otázka / chýba) a stav podľa neho – nie podľa počtu slov či zdrojov."""
+    """Pokrytie častí (podložené / hypotéza / len otázka / chýba) a stav podľa neho – nie podľa počtu slov či zdrojov.
+    „Pripravené“ vyžaduje proces a rozhodnutie (úkon) aspoň ako hypotézu, žiadnu prázdnu časť a aspoň dve podložené
+    časti – jedna podložená dátová položka alebo otázka bez obsahu nevytvorí dojem hotového prehľadu."""
     claims = db.domain_claims(key)
     questions = db.domain_questions(key, "open")
     out = {}
@@ -139,12 +147,15 @@ def coverage(db: DB, key: str) -> tuple[dict[str, str], str]:
         mine = [c for c in claims if c["part"] == part]
         if any(c["status"] in SUPPORTED for c in mine):
             out[part] = "podložené"
-        elif any(c["status"] == "hypothesis" for c in mine) or any(q["part"] == part for q in questions):
-            out[part] = "hypotéza a otázka"
+        elif any(c["status"] == "hypothesis" for c in mine):
+            out[part] = "hypotéza"
+        elif any(q["part"] == part for q in questions):
+            out[part] = "len otázka"
         else:
             out[part] = "chýba"
     supported = sum(1 for v in out.values() if v == "podložené")
-    if all(v != "chýba" for v in out.values()) and supported:
+    core_ok = all(out[p] in ("podložené", "hypotéza") for p in CORE_PARTS)
+    if core_ok and all(v in ("podložené", "hypotéza") for v in out.values()) and supported >= 2:
         status = "ready"
     elif supported:
         status = "partial"
@@ -175,6 +186,14 @@ def persist_brief(db: DB, key: str, brief_id: int, brief: dict[str, Any], moved:
         if not text:
             return
         refs = {"claims": item.get("claims") or [], "evidence": item.get("evidence") or []}
+        if not refs["claims"] and not refs["evidence"]:
+            # bez odkazu nie je zdrojový fakt: pri dátach návrh požadovaného vstupu, inak hypotéza na overenie
+            status = "proposal" if part == "data" else "hypothesis"
+            db.add_domain_claim(key, part, text, status, refs, applicability=(
+                "požadovaný vstup – nie zdrojový fakt o dostupnosti dát" if part == "data" else "predpoklad bez zdroja – overiť"),
+                brief_id=brief_id)
+            stats["hypotézy"] += 1
+            return
         scope = _scope(db, refs)
         db.add_domain_claim(key, part, text, "source_fact", refs, scope=scope, applicability=SCOPES[scope],
                             brief_id=brief_id)

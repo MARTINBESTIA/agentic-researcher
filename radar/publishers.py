@@ -45,6 +45,13 @@ RESEARCH_DOMAINS = {
     "uniag.sk", "ineko.sk", "iness.sk", "ivo.sk", "sguide.sk", "researchgate.net", "sciencedirect.com", "mdpi.com",
     "springer.com", "arxiv.org", "nber.org", "cuni.cz", "muni.cz", "vse.cz", "vutbr.cz",
 }
+# Dodávatelia softvéru a služieb (ich web opisuje vlastný produkt): pravidlo má prednosť pred odhadom modelu
+# (zadanie 17. 10. 2026: kros.sk model označil ako „združenie“). Citáty ostávajú dostupné pri existujúcich riešeniach.
+VENDOR_DOMAINS = {
+    "kros.sk", "docspoint.cz", "docspoint.sk", "money.sk", "moneyerp.com", "stormware.sk", "stormware.cz", "pohoda.sk",
+    "superfaktura.sk", "idoklad.cz", "fakturoid.cz", "abra.eu", "flowii.com", "omegasoft.sk", "kros.cz", "dativery.com",
+    "rossum.ai", "seyfor.com", "sap.com", "microsoft.com", "oracle.com", "salesforce.com",
+}
 ASSOCIATION_DOMAINS = {
     "sopk.sk", "zmos.sk", "unia-miest.sk", "rlzsr.sk", "azzz.sk", "kozsr.sk", "zps.sk", "sario.sk", "transparency.sk",
     "slovensko.digital", "sbagency.sk", "npz.sk", "kpbs.sk", "ksk.sk",
@@ -61,6 +68,8 @@ def rule_type(domain: str) -> str | None:
         return "media"
     if d.endswith((".edu", ".ac.uk", ".ac.at")) or parents & RESEARCH_DOMAINS:
         return "research"
+    if parents & VENDOR_DOMAINS:
+        return "vendor"
     if parents & ASSOCIATION_DOMAINS:
         return "association"
     if d.endswith((".wikipedia.org", "wikipedia.org", "youtube.com", "reddit.com")):
@@ -78,6 +87,11 @@ def run_source_types(cfg: Config, db: DB, llm: Any, deadline: Deadline, limit: i
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
     stats["from_known_domains"] = db.apply_domain_types()
+    for row in db.domain_types():  # pravidlo prebije starší odhad modelu (napr. dodávateľ označený ako združenie)
+        typ = rule_type(row["domain"])
+        if typ and row["method"] == "model" and row["source_type"] != typ:
+            db.set_domain_type(row["domain"], typ, "rule", f"pravidlo nahradilo odhad modelu ({row['source_type']})")
+            stats[f"rule_override:{typ}"] += 1
     for row in db.untyped_domains(limit):
         if deadline.expired():
             break

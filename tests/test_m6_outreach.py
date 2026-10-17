@@ -162,7 +162,8 @@ def test_declined_sets_purge_after(tmp_path):
 
 def test_active_procurement_gives_warning_not_draft(tmp_path):
     cfg, db, hid, pid, org_id, rec, router = setup(tmp_path, REAL_SENDER)
-    db.set_org_hypothesis(org_id, hid, procurement_active=1, procurement_note="https://www.uvo.gov.sk/ptk/123")
+    db.set_org_hypothesis(org_id, hid, procurement_active=1, procurement_status="confirmed",  # v15: blokuje iba potvrdené
+                          procurement_note="https://www.uvo.gov.sk/ptk/123")
     stats = run_drafts(cfg, db, router, Deadline(1), [hid])
     rows = db.outreach_list(hid)
     assert stats == {"blocked_procurement": 1}

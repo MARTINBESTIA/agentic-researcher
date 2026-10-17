@@ -15,10 +15,15 @@ def _dumps(value: Any) -> str:
 
 
 VALUE_FIELDS = {"proposal_json", "need_status", "evidence_refs_json", "checks_json", "status",
-                "delivery_commitment_approved", "commercial_policy_version", "inputs_hash", "model", "brief_id"}
+                "delivery_commitment_approved", "commercial_policy_version", "inputs_hash", "model", "brief_id",
+                "card_id", "card_version", "recipient_role", "stale_reason"}
 OUTCOME_FIELDS = {"outreach_id", "person_id", "org_id", "proposal_id", "message_version", "reply", "problem_relevance",
                   "sample_obtained", "interview_agreed", "demo_done", "pilot_agreed", "value_shown", "paid",
-                  "rejection_reason", "next_action", "note", "prep_minutes", "delivery_days"}
+                  "rejection_reason", "next_action", "note", "prep_minutes", "delivery_days",
+                  # v15: väzba na verziu karty a štruktúrovaná odpoveď (zapisuje človek; vyťažené = needs_human_review)
+                  "card_id", "card_version", "question_id", "team_role", "last_case", "frequency", "tool_used",
+                  "unsolved_part", "process_owner", "buying_process", "data_availability", "decline_reason",
+                  "needs_human_review", "source"}
 
 
 class ValueMixin:

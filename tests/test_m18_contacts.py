@@ -252,7 +252,7 @@ def test_shortlist_tiers_reasons_and_org_rows(tmp_path):
     db.add_contact_point(p2, a, "phone", "+421905123456", "https://alfa.sk/k", "Boris +421905123456", "phonenumbers")
     b, _ = db.upsert_organization("Beta", "beta", "search", website="https://beta.sk/", website_verified=1)
     db.link_org_hypothesis(b, hid, "procured_related")
-    db.set_org_hypothesis(b, hid, procurement_active=1)
+    db.set_org_hypothesis(b, hid, procurement_active=1, procurement_status="confirmed")  # v15: blokuje iba potvrdené
     p3 = db.insert_person(b, "Cyril Tretí", "cyril treti", "https://beta.sk/k", "x", hid, role_title="vedúci nákupu")
     db.add_contact_point(p3, b, "email", "cyril@beta.sk", "https://beta.sk/k", "cyril@beta.sk", "regex")
     c, _ = db.upsert_organization("Zväz výrobcov", "zvaz vyrobcov", "contact_search", website="https://zvaz.sk/",
