@@ -113,6 +113,17 @@ Príkazy: `.venv\Scripts\python -m radar <príkaz>` z priečinka projektu.
 | `list`, `progress`, `note`, `status`, `merge`, `deep-dive` | ako v0.1 |
 | `collect`, `screen`, `extract`, `verify-code`, `verify`, `embed`, `cluster`, `people-rank`, `prepare-next`, `critique`, `market`, `report`, `scout`, `validate-search`, `validate-finish` | jednotlivé kroky |
 
+### Prehľad príležitosti (začni tu)
+
+GUI → **Problémy** → vyber hypotézu → prvá záložka **Prehľad príležitosti**, alebo
+`python -m radar problem-brief --all` (súbory `reports/prehlady_problemov/INDEX.md` a `H<číslo>.md`). Jedna strana na
+problém: odkazy na overené zdroje rozdelené podľa pôvodu (nezávislý dôkaz problému / dodávatelia riešení / iba kontext –
+0 nezávislých znamená, že problém zatiaľ tvrdia hlavne predajcovia), čo problém znamená (prehľad domény), navrhnutý
+produkt ako hypotéza riešenia (výstup z problémovej karty, návrh prínosu, ponuky z kariet organizácií, konkurencia,
+kritika, hrubý trh), čo je podložené dátami a čo nie, koho a s čím osloviť (poradie, čo žiadať, otázky na posledný
+prípad) a čo chýba s presnou akciou, ktorá to doplní. Skladá sa z uložených údajov – model sa nevolá; osoby sú
+pseudonymizované. Pre nového používateľa: `docs/PRE_NOVEHO_POUZIVATELA.md`.
+
 ### Brána 0 krok za krokom
 
 1. **Vyber hypotézy** (GUI → Problémy → „Hľadať ľudí“, alebo `select`). Automaticky sa berú top 3

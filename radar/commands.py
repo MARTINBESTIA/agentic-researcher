@@ -604,6 +604,22 @@ def cmd_org_cards(app, args) -> int:
     return 0
 
 
+def cmd_problem_brief(app, args) -> int:
+    """Prehľad príležitosti (jedna strana na problém) a tabuľka problémov Brány 0 – bez volania modelu."""
+    from pathlib import Path
+
+    from .problem_brief import problem_brief, write_briefs
+
+    if args.hypothesis and not args.out:
+        for hid in args.hypothesis:
+            print(problem_brief(app.cfg, app.db, hid, with_names=args.with_names))
+        return 0
+    out = Path(args.out) if args.out else app.cfg.path(app.cfg.reports_dir) / "prehlady_problemov"
+    paths = write_briefs(app.cfg, app.db, out, args.hypothesis or None, with_names=args.with_names)
+    print(f"Prehľady: {len(paths) - 1} problémov + INDEX.md v {out}")
+    return 0
+
+
 def cmd_process_report(app, args) -> int:
     """Procesný report z importu event logu (deterministicky); s --review aj posúdenie formulácií hodnotiteľom."""
     from .event_logs import EventLogError
@@ -852,6 +868,12 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--with-names", action="store_true", help="porovnanie s názvami organizácií (iba do reports/)")
     p.add_argument("--minutes", type=float, default=None)
 
+    p = sub.add_parser("problem-brief", help="Prehľad príležitosti: zdroje, doména, navrhnutý produkt, dáta, koho osloviť.")
+    p.add_argument("--hypothesis", type=int, action="append", help="iba tieto hypotézy (bez --out vypíše na obrazovku)")
+    p.add_argument("--all", action="store_true", help="všetky hypotézy Brány 0 (predvolené pri --out)")
+    p.add_argument("--out", default=None, help="priečinok (predvolene reports/prehlady_problemov)")
+    p.add_argument("--with-names", action="store_true", help="s menami osôb (iba na tvoje vlastné použitie)")
+
     p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
     p.add_argument("--import", dest="import_id", type=int, required=True)
     p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
@@ -936,6 +958,7 @@ HANDLERS = {
     "domain-research": cmd_domain_research,
     "process-report": cmd_process_report,
     "org-cards": cmd_org_cards,
+    "problem-brief": cmd_problem_brief,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

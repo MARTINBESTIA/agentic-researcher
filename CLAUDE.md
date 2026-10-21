@@ -30,7 +30,8 @@ lokálny ESCO index, fulltext, rola → povolanie a ohraničený doménový výs
 event logu do priestoru organizácie s kontrolou kvality a dostupnosťou metrík (M31); procesný report (M32); podľa zadania
 17. 10. 2026 karty organizácií a ponuka z nich – relevantnosť dôkazov voči cieľu, adresát a obstarávanie, tri
 pripravenosti, cielený výskum medzier, sústredený režim, učenie z odpovedí (schéma v15, M33,
-`docs/organization_opportunities.md`).
+`docs/organization_opportunities.md`); Prehľad príležitosti – jedna strana na problém pre nového človeka (M34,
+`radar/problem_brief.py`, `docs/PRE_NOVEHO_POUZIVATELA.md`).
 Stav dodatku: `docs/STAV_domenovy_search_event_log.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
@@ -82,6 +83,7 @@ docker compose up -d                     # SearXNG
 | `radar/relevance.py` | posúdenie dôkazu voči cieľu (doména alebo organizácia; `evidence_assessments`, logika `rel-1`): relevantnosť (strop pravidlami kódu – iný program, typ aktéra), význam (problém, proces, existujúce riešenie, funkcia produktu, po nasadení, protiargument, kontext), stav potreby v zdroji; skupiny podkladov s rôznorodosťou |
 | `radar/recipients.py` | adresát: zhoda so segmentom (bez modelu), stav potreby z vlastných odpovedí, obstarávanie none/candidate/confirmed/closed s dôvodom a overením človekom |
 | `radar/opportunity.py` | karta organizácie (organizácia × hypotéza × pracovný prípad × rola; `org_cards`): vstupy a hash, syntéza `org_card`, kontroly kódom (opora organizácie, dodávateľ, referencia produktu, čísla, skúška), hodnotiteľ v dvoch častiach, tri pripravenosti a benefit guard, hodnotenie, výskumné úlohy z medzier (`research_tasks`, ohraničený výskum), zastaranie bez regenerácie, sústredený režim a akcia `org_cards`, ponuka pre `build_package`, Markdown a porovnanie so starým formátom |
+| `radar/problem_brief.py` | Prehľad príležitosti (jedna strana na problém, bez modelu): odkazy na overené zdroje podľa pôvodu (nezávislý dôkaz / dodávatelia / kontext), čo problém znamená, navrhnutý produkt ako hypotéza (karta, návrh prínosu, karty organizácií, konkurencia, kritika, trh), čo je podložené dátami, koho a s čím osloviť, čo chýba s akciou; tabuľka problémov Brány 0 (`problem-brief`, GUI Problémy → Prehľad príležitosti) |
 | `radar/value.py` | prehľad domény (doména = téma alebo hypotéza; citované tvrdenia, neznáme, 3 vyvracajúce otázky, verzie podľa hashu podkladov, Markdown) a návrh prínosu podľa typu adresáta (kontrola kódom a hodnotiteľom, záväzok potvrdí človek); krok `value` |
 | `radar/person_contacts.py` | e-mail a telefón ku konkrétnej osobe (web organizácie, úradné domény; bez modelu); lokálny index webu organizácie zo sitemap |
 | `radar/registers.py`, `radar/orgs.py` | RPO a RÚZ (cache, tempo, bez adries štatutárov); organizácie k hypotéze, overenie webu cez IČO (samotný názov iba pri zhode domény s názvom; katalóg s viacerými IČO nie je web), `revoke_website` |

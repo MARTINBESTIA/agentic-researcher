@@ -297,3 +297,7 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M33 | 14: celý tok dôkazy → karta → medzery → skúška → návrh → odpoveď → nová verzia → export | `test_m33_org_cards.py::test_full_flow_evidence_card_gaps_trial_draft_reply_new_version_export` |
 | M33 | GUI: Doména a prínos – karta, pripravenosti, bez volania modelu pri vykreslení | `test_m33_org_cards.py::test_gate0_value_tab_shows_card_answers_readiness_and_no_model_call_on_render` |
 | M33 | súkromie: funkcie ľudí nejdú do cloudu bez povolenia | `test_m33_org_cards.py::test_people_functions_stay_local_when_card_runs_in_cloud_without_personal_data_permission` |
+| M34 | prehľad príležitosti má všetkých 7 častí, zdroje podľa pôvodu, produkt, kontakty bez mien | `test_m34_problem_brief.py::test_brief_has_all_parts_with_sources_by_origin_product_contacts_and_no_names` |
+| M34 | iba dodávateľské zdroje → upozornenie; chýbajúce časti → presná akcia | `test_m34_problem_brief.py::test_vendor_only_evidence_is_flagged_and_missing_parts_point_to_actions` |
+| M34 | tabuľka problémov a súbory, poradie podľa úplnosti | `test_m34_problem_brief.py::test_index_and_files_are_written_ordered_by_completeness` |
+| M34 | GUI Problémy → Prehľad príležitosti bez volania modelu | `test_m34_problem_brief.py::test_problems_page_shows_opportunity_brief_tab_without_model_calls` |

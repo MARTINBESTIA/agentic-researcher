@@ -177,8 +177,19 @@ with st.container(border=True):
                                   "LinkedIn (nič sa neodosiela; návrhy oslovení sú samostatná akcia).")
     jobs_panel(show_last=False)
 
-tab_ev, tab_axes, tab_crit, tab_notes, tab_export = st.tabs(["Dôkazy", "Osi a obchodný stav", "Kritika a trh",
-                                                             "Poznámky", "Export všetkého"])
+tab_brief, tab_ev, tab_axes, tab_crit, tab_notes, tab_export = st.tabs(
+    ["Prehľad príležitosti", "Dôkazy", "Osi a obchodný stav", "Kritika a trh", "Poznámky", "Export všetkého"])
+with tab_brief:
+    from radar.problem_brief import problem_brief
+
+    st.caption("Jedna strana na problém: odkazy na overené zdroje, čo problém znamená, navrhnutý produkt (hypotéza "
+               "riešenia), čo je podložené dátami, koho a s čím osloviť a čo chýba. Skladá sa z uložených údajov – "
+               "model sa nevolá. Osoby sú pseudonymizované.")
+    brief_md = problem_brief(c, d, hid)
+    with st.container(border=True, height=640):
+        st.markdown(brief_md.replace("](", "]\\("))
+    st.download_button("Stiahnuť prehľad (Markdown)", brief_md, file_name=f"prehlad_prilezitosti_H{hid}.md",
+                       mime="text/markdown", icon=":material/download:", key=f"pb_dl_{hid}")
 with tab_axes:
     from radar.progress import BUSINESS_LABELS, BUSINESS_STEPS, axes, business_state, set_business_step
 

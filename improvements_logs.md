@@ -142,3 +142,4 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   titulkom a útržkom; s povoleným čítaním vestníka by sa dal overiť predmet a lehota zo stránky záznamu. · 1 deň.
 - **2026-10-17 – karty – pseudonymizácia v porovnaní a exporte.** Kmeňové nahrádzanie názvov radšej nahradí viac;
   pri reálnom zdieľaní ešte prezrieť názvy produktov (referencie dodávateľov môžu prezradiť organizáciu). · 0,5 dňa.
+- **2026-10-21 – sila dôkazov podľa relevantnosti.** `strength.evidence_strength` (test hypotéz, poradie) ráta aj citát z cudzieho programu (eurofondy pri účtovných kanceláriách) a dodávateľa podľa staršieho typu vydavateľa; Prehľad príležitosti už rozlišuje nezávislý dôkaz (H4: 0 z 23). Zjednotiť silu s posúdením relevantnosti a prepočítať verdikty testu – najprv porovnať, koľko hypotéz by zmenilo stav. · 1 deň.
