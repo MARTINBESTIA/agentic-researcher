@@ -271,7 +271,9 @@ SENDER_GENDER = {
 GENDERED_FIRST_PERSON_RE = re.compile(
     r"\b(?:(?:rád|rada|chcel|chcela|mal|mala|bol|bola|uvítal|uvítala|dozvedel|dozvedela) by som|"
     r"by som (?:sa )?(?:rád|rada|chcel|chcela|dozvedel|dozvedela)|som (?:rád|rada)|"
-    r"(?:mal|mala|bol|bola|robil|robila|hovoril|hovorila|čítal|čítala|zistil|zistila) som)\b", re.I)
+    r"(?:mal|mala|bol|bola|robil|robila|hovoril|hovorila|čítal|čítala|zistil|zistila) som|"
+    # „aby som sa mohol obrátiť“ – testovací beh 21. 10. 2026 (aby + l-príčastie je vždy rodové, kód to neprepíše)
+    r"aby som (?:sa |si )?(?:\w+l|\w+la)|(?:mohol|mohla|vedel|vedela) by som)\b", re.I)
 
 
 def check_draft(cfg: Config, channel: str, subject: str | None, body: str, core: str, facts: list[dict[str, Any]],
@@ -821,8 +823,9 @@ def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
     checks = json.loads(row["checks_json"] or "{}")
     if status == "approved":
         return "ready_for_manual_send", []
+    stale = stale_card_reason(db, row)
     if not pkg:  # starší návrh bez balíka
-        return "draft_ready", list(checks.get("problems") or [])
+        return "draft_ready", list(checks.get("problems") or []) + ([stale] if stale else [])
     why = pkg.get("prečo_tento_kontakt") or {}
     if not why.get("zdroj"):
         return "needs_contact_evidence", ["chýba zdroj dôvodu výberu kontaktu: doplň URL a úryvok, kde je zverejnená "
@@ -831,7 +834,36 @@ def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
     pending = [r for r in reasons if "hodnotiteľ" in r and "čaká" in r]
     if pending and not checks.get("ručná_kontrola"):
         return "review_pending", pending + ["návrh môžeš skontrolovať sám a potvrdiť „Skontroloval som ručne“"]
-    return "draft_ready", [r for r in reasons if r not in pending]
+    return "draft_ready", [r for r in reasons if r not in pending] + ([stale] if stale else [])
+
+
+def stale_card_reason(db: DB, row) -> str | None:
+    """Neodoslaný návrh, ktorý nevychádza z aktuálnej karty organizácie (starší návrh bez karty alebo zo staršej verzie).
+    Testovací beh 21. 10. 2026: kontakty so starým návrhom zo 16. 10. by nikdy nedostali ponuku z karty."""
+    if row["status"] not in ("draft", "needs_edit") or not row["org_id"]:
+        return None
+    from .opportunity import current_card
+
+    pkg = json.loads(row["package_json"] or "{}") if row["package_json"] else {}
+    card = current_card(db, row["org_id"], row["hypothesis_id"], pkg.get("typ") or "customer")
+    if card is None:
+        return None
+    used = (pkg.get("karta") or {}).get("card_id")
+    if used == card["id"]:
+        return None
+    return (f"návrh nevychádza z aktuálnej karty organizácie (v{card['version']}) – ponuka nie je z karty; ak si ho "
+            "neupravoval, nahraď ho návrhom z karty")
+
+
+def discard_for_card(db: DB, outreach_id: int) -> None:
+    """Odstráni neodoslaný, ručne neupravený návrh, aby akcia „Pripraviť návrhy oslovení“ vytvorila nový z karty."""
+    row = db.get_outreach(outreach_id)
+    if row is None:
+        raise OutreachError("Oslovenie neexistuje.")
+    if json.loads(row["checks_json"] or "{}").get("edited"):
+        raise OutreachError("Návrh si ručne upravil – nahraď ho ručne (úpravy sa nemažú automaticky).")
+    if not db.delete_unsent_draft(outreach_id):
+        raise OutreachError("Nahradiť sa dá iba neodoslaný a neschválený návrh.")
 
 
 def confirm_manual_review(db: DB, outreach_id: int) -> None:

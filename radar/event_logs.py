@@ -55,6 +55,9 @@ ALTERNATIVES = {"walkthrough": "prehliadka posledného konkrétneho prípadu po�
 # Otázka karty, na ktorú event log odpovedá: poradie a trvanie krokov, čakanie, vrátenia, termíny (nie obsah dokladov)
 CARD_LOG_RE = re.compile(r"priebeh|poradi|trvan|čakan|odstup|lehot|termín|mešk|vráten|opakovan|odovzd|schvaľovan|"
                          r"koľko dní|ako dlho", re.I)
+# Silné signály priebehu prípadu (čas medzi krokmi, termíny, vrátenia). „Odovzdá doklady“ či „priebeh“ pri vyťažovaní
+# dokladov nestačia – testovací beh 17. 10. 2026 navrhol event log kancelárii, kde stačí vzorka dokladov a správny výsledok.
+STRONG_LOG_RE = re.compile(r"čakan|odstup|lehot|termín|mešk|vráten|koľko dní|ako dlho|poradi", re.I)
 DOCUMENT_RE = re.compile(r"doklad|faktúr|vyťaž|prepis|rozpozn|ocr|dokument", re.I)
 REQUEST_STATUS = {"draft": "návrh", "sent": "odoslané", "received": "prijaté", "not_available": "event log nemajú",
                   "alternative": "dohodnutá alternatíva", "declined": "odmietnuté"}
@@ -102,7 +105,7 @@ def card_log_need(card: dict[str, Any]) -> tuple[bool, str, list[str]]:
     text = " ".join([trial.get("metric") or "", trial.get("input") or "", trial.get("comparison") or ""] + questions)
     hits = sorted({m.group(0).lower() for m in CARD_LOG_RE.finditer(text)})
     alternatives = ["walkthrough", "manual_logging"]
-    if DOCUMENT_RE.search(text) and not hits:
+    if DOCUMENT_RE.search(text) and not STRONG_LOG_RE.search(text):
         return False, "otázka karty je o obsahu dokladov, nie o priebehu – stačia vhodné dokumenty a správny výsledok", [
             "documents", "walkthrough"]
     if hits:

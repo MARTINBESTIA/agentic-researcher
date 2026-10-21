@@ -146,6 +146,13 @@ def test_vendor_feature_is_for_comparison_but_its_savings_do_not_transfer(tmp_pa
     inp = card_inputs(cfg, db, org, hid)
     feat = next(a for name in inp["buckets"] for e, a in inp["buckets"][name] if e["id"] == ids["feat"])
     assert feat["publisher_type"] == "vendor" and feat["meaning"] == "product_feature"
+    # uložený odhad modelu („združenie“) neprebije pravidlo podľa domény (testovací beh 17. 10. 2026)
+    from radar.relevance import Target, assess_claim
+
+    db.conn.execute("UPDATE documents SET source_type = 'association' WHERE domain = 'kros.sk'")
+    row = next(e for e in db.evidence_for(hid) if e["id"] == ids["feat"])
+    assert row["source_type"] == "association"
+    assert assess_claim(row, Target(key="t", segment=SEGMENT))["publisher_type"] == "vendor"
     assert ids["feat"] in {e["id"] for e, _ in inp["buckets"]["solutions"]}
     payload = card_payload(tool="KROS")
     payload["why_org"].append({"text": "Ušetrí 80 % času ako u dodávateľa", "kind": "source_fact", "claims": [ids["feat"]]})
@@ -248,6 +255,12 @@ def test_wrong_segment_is_not_customer_but_data_or_expert_role_can_stay(tmp_path
     assert "nesúlad so segmentom" in rows[nbs]["dôvody"] and rows[nbs]["zhoda_segmentu"].startswith("nie")
     assert rows[stat]["skupina"] == "data_holder" and rows[stat]["odporúčanie"] != "preveriť rolu"
     assert rows[firm]["skupina"] == "customer" and rows[firm]["odporúčanie"] != "preveriť rolu"
+    # SK NACE mimo filtra segmentu (filter navrhol model) nie je dôvod na vyradenie – iba „neznáme, over“ (test 17. 10.)
+    db.conn.execute("UPDATE hypotheses SET segment_filter_json = ? WHERE id = ?", ('{"sk_nace_prefixes": ["6920"]}', hid))
+    other = _org(db, hid, "Tau Poisťovňa a.s.", "90909090", nace="8430")
+    row = {r["org_id"]: r for r in contact_shortlist(cfg, db, hid)}[other]
+    assert row["zhoda_segmentu"].startswith("neznáme") and row["odporúčanie"] != "preveriť rolu"
+    assert {r["org_id"]: r for r in contact_shortlist(cfg, db, hid)}[firm]["zhoda_segmentu"].startswith("áno")
 
 
 # ---------------------------------------------------------------------------------------------------- 8
@@ -310,6 +323,19 @@ def test_targeted_research_respects_budget_cache_stop_and_keeps_question_on_outa
     assert plan_research(cfg, db, cid) >= 3
     tasks = db.research_tasks_for(cid)
     internal = [t for t in tasks if t["best_source"] in ("contact", "sample", "event_log")]
+    public = [t for t in tasks if t["best_source"] in ("public_doc", "tool_docs")]
+    for t in public:  # krátke dopyty s názvom bez právnej formy, nie slová otázky (testovací beh 17. 10. 2026)
+        for q in json.loads(t["queries_json"]):
+            assert "s.r.o." not in q and "Ktor" not in q and len(q.split()) <= 6, q
+    from radar.opportunity import base_name, research_queries
+
+    assert base_name("X & Y Účty, s.r.o.") == "X & Y Účty" and base_name("Beta a.s.") == "Beta"
+    from radar.opportunity import _known_tools
+
+    assert _known_tools({"current_solution": [{"tool": {"text": "Docspoint (podľa zdroja) alebo iný účtovný systém.",
+                                                         "kind": "source_fact"}}]}) == ["Docspoint"]
+    assert research_queries("current_solution", "tool_docs", "X s.r.o.", "", "prepis dokladov", ["Pohoda"])[0] == \
+        "Pohoda prepis dokladov funkcie"
     assert internal and all(not json.loads(t["queries_json"]) for t in internal)  # interné otázky sa nehľadajú
     page = ("Theta Účty s.r.o. spracúva účtovníctvo pre živnostníkov. Doklady klientov zadávame do programu Pohoda "
             "a kontrolujeme ich podľa interných postupov kancelárie pri každom mesačnom uzávierke.")
@@ -328,11 +354,26 @@ def test_targeted_research_respects_budget_cache_stop_and_keeps_question_on_outa
     again = run_research(cfg, db, router, cid, searx, fetcher, Deadline(1))
     assert again["úlohy"] == 0 and len(searx.queries) == n_queries  # pokus sa neopakuje (limit pokusov)
     assert all(t["attempts"] <= 1 for t in db.research_tasks_for(cid))
+    cached = [json.loads(t["cost_json"] or "{}").get("z_cache", 0) for t in db.research_tasks_for(cid) if t["attempts"]]
+    assert any(cached)  # neskoršia úloha použila odseky webu organizácie stiahnuté skoršou (bez nového sťahovania)
     assert len(fetcher.fetched) == len(set(fetcher.fetched))  # už stiahnutá URL organizácie sa nesťahuje znova
     found = [t for t in db.research_tasks_for(cid) if t["status"] == "found"]
     assert found and all(json.loads(t["sources_json"]) for t in found)
-    # výpadok vyhľadávača: otázka ostáva bez vymyslenej odpovede
-    cid2 = db.add_org_card(org, hid, "iny-pripad", "customer", card, inputs_hash="h2", status="checked")
+    assert {e["scope"] for e in db.domain_evidence(f"org:{org}")} == {"organization"}  # vlastný web
+    # rovnaký názov na cudzej stránke bez IČO nie je podklad „o organizácii“ a nález z neho je iba čiastočný
+    namesake = _org(db, hid, "Lambda Kancelária", None)
+    cidn = db.add_org_card(namesake, hid, "menovec", "customer", card, inputs_hash="hn", status="checked")
+    plan_research(cfg, db, cidn)
+    fetcher.texts["https://lambda-app.example/"] = ("Lambda Kancelária je mobilná aplikácia na plánovanie kancelárie "
+                                                     "a zdieľanie dokladov medzi kolegami, ktorú vyvíja iný tím.")
+    run_research(cfg, db, router, cidn, FakeSearx(lambda q: [SearchResult("https://lambda-app.example/", "App", "")]),
+                 fetcher, Deadline(1))
+    assert {e["scope"] for e in db.domain_evidence(f"org:{namesake}")} <= {"sector"}
+    assert not [t for t in db.research_tasks_for(cidn) if t["status"] == "found"]
+    # výpadok vyhľadávača pri organizácii bez uložených podkladov: otázka ostáva bez vymyslenej odpovede
+    # (organizácia s uloženými odsekmi z vlastného webu ich smie použiť aj počas výpadku – to nie je vymyslená odpoveď)
+    org2 = _org(db, hid, "Kapa Účty s.r.o.", "12121212", web="https://kapa.sk/")
+    cid2 = db.add_org_card(org2, hid, "iny-pripad", "customer", card, inputs_hash="h2", status="checked")
     plan_research(cfg, db, cid2)
 
     class Down:
@@ -410,6 +451,8 @@ def test_timestamps_only_event_log_gives_no_working_time_saving_and_missing_log_
     assert not ready["prínos"]["pripravené"] and ready["skúška"]["pripravené"]  # skúška bez event logu je možná
     need, why, alts = card_log_need(card)
     assert not need and "documents" in alts  # vyťažovanie dokladov: dokumenty a správny výsledok
+    handover = {**card, "main_question": {"text": "Ako klient odovzdá doklady a ako prebieha ich prepis?"}}
+    assert not card_log_need(handover)[0]  # „odovzdá“, „prebieha“ pri dokladoch nestačia (testovací beh 17. 10.)
     with pytest.raises(EventLogError, match="Alternatívy"):
         build_request(cfg, db, hid, org, card_id=cid)
     flow = card_payload()
@@ -586,6 +629,33 @@ def test_people_functions_stay_local_when_card_runs_in_cloud_without_personal_da
     assert card_inputs(cfg, db, org, hid, router=router)["profile"]["funkcie_kontaktov"] == ["konateľ"]
 
 
+def test_old_draft_without_card_is_flagged_and_can_be_replaced_by_card_draft(tmp_path):
+    """Testovací beh 21. 10. 2026: kontakt so starým návrhom (pred v15) nedostal ponuku z karty – návrh sa nevytvára,
+    ak už existuje. Teraz upozornenie a nahradenie neodoslaného, neupraveného návrhu."""
+    from radar.outreach import OutreachError, discard_for_card, run_drafts, send_state
+
+    cfg, db, hid, ids, rec, router = _world(tmp_path)
+    org = _org(db, hid, "Rho Účty s.r.o.", "31313131")
+    old = db.insert_outreach(None, hid, "email", "B", "Otázka", "Dobrý deň, starý text.", [], {"ok": True}, "draft",
+                             org_id=org)
+    assert send_state(cfg, db, db.get_outreach(old))[1] == []  # bez karty nič
+    db.add_org_card(org, hid, "prepis-dokladov", "customer", card_payload(), inputs_hash="r", status="checked")
+    reasons = send_state(cfg, db, db.get_outreach(old))[1]
+    assert any("nevychádza z aktuálnej karty" in r for r in reasons)
+    edited = db.insert_outreach(None, hid, "email", "A", "Otázka", "Upravené", [], {"ok": True, "edited": True}, "draft",
+                                org_id=org)
+    with pytest.raises(OutreachError):
+        discard_for_card(db, edited)  # ručná úprava sa nemaže
+    db.conn.execute("DELETE FROM outreach WHERE id = ?", (edited,))
+    discard_for_card(db, old)
+    rec.responses["DraftOut"] = {"subject": "Spracovanie faktúr", "facts_used": [],
+                                 "body": "zaujíma ma, ako ste spracovali posledné prijaté faktúry klienta?"}
+    run_drafts(cfg, db, router, Deadline(1), [hid])
+    new = db.outreach_for_org(org, hid)
+    assert new and all(n["card_id"] for n in new) and not any("nevychádza" in r for n in new
+                                                                for r in send_state(cfg, db, n)[1])
+
+
 def test_org_from_existing_solution_quote_is_linked_as_uses_solution(tmp_path):
     from radar.orgs import OrgFinder
 
@@ -597,3 +667,12 @@ def test_org_from_existing_solution_quote_is_linked_as_uses_solution(tmp_path):
     linked = [o for o in db.orgs_for_hypothesis(hid) if "Sigma" in o["name"]]
     assert linked and linked[0]["relation"] == "uses_solution"
     assert "nie potvrdená aktuálna potreba" in linked[0]["fit_json"]
+
+
+def test_gendered_aby_som_form_is_flagged():
+    """Testovací beh 21. 10. 2026: „aby som sa mohol obrátiť“ v návrhu bez nastaveného rodu odosielateľa prešlo kontrolou."""
+    from radar.outreach import GENDERED_FIRST_PERSON_RE
+
+    assert GENDERED_FIRST_PERSON_RE.search("Prosím o kontakt, aby som sa mohol obrátiť na správnu osobu.")
+    assert GENDERED_FIRST_PERSON_RE.search("aby som si mohla dohodnúť termín")
+    assert not GENDERED_FIRST_PERSON_RE.search("Chcem sa opýtať, kto je zodpovedný, aby sa návrh dostal k správnej osobe.")

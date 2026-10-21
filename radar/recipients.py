@@ -113,10 +113,17 @@ def segment_fit(db: DB, org, hyp) -> dict[str, Any]:
     if nace and prefixes:
         if any(nace.startswith(p) for p in prefixes):
             return {"zhoda": "áno", "dôvod": f"činnosť SK NACE {nace} zodpovedá segmentu"}
-        return {"zhoda": "nie", "dôvod": f"činnosť SK NACE {nace} nezodpovedá segmentu (očakávané {', '.join(prefixes[:4])})"}
-    if kind in ("private", "public") and (public if kind == "public" else (sector == "private" or not public)):
-        return {"zhoda": "neznáme" if sector is None else "áno",
-                "dôvod": "typ organizácie zodpovedá segmentu" + (" (sektor z registra chýba)" if sector is None else "")}
+        # Filter SK NACE navrhol model pri hľadaní organizácií – nie je dosť spoľahlivý na vyradenie: test 17. 10. 2026
+        # (H15 zdravotné poisťovne čakal 6520, poisťovne majú 8430) by vyradil skutočných zákazníkov. Iba upozornenie.
+        return {"zhoda": "neznáme", "dôvod": f"SK NACE {nace} nie je medzi kódmi filtra segmentu ({', '.join(prefixes[:4])}; "
+                                             "filter navrhol model) – over, či je to zákazník"}
+    if kind == "public" and public:
+        return {"zhoda": "áno", "dôvod": "verejná organizácia v segmente verejného sektora"
+                                        + (" (podľa názvu alebo domény; sektor z registra chýba)" if sector is None else "")}
+    if kind == "private" and sector == "private":
+        return {"zhoda": "áno", "dôvod": "súkromná organizácia v segmente súkromného sektora"}
+    if kind == "private" and not public:
+        return {"zhoda": "neznáme", "dôvod": "pravdepodobne súkromná organizácia, sektor z registra chýba – over"}
     return {"zhoda": "neznáme", "dôvod": "segment alebo typ organizácie sa nedá určiť pravidlom – preveriť"}
 
 

@@ -33,7 +33,7 @@ from .privacy import fold
 
 log = logging.getLogger(__name__)
 
-LOGIC_VERSION = "rel-1"
+LOGIC_VERSION = "rel-2"  # rel-2: pravidlo vydavateľa podľa domény pred odhadom modelu
 MEANINGS = {"problem": "problém", "process": "opis procesu", "existing_solution": "existujúce riešenie",
             "product_feature": "funkcia produktu", "post_deployment": "skúsenosť po nasadení",
             "counterargument": "protiargument", "context": "kontext"}
@@ -96,13 +96,13 @@ class Target(BaseModel):
 
 
 def _publisher(e) -> str | None:
-    keys = e.keys()
-    typ = e["source_type"] if "source_type" in keys else None
-    if typ:
-        return typ
+    """Typ vydavateľa: pravidlo podľa domény má prednosť pred uloženým odhadom modelu (testovací beh 17. 10. 2026:
+    kros.sk ostal v databáze „združenie“, lebo krok source-types ešte neprebehol, a blog dodávateľa bol dôkazom problému)."""
     from .publishers import rule_type
 
-    return rule_type(e["domain"] if "domain" in keys else "")
+    keys = e.keys()
+    rule = rule_type(e["domain"] if "domain" in keys else "")
+    return rule or (e["source_type"] if "source_type" in keys else None)
 
 
 def assess_claim(e, target: Target, org_names: dict[int, str] | None = None) -> dict[str, Any]:

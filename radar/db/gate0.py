@@ -514,6 +514,11 @@ class Gate0Mixin:
     def get_outreach(self, outreach_id: int) -> sqlite3.Row | None:
         return self._one("SELECT * FROM outreach WHERE id = ?", (outreach_id,))
 
+    def delete_unsent_draft(self, outreach_id: int) -> int:
+        """Neodoslaný návrh (draft, needs_edit) na nahradenie novším – odoslané a schválené sa nemažú."""
+        return self._exec("DELETE FROM outreach WHERE id = ? AND sent_at IS NULL AND approved_at IS NULL "
+                          "AND status IN ('draft', 'needs_edit')", (outreach_id,)).rowcount
+
     def delete_unsent_outreach_for_contacts(self, contact_ids: list[int]) -> int:
         """Neodoslané návrhy (draft, needs_edit, blocked) na kontakty, ktoré sa odstraňujú (zlý zdroj kontaktu)."""
         if not contact_ids:

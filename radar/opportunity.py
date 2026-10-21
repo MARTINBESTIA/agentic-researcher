@@ -1001,9 +1001,8 @@ def plan_research(cfg: Config, db: DB, card_id: int) -> int:
         queries = []
         nxt = None
         if g["best_source"] in PUBLIC_SOURCES:
-            kw = " ".join(re.findall(r"[\wáäčďéíĺľňóôŕšťúýž]{4,}", g["question"].split("(")[0])[:7])
-            queries = [f"\"{row['org_name']}\" {kw}"] + ([f"site:{host} {kw}"] if host else [])
-            queries = queries[: cfg.org_cards.research_max_queries_per_task]
+            queries = research_queries(g["gap_part"], g["best_source"], row["org_name"], host, process,
+                                       _known_tools(card))[: cfg.org_cards.research_max_queries_per_task]
         else:
             nxt = {"contact": "otázka do rozhovoru (verejné mlčanie nie je dôkaz)",
                    "sample": "požiadať o malú vzorku dokladov a správny výsledok",
@@ -1012,6 +1011,50 @@ def plan_research(cfg: Config, db: DB, card_id: int) -> int:
                              priority=DECISION_RANK[g["decision_changed"]] * 10 + i, queries=queries, next_step=nxt)
         n += 1
     return n
+
+
+LEGAL_FORM_RE = re.compile(r",?\s*(s\.\s?r\.\s?o\.|spol\.\s?s\s?r\.\s?o\.|a\.\s?s\.|v\.\s?o\.\s?s\.|k\.\s?s\.|n\.\s?o\.)\s*$",
+                           re.I)
+
+
+def base_name(name: str) -> str:
+    """Názov bez právnej formy („X & Y Účty, s.r.o.“ → „X & Y Účty“) – takto ho píše web aj články."""
+    return LEGAL_FORM_RE.sub("", name or "").strip(" ,")
+
+
+def _known_tools(card: dict[str, Any]) -> list[str]:
+    """Názvy nástrojov z karty na dopyt: iba názov („Docspoint (podľa zdroja) alebo iný systém.“ → „Docspoint“)."""
+    out = []
+    for x in card.get("current_solution") or []:
+        if (x.get("tool") or {}).get("kind") in (None, "unknown"):
+            continue
+        name = re.split(r"\s*[(,;:]|\s+(?:alebo|či|a iný|napr\.)\s+|\.\s|\.$", _t(x.get("tool")))[0].strip(" .")
+        if name and len(name.split()) <= 4:
+            out.append(name)
+    return out[:2]
+
+
+def research_queries(gap_part: str, best_source: str, org_name: str, host: str, process: str,
+                     tools: list[str] | None = None) -> list[str]:
+    """Krátke dopyty podľa druhu medzery – názov organizácie (bez právnej formy) alebo nástroja a pár slov procesu,
+    nie slová otázky. Testovací beh 17. 10. 2026: dopyt „"<názov>, s.r.o." Ktorý útvar alebo funkcia …
+    zodpovedá“ nevrátil nič použiteľné (vyhľadávač našiel heslo o jednom písmene)."""
+    name = f'"{base_name(org_name)}"'
+    proc = " ".join(process.split()[:4])
+    if best_source == "tool_docs" and tools:
+        return [f"{tools[0]} {proc} funkcie", f"{tools[0]} import dokladov integrácia"]
+    # overený web organizácie má prednosť: názvy s jednopísmenovými slovami (napr. „X & Y“) vyhľadávač nenájde ani
+    # v úvodzovkách, „site:<web> služby“ áno (testovací beh 17. 10. 2026)
+    if host:
+        site = f"site:{host}"
+        by_part = {"why_org": [f"{site} služby", f"{name} služby"], "authority": [f"{site} kontakt", f"{name} kontakt"],
+                   "current_solution": [f"{site} program", f"{name} referencia"]}
+        out = by_part.get(gap_part) or [f"{site} {proc}", f"{name} {proc}"]
+    else:
+        by_part = {"why_org": [f"{name} služby", f"{name} o nás"], "authority": [f"{name} kontakt", f"{name} tím"],
+                   "current_solution": [f"{name} softvér", f"{name} referencia"]}
+        out = by_part.get(gap_part) or [f"{name} {proc}", name]
+    return list(dict.fromkeys(q.strip() for q in out if q.strip()))
 
 
 def _host(org) -> str:
@@ -1034,8 +1077,7 @@ def run_research(cfg: Config, db: DB, llm: Any, card_id: int, searx=None, fetche
                  deadline: Deadline | None = None) -> dict[str, Any]:
     """Ohraničený cielený výskum medzier karty: iba verejné zdroje, limity dopytov, dokumentov, času a pokusov, cache
     (už stiahnuté URL organizácie sa neopakujú, úloha sa po pokuse neopakuje). Výpadok → zdroj nedostupný, otázka ostáva."""
-    from .domain_sources import select_chunks, stems
-    from .orgs import name_in
+    from .domain_sources import normalize, select_chunks, stems
     from .prompts import GAP_ANSWER_SYSTEM, language_name
 
     oc = cfg.org_cards
@@ -1065,6 +1107,13 @@ def run_research(cfg: Config, db: DB, llm: Any, card_id: int, searx=None, fetche
         terms = stems(f"{task['question']} {org['name']}")
         excerpts: list[tuple[int, str, str]] = []  # (id podkladu, url, text)
         errors = []
+        # už uložené odseky z webu organizácie (cache) sa použijú aj pre ďalšie otázky – inak by druhá úloha
+        # stránku preskočila ako „už videnú“ a skončila „verejne nezistiteľné“ (testovací beh 17. 10. 2026)
+        for e in db.domain_evidence(key):
+            if sum(1 for t in terms if t in normalize(e["excerpt"])) >= 2:
+                excerpts.append((e["id"], e["source_url"], e["excerpt"]))
+        excerpts = excerpts[: oc.research_max_documents_per_task * oc.per_document]
+        cost["z_cache"] = len(excerpts)
         for q in json.loads(task["queries_json"] or "[]")[: oc.research_max_queries_per_task]:
             if time.monotonic() >= stop_at:
                 break
@@ -1091,7 +1140,10 @@ def run_research(cfg: Config, db: DB, llm: Any, card_id: int, searx=None, fetche
                 url = page.final_url or page.url
                 own = bool(host) and _host_of(url).endswith(host)
                 for _, chunk in select_chunks(page.text, terms, per_doc=oc.per_document):
-                    scope = "organization" if own or name_in(org["name"], chunk) else "sector"
+                    # „o organizácii“ iba z jej overeného webu alebo s jej IČO v odseku – samotná zhoda názvu nestačí
+                    # (testovací beh 17. 10. 2026: pri organizácii bez IČO a webu sa našli iné subjekty s rovnakým menom)
+                    ico = re.sub(r"\D", "", org["ico"] or "")
+                    scope = "organization" if own or (ico and ico in re.sub(r"\D", "", chunk)) else "sector"
                     eid = db.add_domain_evidence(key, "web", chunk, hashlib.sha256(chunk.encode()).hexdigest(), scope,
                                                  source_url=url, title=(page.title or "")[:200],
                                                  source_locator=f"výskumná úloha #{task['id']}",
@@ -1130,8 +1182,14 @@ def run_research(cfg: Config, db: DB, llm: Any, card_id: int, searx=None, fetche
                 status = {"not_found": "not_public"}.get(res.value.status, res.value.status)
                 if status in ("found", "partial", "conflict") and not used:
                     status = "not_public"  # odpoveď bez úryvku je nepodložená – neukladá sa ako nález
+                note = res.value.note
+                scopes = {e: (db.get_domain_evidence(e) or {"scope": None})["scope"] for e in used}
+                if status == "found" and not any(v == "organization" for v in scopes.values()):
+                    status = "partial"  # identita neoverená: úryvky nie sú z jej webu ani s jej IČO
+                    note = (note + " · " if note else "") + ("úryvky nie sú z webu organizácie ani neobsahujú jej IČO – "
+                                                             "nemusia sa jej týkať (over v rozhovore)")
                 fields.update(status=status, result_json={"answer": res.value.answer if used else "",
-                                                          "excerpts": used, "note": res.value.note},
+                                                          "excerpts": used, "note": note},
                               sources_json=[{"evidence_id": e, "url": u} for e, u, _ in excerpts if e in used],
                               next_step={"found": "použiť v ďalšej verzii karty", "partial": "doplniť v rozhovore",
                                          "conflict": "rozpor – overiť v rozhovore",

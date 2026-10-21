@@ -5,7 +5,8 @@ import streamlit as st
 from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
 from radar.outcomes import FLAGS, RELEVANCE, REPLIES, OutcomeError, outcome_metrics, record_outcome
 from radar.outreach import (
-    MODE_LABEL, SEND_STATES, OutreachError, approve, confirm_manual_review, follow_up_text, mailto_link,
+    MODE_LABEL, SEND_STATES, OutreachError, approve, confirm_manual_review, discard_for_card, follow_up_text, mailto_link,
+    stale_card_reason,
     mark_follow_up_sent, mark_sent, recheck, send_state, set_status,
 )
 from radar.privacy import sender_placeholders
@@ -65,6 +66,16 @@ for o in items:
                                                        key=f"o{o['id']}mr", icon=":material/person_check:"):
                 confirm_manual_review(d, o["id"])
                 refresh()
+            if stale_card_reason(d, o) and st.button(
+                    "Nahradiť návrhom z karty", key=f"o{o['id']}rc", icon=":material/autorenew:",
+                    help="Odstráni tento neodoslaný návrh; nový z karty organizácie vznikne v akcii „Pripraviť návrhy "
+                         "oslovení“. Ručne upravený návrh sa nenahrádza."):
+                try:
+                    discard_for_card(d, o["id"])
+                except OutreachError as exc:
+                    st.error(str(exc))
+                else:
+                    refresh()
         if pkg:
             why, need = pkg.get("prečo_tento_kontakt") or {}, pkg.get("potreba") or {}
             st.dataframe([

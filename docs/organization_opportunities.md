@@ -20,7 +20,7 @@ a praktický postup na troch organizáciách.
 ## 2. Dátový tok
 
 ```
-dôkazy (claims) ──► posúdenie voči cieľu (evidence_assessments, logika rel-1)
+dôkazy (claims) ──► posúdenie voči cieľu (evidence_assessments, logika rel-2)
                        │  pravidlá kódu: program, typ aktéra, vydavateľ, význam, stav potreby
                        ▼
               skupiny podkladov: proces a problém │ o tejto organizácii │ existujúce riešenia │ protiargumenty │ iba kontext
@@ -65,7 +65,7 @@ Posúdenie človeka (`assessed_by = human`) sa nikdy neprepíše modelom ani kó
 V „Koho osloviť“ pribudli stĺpce **zhoda so segmentom**, **stav potreby**, **riešenie** a **obstarávanie** a úroveň
 odporúčania **„preveriť rolu“**. Pravidlá (`radar/recipients.py`, bez modelu):
 
-- verejná inštitúcia pri súkromnom segmente (a naopak) nie je zákazník; SK NACE z registra oproti filtru segmentu;
+- verejná inštitúcia pri súkromnom segmente (a naopak) nie je zákazník; SK NACE z registra mimo filtra segmentu je iba „neznáme – over“ (filter navrhol model a nie je dosť spoľahlivý na vyradenie);
 - stav potreby: posledná vlastná odpoveď organizácie (potvrdená / vyvrátená), inak „podľa zdroja riešená“ pri väzbe
   `uses_solution`, inak hypotéza. „Bez odpovede“ nie je vyvrátenie; odpoveď inej organizácie stav nemení;
 - obstarávanie: `none` / `candidate` / `confirmed` / `closed` s dôvodom a ďalším krokom. GUI: Brána 0 → Koho osloviť →
@@ -128,7 +128,7 @@ poznania), výstup a prospech z ponuky, rozhodnutie z „čo sa zmení“, minim
 a otázky na rozhovor z karty. Návrh nesie `card_id` a `card_version`. Pripravenosť návrhu upozorní na zastaranú kartu
 alebo nový rozpor. Bez karty: zákazník iba situačná otázka; držiteľ dát a expert všeobecný návrh pre svoju rolu (ich
 vlastný prospech – dátová kontrola, overiteľný rozbor; nikdy predplatné). Obchodné podmienky (`outreach.value_offer`)
-sa nemenia: veta o bezplatnom deme a skúške iba komerčnému adresátovi s konkrétnym výstupom.
+sa nemenia: veta o bezplatnom deme a skúške iba komerčnému adresátovi s konkrétnym výstupom. Neodoslaný návrh, ktorý nevychádza z aktuálnej karty (starší návrh alebo staršia verzia karty), má v Osloveniach upozornenie a tlačidlo **Nahradiť návrhom z karty** (iba neupravený a neschválený návrh; nový vznikne v akcii návrhov).
 
 ## 8. Cielený výskum medzier
 
@@ -137,7 +137,7 @@ návrh skúšky), najvhodnejší zdroj a dopyty s názvom organizácie (a `site:
 frekvencia, dôvod zdržania, skutočné používanie, rozpočet) sa **nehľadajú** – idú na kontakt, vzorku alebo event log.
 Do limitu sa vždy dostane aspoň jedna otázka o existujúcom riešení. Výskum používa existujúci SearXNG a fetcher
 (robots, blokované domény, LinkedIn sa nesťahuje), doslovné odseky bez e-mailov a telefónov
-(`domain_evidence` s kľúčom `org:<id>`, rozsah „organizácia“ iba pre vlastný web alebo odsek s jej názvom).
+(`domain_evidence` s kľúčom `org:<id>`, rozsah „organizácia“ iba pre jej overený web alebo odsek s jej IČO – samotná zhoda názvu nestačí; nález iba z iných odsekov je „čiastočný“). Dopyty sú krátke podľa druhu medzery (názov bez právnej formy, pri overenom webe najprv `site:`), odseky webu organizácie uložené skoršou úlohou sa použijú aj pre ďalšie otázky.
 Výsledok: nájdené / čiastočné / rozpor / verejne nezistiteľné / zdroj nedostupný. Odpoveď modelu bez platného úryvku
 sa neuloží ako nález. Úloha sa po pokuse neopakuje; už stiahnutá URL sa nesťahuje znova; výpadok = otázka ostáva.
 

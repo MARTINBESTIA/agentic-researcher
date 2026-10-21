@@ -156,7 +156,8 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
                "expert": "expertná organizácia"}.get(group) or {
             "mentioned_with_problem": "organizácia v dôkaze", "quoted_person": "citovaná osoba je z nej",
             "uses_solution": "používa riešenie (podľa zdroja) – over zostávajúcu medzeru",
-            "procured_related": "obstaráva súvisiacu vec", "contact_search": "hľadanie podľa hypotézy",
+            "procured_related": "výsledok hľadania obstarávania (stav pozri v stĺpci obstarávanie)",
+            "contact_search": "hľadanie podľa hypotézy",
             "segment_match": "zhoda so segmentom", "manual": "zoznam"}.get(org["relation"], org["relation"])
         rows.append({
             "odporúčanie": "neoslovovať" if blockers else "oslov", "typ": KIND_LABEL.get(group, group),
@@ -199,7 +200,7 @@ def _recipient_columns(db: DB, hid: int, rows: list[dict[str, Any]], orgs: dict[
         r["zhoda_segmentu"] = f"{fit['zhoda']} – {fit['dôvod']}"
         r["stav_potreby"] = NEED_LABEL.get(need_state(db, hid, r["org_id"], relation), "")
         proc = procurement_of(org) if org is not None else {"status": "none"}
-        r["obstarávanie"] = proc["status"] if proc["status"] != "none" else ""
+        r["obstarávanie"] = {"candidate": "neoverené", "confirmed": "potvrdené", "closed": "ukončené"}.get(proc["status"], "")
         if proc["status"] == "candidate":
             r["dôvody"] += f"; ⚠ obstarávanie neoverené – over na {proc['url'] or 'webe organizácie'} (schválenie čaká)"
         card = cards.get(r["org_id"])
