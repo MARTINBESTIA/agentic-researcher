@@ -757,6 +757,52 @@ def test_scheduled_start_resumes_stalled_queue_and_interrupted_jobs(tmp_path):
     assert db.get_job(old_pilot)["status"] == "interrupted"  # nový autopilot ho nahradí
 
 
+def test_run_now_resumes_queue_and_does_not_stack_autopilots(tmp_path):
+    """23. 10. 2026: „Spustiť všetko hneď“ (GUI) aj nočný beh (`job autopilot --resume`) – rozbehne zastavené poradie
+    a zaradí autopilot; keď už jeden čaká, iba mu predĺži koniec (dve reťaze kôl by plánovali tú istú prácu dvakrát)."""
+    import argparse
+    from datetime import datetime, timedelta, timezone
+
+    from radar.commands import cmd_job
+    from radar.jobs import run_now
+
+    cfg, db, rec, router = setup(tmp_path)
+    spawned, alive = [], {}
+
+    def popen(cmd, **kw):
+        spawned.append(cmd)
+        pid = 3000 + len(spawned)
+        alive[pid] = True
+        return SimpleNamespace(pid=pid)
+
+    is_alive = lambda pid: alive.get(pid, False)  # noqa: E731
+    start_job(cfg, db, "config.yaml", "validate", 60, popen=popen, alive=is_alive)
+    waiting = start_job(cfg, db, "config.yaml", "cards", 40, popen=popen, alive=is_alive, mode="queue")
+    alive[3001] = False  # počítač spal / reštart: poradie stojí
+    first = run_now(cfg, db, "config.yaml", 480, popen=popen, alive=is_alive)
+    assert first["poradie"] == waiting and db.get_job(waiting)["status"] == "running"
+    assert first["nový"] and db.get_job(first["autopilot"])["status"] == "queued"  # beží karta → autopilot do poradia
+    again = run_now(cfg, db, "config.yaml", 600, popen=popen, alive=is_alive)
+    assert again["autopilot"] == first["autopilot"] and not again["nový"]
+    assert json.loads(db.get_job(first["autopilot"])["args_json"])["minutes"] == 600
+    assert len(first["znova"]) == 1 and again["znova"] == []  # prerušená validate znova iba raz
+    assert [j["kind"] for j in db.queued_jobs()] == ["validate", "autopilot"]
+
+    stop_job(db, first["autopilot"])  # ďalšie kolo reťaze má pevný koniec – predĺži sa, neskráti
+    chain = db.create_job("autopilot", {"minutes": 5, "until": "2026-01-01T00:00:00+00:00", "round": 3}, status="queued")
+    assert run_now(cfg, db, "config.yaml", 60, popen=popen, alive=is_alive)["autopilot"] == chain
+    until = datetime.fromisoformat(json.loads(db.get_job(chain)["args_json"])["until"])
+    assert until > datetime.now(timezone.utc) + timedelta(minutes=55)
+    later = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec="seconds")
+    db.update_job(chain, args_json={"minutes": 5, "until": later, "round": 3})
+    run_now(cfg, db, "config.yaml", 60, popen=popen, alive=is_alive)
+    assert json.loads(db.get_job(chain)["args_json"])["until"] == later
+
+    app = SimpleNamespace(cfg=cfg, db=db)  # nočný beh z Plánovača: rovnaké pravidlo, žiadna druhá reťaz
+    args = argparse.Namespace(kind="autopilot", minutes=480, hypotheses=None, mode="queue", wait=False, resume=False)
+    assert cmd_job(app, args) == 0 and [j["id"] for j in db.queued_jobs()] == [first["znova"][0], chain]
+
+
 def test_read_page_offers_candidate_quotes_for_reading_only_models():
     """9B a MoE 35B stránky čítajú, ale record_evidence takmer nevolajú – kód ponúkne vety s opisom problému."""
     from radar.agent import TOOLS, ResearchAgent, candidate_quotes

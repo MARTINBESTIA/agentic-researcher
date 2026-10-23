@@ -243,6 +243,10 @@ platia z GUI (Správca akcií → Modely). Naplánovanie (registruješ ty, mení
 `scripts\register_weekly_task.ps1 -Daily -Time 23:00 -Wake` (každý deň s prebudením; vo Windows musia byť
 povolené časovače prebudenia), bez `-Daily` raz týždenne (`-Day Sunday`). Na batériu sa beh nespustí;
 prerušenú akciu spustíš v Správcovi akcií tlačidlom „Spustiť znova“.
+**Bez čakania na nočný beh:** Správca akcií → „Nechať bežať všetko“ → **Spustiť všetko hneď (nečakať na nočný
+beh)** – to isté ako nočný beh, len teraz: rozbehne zastavené poradie, znova zaradí prerušené úlohy z posledných 12 h
+a zaradí autopilot na zvolený počet hodín (Docker a Ollama musia bežať; nočný beh ich zapína sám). Keď už jeden
+autopilot čaká v poradí, tlačidlo ani nočný beh nepridajú druhý – iba mu predĺžia koniec.
 Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model v poradí priority
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.

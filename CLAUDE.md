@@ -98,7 +98,7 @@ docker compose up -d                     # SearXNG
 | `radar/pipeline.py`, `radar/cli.py`, `radar/commands.py` | run-all v poradí podľa modelov; príkazy `python -m radar …` |
 | `radar/agent.py` | agent s nástrojmi len na čítanie a `record_evidence` (úlohy deep_dive, validate, scout) |
 | `radar/scout.py`, `radar/validate.py` | agent hľadá nové problémy (bunky matice); test uložených hypotéz (fronta, verdikt kódu) |
-| `radar/workflows.py`, `radar/jobs.py` | akcie (`ACTIONS`: scout, validate, people, drafts, evidence, topics, critique, profiles, run-all; `python -m radar workflow …`); úlohy na pozadí z GUI (tabuľka `jobs`, jedna naraz, poradie, stav GPU) |
+| `radar/workflows.py`, `radar/jobs.py` | akcie (`ACTIONS`: scout, validate, people, drafts, evidence, topics, critique, profiles, run-all; `python -m radar workflow …`); úlohy na pozadí z GUI (tabuľka `jobs`, jedna naraz, poradie, stav GPU); plánovaný beh hneď (`run_now`: pokračovanie poradia, prerušené úlohy, autopilot bez druhej reťaze – `queue_autopilot`) |
 | `radar/gui/` | Streamlit: `app.py` (navigácia), `app_pages/*.py` (13 stránok vrátane Správcu akcií a Event log a procesy), `common.py` (escape textu zo zdrojov, karty akcií, panel úloh a poradia), `cloud_panel.py` (Cloudové modely: profily, nasadenia, smerovanie rolí, rozpočet a sadzby, test pripojenia, spotreba), `org_card_panel.py` (Brána 0 → Doména a prínos → Karta organizácie: päť odpovedí, tri pripravenosti, medzery, odpoveď, oprava, sústredený režim; model iba cez úlohu na pozadí) |
 | `tests/` | `fakes.py` (Recorder, BoundFake, FakeSearx, FakeFetcher), `fixtures/` (HTML, RPO JSON); žiadne sieťové volania |
 

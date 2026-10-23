@@ -290,7 +290,7 @@ class OpsMixin:
         return self._all("SELECT * FROM eval_results ORDER BY id DESC LIMIT ?", (limit,))
 
     # ------------------------------------------------------------- úlohy z GUI (v3)
-    JOB_FIELDS = ("pid", "status", "log_path", "progress_json", "stats_json", "finished_at", "started_at")
+    JOB_FIELDS = ("pid", "status", "log_path", "progress_json", "stats_json", "finished_at", "started_at", "args_json")
 
     def create_job(self, kind: str, args: dict[str, Any], status: str = "starting") -> int:
         """status: starting (spúšťa sa hneď) alebo queued (čaká v poradí; started_at = čas zaradenia)."""
@@ -307,7 +307,7 @@ class OpsMixin:
         unknown = set(fields) - set(self.JOB_FIELDS)
         if unknown:
             raise ValueError(f"Neznáme polia úlohy: {sorted(unknown)}")
-        for key in ("progress_json", "stats_json"):
+        for key in ("progress_json", "stats_json", "args_json"):
             if key in fields and not isinstance(fields[key], (str, type(None))):
                 fields[key] = json.dumps(fields[key], ensure_ascii=False)
         if not fields:

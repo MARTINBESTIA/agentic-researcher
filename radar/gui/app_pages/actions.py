@@ -5,7 +5,8 @@ from radar.gui.common import (
     JOB_STATUS, action_card, cfg, config_path, db, job_label, jobs_panel, json_or, start_job_button,
 )
 from radar.jobs import (
-    gpu_status, interrupted_jobs, ollama_models, queue_stalled, refresh_jobs, restart_job, start_next, unload_gpu,
+    gpu_status, interrupted_jobs, ollama_models, queue_stalled, refresh_jobs, restart_job, run_now, start_next,
+    unload_gpu,
 )
 from radar.models import MODEL_SETTINGS_KEY, PROFILES
 from radar.workflows import ACTIONS
@@ -144,6 +145,17 @@ with st.container(border=True):
     with st.container(horizontal=True, vertical_alignment="bottom"):
         hours = st.number_input("Ako dlho (hodiny)", 1, 72, 8, key="am_auto_hours")
         start_job_button("autopilot", ACTIONS_INFO.label, hours * 60, key="am_auto_go", icon=":material/autorenew:")
+        if st.button("Spustiť všetko hneď (nečakať na nočný beh)", key="am_auto_now", icon=":material/bolt:",
+                     help="To isté ako plánovaný beh z Plánovača úloh, len teraz: rozbehne zastavené poradie, znova "
+                          "zaradí prerušené úlohy z posledných 12 h a zaradí autopilot na zvolený čas (keď už jeden "
+                          "čaká, iba mu predĺži koniec). Ak niečo beží, autopilot ide do poradia. Docker (SearXNG) "
+                          "a Ollama musia bežať – nočný beh ich zapína sám."):
+            now = run_now(c, d, config_path(), hours * 60)
+            st.toast(f"Autopilot #{now['autopilot']} " + ("zaradený" if now["nový"] else "už čakal – predĺžený")
+                     + (f" · poradie rozbehnuté (#{now['poradie']})" if now["poradie"] else "")
+                     + (f" · znova zaradené: {', '.join(f'#{j}' for j in now['znova'])}" if now["znova"] else ""),
+                     icon=":material/bolt:")
+            st.rerun()
 
 FUNNEL = ACTIONS["funnel"]
 with st.container(border=True):

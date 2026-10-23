@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -183,6 +184,37 @@ def resume_after_restart(cfg: Config, db: DB, config_path: str | Path, skip_kind
         if job["kind"] == skip_kind or (job["finished_at"] or "") < cutoff:
             continue
         out["znova"].append(restart_job(cfg, db, config_path, job["id"], popen=popen, alive=alive))
+    return out
+
+
+def queue_autopilot(cfg: Config, db: DB, config_path: str | Path, minutes: float,
+                    popen: Callable[..., Any] = subprocess.Popen,
+                    alive: Callable[[int | None], bool] = pid_alive) -> tuple[int, bool]:
+    """Autopilot na `minutes` od teraz (do poradia, ak niečo beží). Keď už jeden čaká v poradí (prvé alebo ďalšie kolo
+    reťaze), nový sa nepridá – iba sa mu predĺži koniec: dve reťaze kôl by plánovali tú istú prácu dvakrát
+    (23. 10. 2026: tlačidlo „Spustiť všetko hneď“ a nočný beh z Plánovača v ten istý deň). Vráti (úloha, nová?)."""
+    want = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    for job in db.queued_jobs():
+        if job["kind"] != "autopilot":
+            continue
+        args = json.loads(job["args_json"] or "{}")
+        if args.get("until"):  # ďalšie kolo reťaze: koniec je pevný čas
+            if datetime.fromisoformat(args["until"]) < want:
+                args["until"] = want.isoformat(timespec="seconds")
+        else:  # prvé kolo: koniec sa ráta od skutočného štartu úlohy
+            args["minutes"] = max(float(args.get("minutes") or 0), float(minutes))
+        db.update_job(job["id"], args_json=args)
+        return job["id"], False
+    return start_job(cfg, db, config_path, "autopilot", minutes, popen=popen, alive=alive, mode="queue"), True
+
+
+def run_now(cfg: Config, db: DB, config_path: str | Path, minutes: float,
+            popen: Callable[..., Any] = subprocess.Popen,
+            alive: Callable[[int | None], bool] = pid_alive) -> dict[str, Any]:
+    """Plánovaný beh hneď (GUI „Spustiť všetko hneď“, `job autopilot --resume` z Plánovača): rozbehne zastavené
+    poradie, znova zaradí prerušené úlohy z posledných 12 h a zaradí autopilot (alebo predĺži ten, čo už čaká)."""
+    out = resume_after_restart(cfg, db, config_path, skip_kind="autopilot", popen=popen, alive=alive)
+    out["autopilot"], out["nový"] = queue_autopilot(cfg, db, config_path, minutes, popen=popen, alive=alive)
     return out
 
 

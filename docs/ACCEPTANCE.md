@@ -301,3 +301,5 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M34 | iba dodávateľské zdroje → upozornenie; chýbajúce časti → presná akcia | `test_m34_problem_brief.py::test_vendor_only_evidence_is_flagged_and_missing_parts_point_to_actions` |
 | M34 | tabuľka problémov a súbory, poradie podľa úplnosti | `test_m34_problem_brief.py::test_index_and_files_are_written_ordered_by_completeness` |
 | M34 | GUI Problémy → Prehľad príležitosti bez volania modelu | `test_m34_problem_brief.py::test_problems_page_shows_opportunity_brief_tab_without_model_calls` |
+| M9 | Spustiť všetko hneď: rozbehne poradie, prerušené úlohy znova raz, autopilot bez druhej reťaze (predĺži koniec, neskráti); nočný beh rovnako | `test_m9_agentic.py::test_run_now_resumes_queue_and_does_not_stack_autopilots` |
+| M2 | GUI: tlačidlo „Spustiť všetko hneď“ – počas behu autopilot do poradia, druhý klik ďalší nepridá | `test_m2_gui.py::test_action_manager_lists_all_actions_queue_and_switch` |

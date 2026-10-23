@@ -762,7 +762,14 @@ def cmd_job(app, args, sleep=None) -> int:
             print(f"Pokračujem po prerušení: poradie {resumed['poradie'] or '–'}, znova zaradené "
                   f"{', '.join(f'#{j}' for j in resumed['znova']) or '–'}")
     try:
-        job_id = start_job(app.cfg, app.db, config, args.kind, args.minutes, args.hypotheses, mode=args.mode)
+        if args.kind == "autopilot" and args.mode == "queue":  # nočný beh nepridá druhú reťaz kôl (queue_autopilot)
+            from .jobs import queue_autopilot
+
+            job_id, new = queue_autopilot(app.cfg, app.db, config, args.minutes)
+            if not new:
+                print(f"Autopilot už čaká v poradí (#{job_id}) – koniec predĺžený na {args.minutes:g} min od teraz")
+        else:
+            job_id = start_job(app.cfg, app.db, config, args.kind, args.minutes, args.hypotheses, mode=args.mode)
     except JobBusy as exc:
         print(str(exc))
         return 3

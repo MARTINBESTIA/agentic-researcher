@@ -165,6 +165,14 @@ def test_action_manager_lists_all_actions_queue_and_switch(gui):
     assert db.queued_jobs() == [] and db.get_job(job)["status"] == "running"
     db.close()
 
+    # „Spustiť všetko hneď“ = nočný beh teraz: autopilot do poradia (beží validate), druhý klik ďalší nepridá
+    for _ in range(2):
+        at.button(key="am_auto_now").click().run()
+        assert not at.exception, at.exception
+    db = DB(load_config(gui / "config.yaml").db_path)
+    assert [j["kind"] for j in db.queued_jobs()] == ["autopilot"] and db.get_job(job)["status"] == "running"
+    db.close()
+
 
 def test_model_selection_in_action_manager_saves_override(gui):
     """Výber modelov v Správcovi akcií: uloží sa do nastavení a platí pre ďalšie spustené akcie."""
