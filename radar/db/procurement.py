@@ -11,7 +11,7 @@ from ..util import utcnow
 NOTICE_FIELDS = ("source", "notice_id", "notice_type", "procedure_type", "contract_nature", "stage", "title",
                  "description", "buyer_name", "buyer_ico", "buyer_legal_type", "buyer_country", "cpv_json", "main_cpv",
                  "publication_date", "deadline", "estimated_value", "estimated_currency", "awarded_value",
-                 "awarded_currency", "winners_json", "url", "raw_hash")
+                 "awarded_currency", "winners_json", "url", "raw_hash", "procedure_id")
 
 
 class ProcurementMixin:
@@ -53,13 +53,19 @@ class ProcurementMixin:
                                 "FROM procurement_notices").fetchone()
         return {"oznámenia": row["n"], "najnovšie": row["last"], "stiahnuté": row["fetched"]}
 
-    def set_procurement_matches(self, hid: int, matches: list[tuple[int, float]], query_hash: str) -> None:
-        """Nahradí zhody hypotézy (aj prázdnym zoznamom – „nič podobné“ je výsledok so zapamätaným dopytom)."""
+    def set_procurement_matches(self, hid: int, matches: list[tuple[int, float, str, str, str]], query_hash: str,
+                                done: bool = True) -> None:
+        """Nahradí zhody hypotézy: (oznámenie, podobnosť, kľúč zákazky, verdikt, dôvod). Prázdny zoznam je výsledok
+        („nič podobné“). done=False: kandidáti ešte čakajú na posúdenie – hypotéza sa porovná v ďalšom behu."""
         now = utcnow()
         self.conn.execute("DELETE FROM procurement_matches WHERE hypothesis_id = ?", (hid,))
         self.conn.executemany(
-            "INSERT INTO procurement_matches (hypothesis_id, notice_id, similarity, query_hash, matched_at) "
-            "VALUES (?, ?, ?, ?, ?)", [(hid, nid, float(sim), query_hash, now) for nid, sim in matches])
+            "INSERT INTO procurement_matches (hypothesis_id, notice_id, similarity, query_hash, matched_at, procedure_key, "
+            "verdict, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [(hid, nid, float(sim), query_hash, now, key, verdict, reason) for nid, sim, key, verdict, reason in matches])
+        if not done:
+            self.conn.commit()
+            return
         state = self.conn.execute("SELECT value_json FROM settings WHERE key = 'procurement_matched'").fetchone()
         done = json.loads(state["value_json"]) if state is not None else {}
         done[str(hid)] = {"hash": query_hash, "kedy": now, "zhody": len(matches)}
@@ -69,6 +75,17 @@ class ProcurementMixin:
             (json.dumps(done, ensure_ascii=False), now))
         self.conn.commit()
 
+    def procurement_judgment(self, hid: int, key: str, query_hash: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM procurement_judgments WHERE hypothesis_id = ? AND procedure_key = ? "
+                                 "AND query_hash = ?", (hid, key, query_hash)).fetchone()
+
+    def put_procurement_judgment(self, hid: int, key: str, query_hash: str, verdict: str, reason: str,
+                                 model: str | None) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO procurement_judgments (hypothesis_id, procedure_key, query_hash, verdict, reason, model, "
+            "judged_at) VALUES (?, ?, ?, ?, ?, ?, ?)", (hid, key, query_hash, verdict, reason, model, utcnow()))
+        self.conn.commit()
+
     def procurement_matched_state(self) -> dict[str, Any]:
         row = self.conn.execute("SELECT value_json FROM settings WHERE key = 'procurement_matched'").fetchone()
         return json.loads(row["value_json"]) if row is not None else {}
@@ -76,6 +93,6 @@ class ProcurementMixin:
     def procurement_matches_for(self, hid: int) -> list[sqlite3.Row]:
         """Podobné oznámenia hypotézy (najpodobnejšie prvé) so všetkými stĺpcami oznámenia."""
         return self.conn.execute(
-            """SELECT n.*, m.similarity, m.matched_at FROM procurement_matches m
+            """SELECT n.*, m.similarity, m.matched_at, m.procedure_key, m.verdict, m.reason FROM procurement_matches m
                JOIN procurement_notices n ON n.id = m.notice_id
                WHERE m.hypothesis_id = ? ORDER BY m.similarity DESC, n.publication_date DESC""", (hid,)).fetchall()

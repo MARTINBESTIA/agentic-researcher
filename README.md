@@ -447,8 +447,11 @@ Akcia **„Obstarávanie z TED (kto čo kupuje)“** (Správca akcií; autopilot
 procurement`) stiahne štruktúrované oznámenia slovenských kupujúcich z TED Search API (verejné, bez kľúča; CPV v
 `config.yaml` → `procurement.cpv`, predvolene IT služby 72, softvér 48, podnikové služby 79; prvý beh 3 roky ≈ 4 100
 oznámení). Ukladá sa iba zákazka a organizácie (kupujúci s IČO, predmet, CPV, dátumy, hodnoty, víťaz – názov iba pri
-právnickej osobe); osoby, e-maily, telefóny a adresy nie. Potom k hypotézam priradí podobné zákazky podľa významu
-(embeddingy na CPU; podobnosť je pri každej zhode, prah `procurement.match_threshold`) a vypočíta signály dopytu:
+právnickej osobe); osoby, e-maily, telefóny a adresy nie. Oznámenia jednej zákazky (výzva, jej zmeny, výsledok) sa
+zlučujú podľa identifikátora postupu a rátajú sa raz. K hypotéze navrhnú embeddingy (CPU) najviac 12 kandidátskych
+zákaziek a **rýchly model posúdi**, či zákazka problém naozaj rieši (áno / čiastočne / nie s dôvodom; uloží sa,
+znova iba pri zmene dopytu; najviac `procurement.max_judgments_per_run` na beh, zvyšok v ďalšom). Do signálov idú iba
+potvrdené zákazky:
 opakovaný nákup u kupujúceho, počet nezávislých kupujúcich, otvorené a plánované zákazky, služba vs. softvér, hodnoty
 v EUR, menší kupujúci s podobnou potrebou (Problémy → **Obstarávanie (TED)**, riadok v Prehľade príležitosti,
 `python -m radar procurement --hypothesis N`). Stav obstarávania organizácie v Bráne 0 sa určí z konkrétneho záznamu

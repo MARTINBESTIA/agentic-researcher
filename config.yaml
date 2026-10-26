@@ -453,8 +453,9 @@ procurement:
   cpv: ["72000000", "48000000", "79000000"]   # IT služby, softvér, podnikové služby (outsourcing); pridať sa dajú ďalšie
   years_back: 3                    # prvé stiahnutie (~4 500 oznámení), potom iba nové od posledného behu
   cadence_days: 7                  # autopilot sťahuje raz za týždeň
-  match_threshold: 0.5             # podobnosť zákazka ↔ hypotéza (embeddingy); zobrazuje sa pri každej zhode
-  max_matches: 30
+  match_threshold: 0.45            # kandidáti podľa podobnosti (embeddingy); o zhode rozhoduje rýchly model
+  max_matches: 12                  # najviac kandidátskych zákaziek na hypotézu
+  max_judgments_per_run: 400       # posúdení modelom na beh (zvyšok v ďalšom behu, výsledky sa ukladajú)
   ipv4_only: true                  # IPv6 spojenie s api.ted.europa.eu na tomto notebooku padá pri TLS
 
 # ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)

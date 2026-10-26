@@ -130,6 +130,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "org_card": _route("accurate"),
     "org_card_check": _route("reviewer"),
     "gap_answer": _route("accurate"),
+    "procurement_match": _route("fast"),  # TED: rieši zákazka problém hypotézy? (kandidátov navrhujú embeddingy)
 }
 
 
@@ -587,8 +588,11 @@ class ProcurementConfig(BaseModel):
     timeout_seconds: float = 60.0
     ipv4_only: bool = True         # na notebooku IPv6 spojenie s api.ted.europa.eu padá pri TLS (overené 26. 10. 2026)
     cadence_days: int = 7          # autopilot stiahne nové oznámenia raz za týždeň
-    match_threshold: float = 0.5   # kosínusová podobnosť oznámenie ↔ hypotéza (zobrazuje sa pri každej zhode)
-    max_matches: int = 30          # najviac podobných oznámení na hypotézu
+    # Embeddingy iba navrhujú kandidátov (kalibrácia 26. 10. 2026: podobnosti v úzkom pásme 0,50–0,60, dobré aj zlé
+    # zhody premiešané) – o zhode rozhoduje model (úloha procurement_match), výsledok sa ukladá.
+    match_threshold: float = 0.45  # kosínusová podobnosť oznámenie ↔ hypotéza na kandidáta (zobrazuje sa)
+    max_matches: int = 12          # najviac kandidátskych zákaziek (postupov) na hypotézu
+    max_judgments_per_run: int = 400  # posúdení modelom na jeden beh (zvyšok v ďalšom behu; cache)
     open_days_without_deadline: int = 60  # výzva bez lehoty v dátach sa berie ako otvorená toľko dní od zverejnenia
 
 

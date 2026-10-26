@@ -45,7 +45,7 @@ def test_v01_database_is_migrated_with_backup(tmp_path):
     path.parent.mkdir()
     v01_database(path)
     db = DB(path)
-    assert db.schema_version() == SCHEMA_VERSION == 17
+    assert db.schema_version() == SCHEMA_VERSION == 18
     assert db.migration["backup"] is not None
     assert db.catalog_stats() == {"datasety": 0, "aktualizované": None}  # v9: lokálny index katalógu
     backups = list((tmp_path / "data" / "backup").glob("radar-v1-*.sqlite"))

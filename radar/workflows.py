@@ -112,11 +112,11 @@ ACTIONS: dict[str, Action] = {
     "procurement": Action(
         "Obstarávanie z TED (kto čo kupuje)",
         "Stiahne oznámenia o verejnom obstarávaní slovenských kupujúcich z TED API (CPV z config.yaml: IT služby, softvér, "
-        "podnikové služby; bez osôb a kontaktov) → k hypotézam priradí podobné zákazky podľa významu (embeddingy na CPU, "
-        "podobnosť sa zobrazí) → signály dopytu (opakovaný nákup, viac nezávislých kupujúcich, služba vs. softvér, "
+        "podnikové služby; bez osôb a kontaktov) → k hypotézam kandidátov podľa významu (embeddingy na CPU) "
+        "→ rýchly model posúdi, či zákazka problém naozaj rieši (výsledok sa uloží) → signály dopytu (opakovaný nákup, viac nezávislých kupujúcich, služba vs. softvér, "
         "hodnoty) a stav obstarávania organizácií podľa IČO kupujúceho. TED má iba zákazky nad limitmi EÚ.",
         "oznámenia TED, podobné zákazky k hypotézam (Problémy → Obstarávanie), stav obstarávania v Bráne 0",
-        "embeddingy (CPU), bez GPU", 45, gpu=False),
+        "embeddingy (CPU) + rýchly", 45),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "

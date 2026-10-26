@@ -5,8 +5,10 @@ stránok `site:ted.europa.eu`.
   Ukladajú sa iba údaje o zákazke a organizáciách: kupujúci (názov, IČO, typ), predmet, CPV, dátumy, hodnoty, víťaz
   (IČO; názov iba pri právnickej osobe – živnostník je fyzická osoba). Kontaktné osoby, e-maily, telefóny ani adresy
   sa nesťahujú; e-mail alebo telefón v texte opisu sa zamaskuje.
-- Priradenie k hypotéze: podobnosť embeddingov (oznámenie ↔ názov hypotézy a navrhnutý produkt). Prah aj podobnosť
-  sa vždy zobrazia. Model nepíše text, čísla počíta Python.
+- Priradenie k hypotéze: embeddingy (oznámenie ↔ problém a navrhnutý produkt) iba navrhnú kandidátske zákazky; či
+  zákazka problém naozaj rieši, posúdi rýchly model (áno / čiastočne / nie s dôvodom, uložené – kalibrácia 26. 10. 2026:
+  podobnosti v pásme 0,50–0,60 nerozlišovali dobré a zlé zhody). Oznámenia jednej zákazky (výzva, zmeny, výsledok) sa
+  zlučujú podľa identifikátora postupu. Čísla počíta Python.
 - Signály dopytu (kód): opakovaný nákup u kupujúceho, počet nezávislých kupujúcich, otvorené a plánované zákazky,
   služba vs. softvér podľa CPV, hodnoty v EUR, menší kupujúci s podobnou potrebou.
 - Stav obstarávania organizácie (Brána 0) z konkrétneho záznamu podľa IČO kupujúceho: otvorená výzva → potvrdené
@@ -25,14 +27,16 @@ import statistics
 import time
 from collections import Counter, defaultdict
 from datetime import date, timedelta
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import httpx
 import numpy as np
+from pydantic import BaseModel
 
 from .config import Config, ProcurementConfig
 from .db import DB
 from .privacy import fold, mask_text
+from .prompts import PROCUREMENT_MATCH_SYSTEM, prompt_version
 from .util import Deadline, utcnow
 
 log = logging.getLogger(__name__)
@@ -41,7 +45,7 @@ FIELDS = ["publication-number", "notice-type", "procedure-type", "contract-natur
           "description-lot", "buyer-name", "buyer-identifier", "buyer-legal-type", "buyer-country", "classification-cpv",
           "main-classification-proc", "publication-date", "deadline-receipt-tender-date-lot", "estimated-value-proc",
           "estimated-value-cur-proc", "estimated-value-lot", "total-value", "total-value-cur", "winner-name",
-          "winner-identifier", "winner-size"]
+          "winner-identifier", "winner-size", "procedure-identifier"]
 LANGS = ("slk", "eng")
 SYNC_KEY = "procurement_sync"
 EMB_KIND = "procurement"
@@ -173,7 +177,7 @@ def parse_notice(raw: dict[str, Any], pc: ProcurementConfig) -> dict[str, Any]:
         "awarded_value": number(raw.get("total-value")) if awarded else None,
         "awarded_currency": _first(raw.get("total-value-cur")) if awarded else None,
         "winners_json": winners if any(winners.values()) else None,
-        "url": notice_url(pub),
+        "url": notice_url(pub), "procedure_id": str(raw.get("procedure-identifier") or "").strip() or None,
         "raw_hash": hashlib.sha1(json.dumps(clean, sort_keys=True, ensure_ascii=False).encode()).hexdigest(),
     }
 
@@ -311,9 +315,11 @@ def _sha1(text: str) -> str:
 
 
 def match_hypotheses(cfg: Config, db: DB, embedder, deadline: Deadline, ids: list[int] | None = None,
-                     today: date | None = None) -> dict[str, Any]:
-    """Vektory nových oznámení (cache podľa hashu textu), potom pre každú hypotézu najpodobnejšie oznámenia nad
-    prahom a stav obstarávania jej organizácií. Hypotéza s nezmeneným dopytom a rovnakým počtom oznámení sa preskočí."""
+                     today: date | None = None, router=None) -> dict[str, Any]:
+    """Vektory nových oznámení (cache podľa hashu textu), potom pre každú hypotézu kandidátske zákazky (postupy) podľa
+    podobnosti a posúdenie každej rýchlym modelom (úloha procurement_match; výsledok sa ukladá). Do zhôd idú iba
+    zákazky „áno“ / „čiastočne“ so všetkými svojimi oznámeniami. Hypotéza s nezmeneným dopytom sa preskočí; nedokončené
+    posúdenia (limit behu, čas, model) pokračujú v ďalšom behu."""
     pc = cfg.procurement
     if embedder is None:
         return {"preskočené": "embeddingy vypnuté (embeddings.enabled)"}
@@ -344,28 +350,101 @@ def match_hypotheses(cfg: Config, db: DB, embedder, deadline: Deadline, ids: lis
     if not keep:
         return dict(stats)
     matrix = np.vstack(mats)
+    by_id = {n["id"]: n for n in notices}
+    key_of = {n["id"]: procedure_key(n) for n in notices}
+    members: dict[str, list[int]] = defaultdict(list)
+    for n in notices:
+        members[key_of[n["id"]]].append(n["id"])
     done = db.procurement_matched_state()
+    version = prompt_version("procurement_match")
+    budget: Counter = Counter()
     for h in scope_hypotheses(cfg, db, ids):
         if deadline.expired():
             stats["hypotézy_nedokončené"] += 1
             continue
         text = query_text(db, h)
-        qhash = _sha1(f"{text}|{len(keep)}|{pc.match_threshold}|{pc.max_matches}")
+        text_hash = _sha1(f"{text}|{version}")  # posúdenie platí pre text dopytu a verziu promptu
+        qhash = _sha1(f"{text}|{len(keep)}|{pc.match_threshold}|{pc.max_matches}|{version}")
         if (done.get(str(h["id"])) or {}).get("hash") == qhash:
             stats["bez_zmeny"] += 1
             continue
         q = embedder.vectors(QUERY_KIND, [(h["id"], text)])[0]
         sims = matrix @ q
-        order = np.argsort(-sims)[: pc.max_matches]
-        matches = [(keep[i], round(float(sims[i]), 4)) for i in order if sims[i] >= pc.match_threshold]
-        db.set_procurement_matches(h["id"], matches, qhash)
+        sim_of = {keep[i]: float(sims[i]) for i in range(len(keep))}
+        best: dict[str, tuple[float, int]] = {}
+        for i in np.argsort(-sims):
+            if sims[i] < pc.match_threshold or len(best) >= pc.max_matches:
+                break
+            best.setdefault(key_of[keep[i]], (float(sims[i]), keep[i]))
+        rows, pending = [], 0
+        for key, (sim, nid) in best.items():
+            verdict = None if deadline.expired() else judge(cfg, db, router, h, text, text_hash, key, by_id[nid], budget)
+            if verdict is None:
+                pending += 1
+                continue
+            stats[f"posúdené_{verdict[0]}"] += 1
+            if verdict[0] in ACCEPTED:
+                rows += [(mid, round(sim_of.get(mid, sim), 4), key, verdict[0], verdict[1]) for mid in members[key]]
+        db.set_procurement_matches(h["id"], rows, qhash, done=not pending)
         stats["hypotézy"] += 1
-        stats["zhody"] += len(matches)
+        stats["zhody"] += len({r[2] for r in rows})
+        if pending:
+            stats["čaká_na_posúdenie"] += pending
         stats.update(update_org_status(cfg, db, h["id"], today))
+    stats["volania_modelu"] = budget["posúdenia"]
     return dict(stats)
 
 
+class ProcurementFit(BaseModel):
+    verdict: Literal["yes", "partial", "no"]
+    reason: str = ""
+
+
+ACCEPTED = ("yes", "partial")
+VERDICT_LABEL = {"yes": "rieši problém", "partial": "čiastočne / súvisiaca potreba", "no": "nesúvisí"}
+
+
+def judge(cfg: Config, db: DB, router, h, text: str, text_hash: str, key: str, n,
+          budget: Counter) -> tuple[str, str] | None:
+    """(verdikt, dôvod) kandidátskej zákazky: z cache, inak rýchly model. None = čaká (bez modelu, limit behu alebo
+    neurčený výstup – invariant 5: skúsi sa v ďalšom behu)."""
+    cached = db.procurement_judgment(h["id"], key, text_hash)
+    if cached is not None:
+        return cached["verdict"], cached["reason"] or ""
+    if router is None or budget["posúdenia"] >= cfg.procurement.max_judgments_per_run:
+        return None
+    budget["posúdenia"] += 1
+    proc = (f"TITLE: {n['title'] or ''}\nBUYER: {n['buyer_name'] or ''}\nCPV: {n['main_cpv'] or ''} "
+            f"({cpv_family(n['main_cpv'])})\nDESCRIPTION: {(n['description'] or '')[:700]}")
+    res = router.run_task(
+        "procurement_match",
+        [{"role": "system", "content": PROCUREMENT_MATCH_SYSTEM.format(lang=cfg.pipeline.output_language)},
+         {"role": "user", "content": f"PROBLEM: {h['title']}\nSEGMENT: {h['segment'] or ''}\nPROBLEM AND PRODUCT: {text}"
+                                     f"\n\n<untrusted_document>\nPROCUREMENT:\n{proc}\n</untrusted_document>"}],
+        ProcurementFit, object_type="hypothesis", object_id=h["id"], vote_key=lambda r: r.verdict, max_tokens=300)
+    if not res.ok:
+        return None
+    reason = " ".join((res.value.reason or "").split())[:300]
+    db.put_procurement_judgment(h["id"], key, text_hash, res.value.verdict, reason, res.model or None)
+    return res.value.verdict, reason
+
+
 # ======================================================================= stav obstarávania organizácie
+def procedure_key(n) -> str:
+    """Kľúč zákazky: identifikátor postupu TED (výzva, jej zmeny a výsledok majú spoločný); staršie oznámenia bez
+    neho podľa kupujúceho a predmetu."""
+    if "procedure_id" in n.keys() and n["procedure_id"]:
+        return n["procedure_id"]
+    return f"{n['buyer_ico'] or fold(n['buyer_name'] or '').lower()}|{fold(n['title'] or '').lower()[:80]}"
+
+
+def procedures(rows) -> dict[str, list]:
+    out: dict[str, list] = defaultdict(list)
+    for n in rows:
+        out[(n["procedure_key"] if "procedure_key" in n.keys() and n["procedure_key"] else procedure_key(n))].append(n)
+    return out
+
+
 def record_status(n, pc: ProcurementConfig, today: date) -> tuple[str, str]:
     """(stav pre Bránu 0, dôvod) z jedného oznámenia."""
     pub = n["publication_date"] or ""
@@ -384,23 +463,34 @@ def record_status(n, pc: ProcurementConfig, today: date) -> tuple[str, str]:
     return "none", ""
 
 
+def procedure_status(notices: list, pc: ProcurementConfig, today: date) -> tuple[str, str, Any]:
+    """(stav, dôvod, rozhodujúce oznámenie) zákazky: výsledok alebo zmena → ukončené; inak najnovšia výzva podľa
+    lehoty; iba predbežné oznámenia → plánované."""
+    ns = sorted(notices, key=lambda n: (n["publication_date"] or "", n["id"]))
+    for stages in (("awarded", "modified"), ("call",), ("planned",)):
+        hit = [n for n in ns if n["stage"] in stages]
+        if hit:
+            return (*record_status(hit[-1], pc, today), hit[-1])
+    return "none", "", ns[-1]
+
+
 def update_org_status(cfg: Config, db: DB, hid: int, today: date | None = None) -> Counter:
-    """Stav obstarávania organizácií hypotézy z podobných oznámení, kde je organizácia kupujúci (zhoda IČO)."""
+    """Stav obstarávania organizácií hypotézy z potvrdených zákaziek, kde je organizácia kupujúci (zhoda IČO)."""
     pc = cfg.procurement
     today = today or date.today()
     stats: Counter = Counter()
     by_ico: dict[str, list] = defaultdict(list)
-    for n in db.procurement_matches_for(hid):
-        if n["buyer_ico"]:
-            by_ico[n["buyer_ico"]].append(n)
+    for ns in procedures(db.procurement_matches_for(hid)).values():
+        if ns[0]["buyer_ico"]:
+            by_ico[ns[0]["buyer_ico"]].append(ns)
     if not by_ico:
         return stats
     for org in db.orgs_for_hypothesis(hid, include_excluded=True):
-        notices = by_ico.get(str(org["ico"]).zfill(8)) if org["ico"] else None
-        if not notices:
+        plist = by_ico.get(str(org["ico"]).zfill(8)) if org["ico"] else None
+        if not plist:
             continue
-        (status, reason), n = max(((record_status(x, pc, today), x) for x in notices),
-                                  key=lambda t: (STATUS_RANK[t[0][0]], t[1]["publication_date"] or ""))
+        status, reason, n = max((procedure_status(ns, pc, today) for ns in plist),
+                                key=lambda t: (STATUS_RANK[t[0]], t[2]["publication_date"] or ""))
         if status == "none":
             continue
         oh = db.org_hypothesis(org["id"], hid)
@@ -433,55 +523,70 @@ def _eur(value: float | None, currency: str | None) -> float | None:
     return value if value is not None and (currency or "EUR").upper() == "EUR" else None
 
 
+PHASE = {"confirmed": "výzva – otvorená", "candidate": "plánovaná (predbežné oznámenie)", "none": "iné"}
+
+
 def signals(cfg: Config, db: DB, hid: int, today: date | None = None) -> dict[str, Any]:
-    """Signály dopytu z podobných oznámení (bez modelu). Hodnoty iba v EUR; chýbajúca hodnota sa nedopočítava."""
+    """Signály dopytu zo zákaziek, ktoré podľa posúdenia riešia problém hypotézy (bez modelu; oznámenia jednej zákazky
+    sa rátajú raz). Hodnoty iba v EUR: zadaná hodnota, inak odhadovaná; chýbajúca sa nedopočítava."""
     pc = cfg.procurement
     today = today or date.today()
     rows = db.procurement_matches_for(hid)
     state = db.procurement_matched_state().get(str(hid))
     if not rows:
         return {"zákazky": 0, "porovnané": bool(state), "prah": pc.match_threshold}
+    procs = []
+    for key, ns in procedures(rows).items():
+        status, _, rep = procedure_status(ns, pc, today)
+        ordered = sorted(ns, key=lambda n: (n["publication_date"] or "", n["id"]))
+        awarded = [v for v in (_eur(n["awarded_value"], n["awarded_currency"]) for n in ordered) if v]
+        estimated = [v for v in (_eur(n["estimated_value"], n["estimated_currency"]) for n in ordered) if v]
+        phase = ("zadaná" if rep["stage"] in ("awarded", "modified") else
+                 "výzva – po lehote" if rep["stage"] == "call" and status == "closed" else PHASE[status])
+        value = awarded[-1] if awarded else (estimated[-1] if estimated else None)
+        procs.append({"zákazka": key, "oznámenie": rep["notice_id"], "predmet": rep["title"], "kupujúci": rep["buyer_name"],
+                      "ico": rep["buyer_ico"], "fáza": phase, "stav": status,
+                      "zverejnené": ordered[0]["publication_date"], "lehota": rep["deadline"],
+                      "podobnosť": round(max(n["similarity"] for n in ns), 2),
+                      "posúdenie": VERDICT_LABEL.get(ns[0]["verdict"] or "", "–"), "dôvod": ns[0]["reason"] or "",
+                      "oznámení": len(ns), "cpv": rep["main_cpv"], "verdikt": ns[0]["verdict"],
+                      "hodnota_eur": round(value) if value else None,
+                      "zadaná_eur": round(awarded[-1]) if awarded else None,
+                      "odhad_eur": round(estimated[-1]) if estimated else None, "url": rep["url"]})
     buyers: dict[str, list] = defaultdict(list)
-    for n in rows:
-        buyers[n["buyer_ico"] or fold(n["buyer_name"] or "?").lower()].append(n)
-    value_of = {}
-    for key, ns in buyers.items():
-        vals = [v for v in (_eur(x["awarded_value"], x["awarded_currency"]) or _eur(x["estimated_value"], x["estimated_currency"])
-                            for x in ns) if v]
-        value_of[key] = sum(vals) if vals else None
+    for p in procs:
+        buyers[p["ico"] or fold(p["kupujúci"] or "?").lower()].append(p)
+    value_of = {k: (sum(p["hodnota_eur"] for p in ps if p["hodnota_eur"]) or None) for k, ps in buyers.items()}
     known = [v for v in value_of.values() if v]
     median_buyer = statistics.median(known) if known else None
-    estimated = [v for v in (_eur(n["estimated_value"], n["estimated_currency"]) for n in rows) if v]
-    awarded = [v for v in (_eur(n["awarded_value"], n["awarded_currency"]) for n in rows) if v]
-    families = Counter(cpv_family(n["main_cpv"]) for n in rows)
-
-    def brief(n) -> dict[str, Any]:
-        return {"oznámenie": n["notice_id"], "predmet": n["title"], "kupujúci": n["buyer_name"], "ico": n["buyer_ico"],
-                "fáza": STAGE_LABEL.get(n["stage"], n["stage"]), "zverejnené": n["publication_date"],
-                "lehota": n["deadline"], "podobnosť": round(n["similarity"], 2), "url": n["url"]}
-
+    est = [p["odhad_eur"] for p in procs if p["odhad_eur"]]
+    awd = [p["zadaná_eur"] for p in procs if p["zadaná_eur"]]
+    families = Counter(cpv_family(p["cpv"]) for p in procs)
+    procs.sort(key=lambda p: (p["verdikt"] != "yes", -p["podobnosť"]))
+    keep_keys = ("oznámenie", "predmet", "kupujúci", "ico", "fáza", "zverejnené", "lehota", "podobnosť", "posúdenie",
+                 "dôvod", "oznámení", "hodnota_eur", "url")
     return {
-        "zákazky": len(rows), "porovnané": True, "prah": pc.match_threshold,
-        "podobnosť": [round(min(n["similarity"] for n in rows), 2), round(max(n["similarity"] for n in rows), 2)],
+        "zákazky": len(procs), "porovnané": bool(state), "prah": pc.match_threshold,
+        "posúdenie": dict(Counter(p["verdikt"] for p in procs)),
+        "podobnosť": [min(p["podobnosť"] for p in procs), max(p["podobnosť"] for p in procs)],
         "kupujúci": len(buyers),
         "opakovaní_kupujúci": sorted(
-            ({"kupujúci": ns[0]["buyer_name"], "ico": ns[0]["buyer_ico"], "zákazky": len(ns),
-              "roky": sorted({(x["publication_date"] or "")[:4] for x in ns if x["publication_date"]})}
-             for ns in buyers.values() if len(ns) >= 2), key=lambda r: -r["zákazky"]),
-        "otvorené_teraz": [brief(n) for n in rows if record_status(n, pc, today)[0] == "confirmed"],
-        "plánované": [brief(n) for n in rows if n["stage"] == "planned"],
+            ({"kupujúci": ps[0]["kupujúci"], "ico": ps[0]["ico"], "zákazky": len(ps),
+              "roky": sorted({(p["zverejnené"] or "")[:4] for p in ps if p["zverejnené"]})}
+             for ps in buyers.values() if len(ps) >= 2), key=lambda r: -r["zákazky"]),
+        "otvorené_teraz": [{k: p[k] for k in keep_keys} for p in procs if p["stav"] == "confirmed"],
+        "plánované": [{k: p[k] for k in keep_keys} for p in procs if p["stav"] == "candidate"],
         "podľa_cpv": dict(families),
-        "hodnoty_eur": {"odhad_spolu": round(sum(estimated)) if estimated else None,
-                        "odhad_medián": round(statistics.median(estimated)) if estimated else None,
-                        "zadané_spolu": round(sum(awarded)) if awarded else None,
-                        "s_hodnotou": sum(1 for n in rows if _eur(n["estimated_value"], n["estimated_currency"])
-                                          or _eur(n["awarded_value"], n["awarded_currency"])),
+        "hodnoty_eur": {"odhad_spolu": round(sum(est)) if est else None,
+                        "odhad_medián": round(statistics.median(est)) if est else None,
+                        "zadané_spolu": round(sum(awd)) if awd else None,
+                        "s_hodnotou": sum(1 for p in procs if p["hodnota_eur"]),
                         "medián_na_kupujúceho": round(median_buyer) if median_buyer else None},
-        "menší_kupujúci": sorted(({"kupujúci": ns[0]["buyer_name"], "ico": ns[0]["buyer_ico"],
-                                   "hodnota_eur": round(value_of[k])}
-                                  for k, ns in buyers.items() if value_of[k] and median_buyer and value_of[k] < median_buyer),
+        "menší_kupujúci": sorted(({"kupujúci": ps[0]["kupujúci"], "ico": ps[0]["ico"], "hodnota_eur": round(value_of[k])}
+                                  for k, ps in buyers.items()
+                                  if value_of[k] and median_buyer and value_of[k] < median_buyer),
                                  key=lambda r: r["hodnota_eur"]),
-        "zoznam": [brief(n) for n in rows],
+        "zoznam": [{k: p[k] for k in keep_keys} for p in procs],
     }
 
 
@@ -492,20 +597,24 @@ def _eur_text(v: float | None) -> str:
 def signals_lines(sig: dict[str, Any]) -> list[str]:
     """Signály ako odrážky (Prehľad príležitosti, CLI, GUI)."""
     if not sig.get("zákazky"):
-        return ["- Obstarávanie (TED): " + ("žiadne podobné zákazky nad prahom podobnosti "
-                                             f"{sig.get('prah')} (TED má iba zákazky nad limitmi EÚ)" if sig.get("porovnané")
-                                             else "zatiaľ neporovnané – akcia „Obstarávanie z TED“")]
+        return ["- Obstarávanie (TED): " + ("žiadna zákazka nad limitmi EÚ, ktorá by podľa posúdenia riešila tento problém"
+                                             if sig.get("porovnané") else
+                                             "zatiaľ neporovnané – akcia „Obstarávanie z TED“")]
     fam = sig["podľa_cpv"]
     services = fam.get("IT služby", 0) + fam.get("podnikové služby (outsourcing práce)", 0)
-    lines = [f"- Obstarávanie (TED): {sig['zákazky']} podobných zákaziek u {sig['kupujúci']} kupujúcich "
-             f"(podobnosť {sig['podobnosť'][0]}–{sig['podobnosť'][1]}, prah {sig['prah']} – over, či ide naozaj o to isté)"]
+    verdicts = sig.get("posúdenie") or {}
+    lines = [f"- Obstarávanie (TED): {sig['zákazky']} zákaziek u {sig['kupujúci']} kupujúcich, ktoré podľa posúdenia "
+             f"modelom riešia tento problém (priamo {verdicts.get('yes', 0)}, čiastočne {verdicts.get('partial', 0)}); "
+             f"kandidátov navrhla podobnosť {sig['podobnosť'][0]}–{sig['podobnosť'][1]} – over pri každej zákazke"
+             + ("" if sig.get("porovnané") else " · porovnávanie ešte prebieha")]
     rep = sig["opakovaní_kupujúci"]
-    lines.append("- Opakovaný nákup: " + (", ".join(f"{r['kupujúci']} ({r['zákazky']}×, {'/'.join(r['roky'])})"
-                                                     for r in rep[:5]) if rep else "žiadny kupujúci viac ako raz"))
-    lines.append(f"- Čo kupujú: " + ", ".join(f"{k} {v}" for k, v in sorted(fam.items(), key=lambda kv: -kv[1]))
+    lines.append("- Opakovaný nákup (rôzne zákazky): " + (", ".join(
+        f"{r['kupujúci']} ({r['zákazky']}×, {'/'.join(r['roky'])})" for r in rep[:5]) if rep
+        else "žiadny kupujúci viac ako jednou zákazkou"))
+    lines.append("- Čo kupujú: " + ", ".join(f"{k} {v}" for k, v in sorted(fam.items(), key=lambda kv: -kv[1]))
                  + (" – skôr služby ako hotový softvér" if services > fam.get("softvér", 0) else ""))
     hv = sig["hodnoty_eur"]
-    lines.append(f"- Hodnoty (EUR, iba zo záznamov): odhad spolu {_eur_text(hv['odhad_spolu'])}, medián zákazky "
+    lines.append(f"- Hodnoty (EUR, iba zo záznamov, zákazka raz): odhad spolu {_eur_text(hv['odhad_spolu'])}, medián "
                  f"{_eur_text(hv['odhad_medián'])}, zadané spolu {_eur_text(hv['zadané_spolu'])} "
                  f"(s hodnotou {hv['s_hodnotou']} z {sig['zákazky']})")
     if sig["otvorené_teraz"]:

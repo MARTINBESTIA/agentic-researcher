@@ -183,9 +183,10 @@ tab_brief, tab_ev, tab_axes, tab_proc, tab_crit, tab_notes, tab_export = st.tabs
 with tab_proc:
     from radar.procurement import signals, signals_lines
 
-    st.caption("Zákazky slovenských kupujúcich z TED podobné tomuto problému a navrhnutému produktu (podľa významu – "
-               "podobnosť je pri každej zákazke, over, či ide naozaj o to isté). TED má iba zákazky nad limitmi EÚ: "
-               "chýbajúci záznam neznamená, že nikto nekupuje. Čísla počíta kód zo záznamov, model sa nevolá.")
+    st.caption("Zákazky slovenských kupujúcich z TED, ktoré podľa posúdenia rýchlym modelom riešia tento problém "
+               "(kandidátov navrhla podobnosť významu – pri každej zákazke je podobnosť, posúdenie a dôvod; over). "
+               "Oznámenia jednej zákazky (výzva, zmeny, výsledok) sa rátajú raz. TED má iba zákazky nad limitmi EÚ: "
+               "chýbajúci záznam neznamená, že nikto nekupuje. Čísla počíta kód zo záznamov.")
     sig = signals(c, d, hid)
     st.markdown("\n".join(signals_lines(sig)).replace("](", "]\\("))
     if sig.get("zoznam"):

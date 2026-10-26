@@ -1034,6 +1034,23 @@ CREATE TABLE IF NOT EXISTS commercial_evidence (  -- obchodný dôkaz o organiz�
 );
 CREATE INDEX IF NOT EXISTS idx_commercial_h ON commercial_evidence(hypothesis_id, org_id);
 """
+# ---------------------------------------------------------------- v18: zákazka = postup, posúdenie zhody modelom
+SCHEMA_V18 = """
+CREATE INDEX IF NOT EXISTS idx_procurement_procedure ON procurement_notices(procedure_id);
+CREATE TABLE IF NOT EXISTS procurement_judgments (  -- posúdenie kandidáta modelom (cache; nové iba pri zmene dopytu)
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  procedure_key TEXT NOT NULL,                -- identifikátor postupu TED (inak kupujúci + predmet)
+  query_hash TEXT NOT NULL,                   -- text dopytu hypotézy (problém + navrhnutý produkt)
+  verdict TEXT NOT NULL,                      -- yes | partial | no | undecided
+  reason TEXT, model TEXT, judged_at TEXT NOT NULL,
+  PRIMARY KEY (hypothesis_id, procedure_key, query_hash)
+);
+"""
+V18_COLUMNS = {
+    "procurement_notices": {"procedure_id": "TEXT"},  # oznámenia jednej zákazky (výzva, zmeny, výsledok) majú spoločný
+    "procurement_matches": {"procedure_key": "TEXT", "verdict": "TEXT", "reason": "TEXT"},
+}
+
 V17_COLUMNS = {
     "outreach_outcomes": {"wtp_stage": "TEXT"},  # posúdenie ochoty platiť pri výsledku (aj not_asked / unclear)
 }

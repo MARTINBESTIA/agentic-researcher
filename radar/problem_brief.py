@@ -257,12 +257,13 @@ def problem_brief(cfg: Config, db: DB, hid: int, with_names: bool = False) -> st
     ps = signals(cfg, db, hid)
     if ps.get("zákazky"):
         rep = ps["opakovaní_kupujúci"]
-        out.append(f"| obstarávanie (TED) | {ps['zákazky']} podobných zákaziek u {ps['kupujúci']} kupujúcich, opakovane "
-                   f"{len(rep)} | otvorené teraz {len(ps['otvorené_teraz'])}, plánované {len(ps['plánované'])}; podobnosť "
-                   f"{ps['podobnosť'][0]}–{ps['podobnosť'][1]} (Problémy → Obstarávanie) |")
+        out.append(f"| obstarávanie (TED) | {ps['zákazky']} zákaziek u {ps['kupujúci']} kupujúcich, ktoré podľa posúdenia "
+                   f"riešia problém; opakovane {len(rep)} | otvorené teraz {len(ps['otvorené_teraz'])}, plánované "
+                   f"{len(ps['plánované'])} (Problémy → Obstarávanie, over pri každej zákazke) |")
     else:
-        out.append("| obstarávanie (TED) | " + ("žiadne podobné zákazky nad limitmi EÚ" if ps.get("porovnané")
-                                               else "neporovnané") + " | akcia „Obstarávanie z TED“ |")
+        out.append("| obstarávanie (TED) | " + ("žiadna zákazka nad limitmi EÚ, ktorá by riešila problém"
+                                               if ps.get("porovnané") else "neporovnané")
+                   + " | akcia „Obstarávanie z TED“ |")
     for e in c["experimenty"][:4]:
         v = verdict(json.loads(e["result_json"] or "{}"), json.loads(e["flags_json"] or "{}"))
         out.append(f"| experiment E{e['id']} (Brána 2) | {v['verdikt']} | {_cell(e['statement'], 140)} |")

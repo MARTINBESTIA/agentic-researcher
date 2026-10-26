@@ -108,7 +108,8 @@ def stage_procurement_match(app, deadline: Deadline) -> dict:
     if not app.cfg.procurement.enabled:
         return {"preskočené": "procurement.enabled = false"}
     embedder = app.embedder if app.cfg.embeddings.enabled else None
-    return match_hypotheses(app.cfg, app.db, embedder, deadline, getattr(app, "procurement_ids", None))
+    return match_hypotheses(app.cfg, app.db, embedder, deadline, getattr(app, "procurement_ids", None),
+                            router=app.router)
 
 
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
@@ -397,8 +398,8 @@ STAGE_HELP = {
     "catalog-sync": "Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU).",
     "procurement-sync": "Obstarávanie z TED: nové a zmenené oznámenia slovenských kupujúcich (CPV z config.yaml; "
                         "bez osôb a kontaktov).",
-    "procurement-match": "Obstarávanie z TED: podobné zákazky k hypotézam (embeddingy, CPU) a stav obstarávania "
-                         "organizácií podľa IČO kupujúceho.",
+    "procurement-match": "Obstarávanie z TED: kandidátske zákazky k hypotézam (embeddingy, CPU), posúdenie rýchlym "
+                         "modelom (rieši problém?) a stav obstarávania organizácií podľa IČO kupujúceho.",
     "eval-all": "Eval presnosti profilov modelov na úlohách s aspoň 50 gold labelmi.",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",

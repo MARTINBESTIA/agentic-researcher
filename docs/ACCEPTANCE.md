@@ -305,7 +305,8 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M2 | GUI: tlačidlo „Spustiť všetko hneď“ – počas behu autopilot do poradia, druhý klik ďalší nepridá | `test_m2_gui.py::test_action_manager_lists_all_actions_queue_and_switch` |
 | M37 | oznámenie bez osôb a kontaktov, IČO, lehota, hodnoty, víťaz iba právnická osoba, fáza z typu | `test_m37_procurement.py::test_parse_notice_keeps_organisations_only_and_masks_contacts` |
 | M37 | stránkovanie ITERATION, idempotentný zápis, posun od posledného dátumu, výpadok bez posunu | `test_m37_procurement.py::test_sync_iterates_pages_is_idempotent_and_moves_cursor` |
-| M37 | podobné zákazky, signály dopytu kódom, stav obstarávania z IČO (človek a odhad sa neprepíšu) | `test_m37_procurement.py::test_matches_signals_and_org_status_come_from_records` |
+| M37 | kandidáti z embeddingov potvrdení modelom, zákazka = postup (oznámenia sa rátajú raz), signály kódom, stav obstarávania z IČO (človek a odhad sa neprepíšu), cache posúdení | `test_m37_procurement.py::test_model_confirms_candidates_and_notices_of_one_procedure_count_once` |
+| M37 | posúdenia pokračujú v ďalších behoch v rámci limitu, bez modelu nič nové | `test_m37_procurement.py::test_judgments_continue_across_runs_within_the_budget` |
 | M37 | bez embeddingov alebo oznámení je to ohlásený preskok | `test_m37_procurement.py::test_no_embedder_or_no_notices_is_a_reported_skip` |
 | M37 | autopilot: raz za týždeň a pre neporovnané hypotézy | `test_m37_procurement.py::test_autopilot_plans_procurement_weekly_and_for_new_hypotheses` |
 | M37 | GUI Problémy → Obstarávanie a riadok v Prehľade príležitosti bez modelu | `test_m37_procurement.py::test_problems_page_shows_procurement_tab_and_brief_row` |
