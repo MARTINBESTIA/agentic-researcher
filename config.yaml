@@ -276,7 +276,8 @@ workflows:
   # Krok mimo autopilot_hours sa odloží (kontakty sa preskočia, ostatné čakajú na svoj čas).
   funnel_steps: [test, contacts, gate1, gate2]
   funnel_minutes: {find: 45, test: 30, contacts: 60, gate1: 120, gate2: 60}   # časový limit jedného kroku
-  funnel_find_every: 3             # po 3 testoch neotestovaných hypotéz aj hľadanie nových (0 = iba keď niet čo testovať)
+  # 22. 10. 2026 (pokyn používateľa): najprv všetky kroky existujúcich hypotéz – nové až keď niet čo testovať
+  funnel_find_every: 0             # po N testoch neotestovaných hypotéz aj hľadanie nových (0 = iba keď niet čo testovať)
   funnel_max_attempts: 2           # krok 2× bez zmeny stavu hypotézy → odloží sa (zaseknutá), lievik ide ďalej
   funnel_max_runs_per_step: 4      # najviac behov jedného kroku pre jednu hypotézu
   funnel_max_failures: 3           # 3 zlyhané kroky za sebou (nebeží model, SearXNG) → lievik zastaví
