@@ -146,4 +146,46 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - **2026-10-26 – TED – kalibrácia prahu podobnosti.** `procurement.match_threshold` 0,5 je predbežný; po prvom behu akcie `procurement` (beží sama, CPU voľné) prezrieť zhody 10 hypotéz (správne / nesprávne) a nastaviť prah, príp. pridať kontrolu kľúčových slov predmetu. · 0,5 dňa.
 - **2026-10-26 – TED – kupujúci ako organizácie hypotézy.** Opakovaní kupujúci podobných zákaziek sú kandidáti na zákazníka; tlačidlo „pridať kupujúceho k hypotéze“ (organizácia podľa IČO, bez automatického zberu ľudí). · 0,5 dňa.
 - **2026-10-26 – obstarávanie pod limitmi EÚ.** TED nemá podlimitné zákazky; ÚVO vestník zakazuje sťahovanie (robots.txt), EKS overiť API alebo otvorené dáta, CRZ (`crz.py`) využiť aj ako signál uzavretých zmlúv k hypotéze. · 1–2 dni.
-- **2026-10-26 – audit (komerčné objavovanie) – ďalšie kroky.** Sledovanie zdroj → obchodný výsledok (správa, bez zmeny banditu, kým nie je ≥ 30 odoslaných oslovení), ekonomika u zákazníka s pôvodom každého faktora, konkurencia ako dôvod zamietnutia (`no_defensible_gap`, potvrdzuje človek), benchmark proti ručnému výberu z obstarávaní. Pozri plán z 26. 10. 2026. · 5–7 dní.
+- **2026-10-26 – audit (komerčné objavovanie) – M36: zdroj → obchodný výsledok (zatiaľ iba správa).** Objavovanie
+  (Thompson sampling v `discover.py`) odmeňuje dokument s overeným tvrdením – výskumnú výťažnosť, nie obchodnú. Pre
+  každú kategóriu a stratégiu (scout, matica dopytov, katalóg, TED, ručne) dva lieviky vedľa seba: výskumný
+  (dokumenty → overené tvrdenia) a obchodný (hypotézy → prešli testom → Brána 0 → oslovení → odpovede → rozhovory →
+  potvrdenie problému → stupne ochoty platiť z M35). Reťaz hypotéza ← tvrdenia ← dokumenty ← kategória sa dá spojiť
+  z existujúcich tabuliek (bez novej schémy). GUI Zdroje + príkaz `commercial-yield`. **Bandit nemeniť**, kým nie je
+  aspoň ~30 odoslaných oslovení v ≥ 3 kategóriách (predajné výsledky sú oneskorené, riedke a závisia od toho, koho
+  oslovíš); pravidlo zapísať do DECISIONS. · 1 deň.
+- **2026-10-26 – audit – M38: ekonomika u konkrétneho zákazníka.** Tabuľka `buyer_economics` (organizácia × hypotéza,
+  väzba na kartu organizácie): objem prípadov, minúty na prípad, cena práce, dosiahnuteľná úspora, náklad na zavedenie
+  a kontrolu; každý faktor s pôvodom `observed` / `customer_reported` / `inferred` / `unknown` a zdrojom (citát,
+  rozhovor, výsledok oslovenia). Rozpätie ročnej hodnoty, čistý prínos a návratnosť počíta Python (model iba
+  štruktúru, ako `market.py`); neznámy faktor = otázka do rozhovoru. Úspora z webu dodávateľa sa nepoužije.
+  Pravidlo: veľký trh nič neposúva – „pripravené na ponuku“ až s aspoň jedným nákladovým údajom `observed` alebo
+  `customer_reported`. Doplniť aj otázky, či zákazník úsporu vie reálne využiť (nie iba „ušetrený čas“). · 2 dni.
+- **2026-10-26 – audit – M39: konkurencia ako dôvod zamietnutia.** Kritik dnes iba ukladá odkazy z vyhľadávania
+  (`critic.py`). Pre hypotézy na Bráne 0 posúdenie alternatív – aj nesoftvérových (človek, Excel, externá služba,
+  modul ERP, zrušenie procesu): pokrýva proces (áno / čiastočne / nie, s citátom), ako sa kupuje, bariéry zavedenia,
+  ktorá časť ostáva nevyriešená (s dôkazom). Zdroje: odkazy kritika, „existujúce riešenia“ z kariet organizácií,
+  výskumné úlohy. Nový stav `no_defensible_gap`: kód ho **navrhne**, keď každá alternatíva pokrýva proces a chýba
+  dôkaz nevyriešenej časti; **potvrdzuje človek** (súhlas používateľa 26. 10. 2026); lievik a autopilot potom
+  hypotézu vynechajú. · 2 dni.
+- **2026-10-26 – audit – M40: benchmark v reálnom svete.** Kohorta 10 príležitostí zo systému (celý reťazec
+  v Prehľade príležitosti) a kontrolná kohorta 10 problémov vybraných ručne z čerstvých oznámení o obstarávaní (TED,
+  M37) bez agentov. Ciele: ≥ 20 oslovení a ≥ 5 rozhovorov (odosiela používateľ ručne; 26. 10. „neviem či stihnem 20,
+  ale nejaké písať budem“), stavy z M35. Kód: označenie kohort a porovnávacia správa (obchodné stavy, čas na
+  prípravu). Rozhodovacie pravidlo do DECISIONS: ak systém neprekoná ručnú kohortu v obchodných stavoch, ďalší
+  míľnik o „lepšom uvažovaní“ (modely, agenti, Brána 2) sa nerobí. · 0,5 dňa kódu + oslovenia.
+- **2026-10-26 – audit – zdroje zo súkromného sektora (overiť realizovateľnosť).** Katalóg zdrojov je silný
+  vo verejnom sektore (audity, inšpekcie, zväzy) – problémy, ktoré sa dajú ľahko doložiť, nie nutne tie, za ktoré
+  firmy platia. Inzeráty: iba oficiálne dáta alebo povolené API (ÚPSVaR / sluzbyzamestnanosti.gov.sk – overené sú iba
+  agregáty voľných miest po okresoch, API s textami inzerátov nepotvrdené; EURES API overiť); recenzné portály
+  (G2, Capterra) sťahovanie zakazujú – nie. Odborné diskusie iba s povolením. Najprv 0,5-dňová kontrola podmienok
+  použitia, potom rozhodnutie. · 0,5 dňa + podľa výsledku.
+- **2026-10-26 – audit – nezávislosť pozorovaní (preberané správy).** `cluster.py` už vyradí takmer rovnaký citát
+  z iného dokumentu, ale nerozpozná prerozprávanie toho istého primárneho zdroja (tri články o jednej správe NKÚ =
+  tri domény v `strength.py`). Zoskupiť dôkazy podľa primárneho zdroja (odkaz na tú istú správu, rovnaké číslo +
+  inštitúcia + rok) a rátať nezávislé pozorovania, nie domény; nadväzuje na „sila dôkazov podľa relevantnosti“
+  (21. 10.). · 1–2 dni.
+- **2026-10-26 – audit – zmerať presnosť komponentov na reálnych behoch.** Pred ďalším uvažovaním modelov overiť,
+  ako presne fungujú existujúce kroky: ručne označiť ~50 prípadov na úlohu (Kontrola → gold labely; zatiaľ 0),
+  presnosť kariet organizácií a kontaktov (správna organizácia, správna rola, kontakt platný) na vzorke 20. · 1 deň
+  + označovanie.
