@@ -46,12 +46,22 @@ with tab_who:
         only_queue = st.toggle("Iba fronta prvého oslovenia", key="g0_queue",
                                help="Noví kontakty bez oslovenia v žiadnej hypotéze; oslovení sú v stave „čaká na "
                                     "odpoveď“ alebo „nadviazanie“.")
+    from radar.commercial import org_stage_label
+
+    wtp_by_org: dict = {}
+
+    def wtp_of(oid):
+        if oid not in wtp_by_org:  # jedna otázka do DB na organizáciu
+            wtp_by_org[oid] = org_stage_label(d, hid, oid)
+        return wtp_by_org[oid]
+
     shown = [r for r in rows if r["odporúčanie"] in tiers and (kinds in (None, "všetko") or r["typ"] == kinds)
              and (not only_queue or r.get("prvé_oslovenie"))]
     table = [{k: r[k] for k in ("odporúčanie", "stav_komunikácie", "ďalšia_akcia", "typ", "osoba", "funkcia", "účel",
                                 "organizácia", "e-mail", "telefón", "prečo", "čo_dostanú", "potrebný_vstup", "čo_nevieme",
                                 "dôvody", "dôkaz_účelu")}
              | {k: r.get(k, "") for k in ("zhoda_segmentu", "stav_potreby", "riešenie", "obstarávanie")}
+             | {"ochota_platiť": wtp_of(r.get("org_id"))}
              | {"zdroj": safe_url(r["zdroj_kontaktu"])} for r in shown]
     if not rows:
         st.info("Zatiaľ nikto. Spusti hľadanie: organizácie → plán kontaktov podľa hypotézy (zákazník, držiteľ dát, "

@@ -86,13 +86,19 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
                    note: str = "", prep_minutes: float | None = None, delivery_days: float | None = None,
                    answers: dict[int, dict[str, Any]] | None = None, card_id: int | None = None,
                    question_id: int | None = None, decline_reason: str | None = None, structured: dict[str, str] | None = None,
-                   source: str = "human", contradicts: bool = False, **flags: bool) -> dict[str, Any]:
+                   source: str = "human", contradicts: bool = False, willingness: dict[str, Any] | None = None,
+                   **flags: bool) -> dict[str, Any]:
     """Zapíše výsledok oslovenia (ručne zadaný človekom) a premietne ho do stavu oslovenia, potreby a prehľadu.
     answers: odpovede na otázky domény {id otázky: {"text": …, "contradicts": bool}} – otázka sa uzavrie s históriou
     a vznikne tvrdenie „uviedol kontakt“ (výpoveď, nie meraný výsledok).
     v15: odpoveď sa viaže na organizáciu, tím/rolu, otázku a verziu karty; štruktúrované časti (`structured`), dôvod
     nezáujmu; automaticky vyťažené (source != human) ide na kontrolu človekom. Na obnovu sa označia iba karty a návrhy
-    tejto organizácie; nová odpoveď proti schválenej karte je viditeľný rozpor."""
+    tejto organizácie; nová odpoveď proti schválenej karte je viditeľný rozpor.
+    v17 (M35): `willingness` = posúdenie ochoty platiť {stage, evidence, conditions, amount, currency, billing,
+    contract_value}; pri potvrdenom probléme je povinné (aspoň „nepýtali sme sa“), „platené“ vyžaduje platbu so sumou."""
+    from .commercial import ASSESSMENTS, NEGATIVE, STAGES, CommercialError
+    from .commercial import record as record_commercial
+    from .commercial import validate as validate_commercial
     from .outreach import set_status
     from .value import brief_inputs
 
@@ -119,6 +125,25 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
     bad = set(structured or {}) - set(STRUCTURED)
     if bad:
         raise OutcomeError(f"Neznáme časti odpovede: {', '.join(sorted(bad))}.")
+    wtp = (willingness or {}).get("stage") or None
+    if wtp is not None and wtp not in ASSESSMENTS:
+        raise OutcomeError(f"Neznáme posúdenie ochoty platiť {wtp!r}.")
+    if wtp is None and problem_relevance == "confirmed" and source == "human":
+        raise OutcomeError("Problém potvrdený – zapíš aj ochotu platiť (aspoň „nepýtali sme sa“): kto rozhoduje "
+                           "o rozpočte, či je rozpočet, záujem o kúpu za podmienok, platba.")
+    if flags.get("paid") and wtp != "payment_received":
+        raise OutcomeError("Označené „platené“ – zapíš platbu v časti Ochota platiť: suma, mena a spôsob platby.")
+    wtp_org = org_id
+    if not wtp_org and person_id:  # obchodný fakt patrí organizácii osoby
+        person = db.get_person(person_id)
+        wtp_org = person["org_id"] if person is not None else None
+    if wtp in (*STAGES, NEGATIVE):
+        try:
+            validate_commercial(willingness or {}, wtp_org)
+        except CommercialError as exc:
+            raise OutcomeError(str(exc)) from exc
+    if wtp == "payment_received":
+        flags["paid"] = True
     card_version = None
     if card_id is None and row is not None and "card_id" in row.keys():
         card_id = row["card_id"]
@@ -139,10 +164,13 @@ def record_outcome(cfg: Config, db: DB, *, outreach_id: int | None = None, hid: 
         next_action=(next_action or "").strip() or None, note=mask_text((note or "").strip()) or None,
         prep_minutes=prep_minutes, delivery_days=delivery_days, card_id=card_id, card_version=card_version,
         question_id=question_id, decline_reason=decline_reason or None, source=source,
-        needs_human_review=int(source != "human"),
+        needs_human_review=int(source != "human"), wtp_stage=wtp,
         **{k: mask_text(str(v).strip())[:500] for k, v in (structured or {}).items() if str(v or "").strip()},
         **{k: bool(v) for k, v in flags.items()})
     result: dict[str, Any] = {"id": outcome_id}
+    if wtp in (*STAGES, NEGATIVE):
+        result["ochota_platiť"] = record_commercial(db, hid, willingness or {}, org_id=wtp_org, person_id=person_id,
+                                                    outcome_id=outcome_id, by=source)
     if answers:
         from .domain import record_answer
 

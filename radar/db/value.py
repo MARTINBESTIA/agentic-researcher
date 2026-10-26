@@ -23,7 +23,8 @@ OUTCOME_FIELDS = {"outreach_id", "person_id", "org_id", "proposal_id", "message_
                   # v15: väzba na verziu karty a štruktúrovaná odpoveď (zapisuje človek; vyťažené = needs_human_review)
                   "card_id", "card_version", "question_id", "team_role", "last_case", "frequency", "tool_used",
                   "unsolved_part", "process_owner", "buying_process", "data_availability", "decline_reason",
-                  "needs_human_review", "source"}
+                  "needs_human_review", "source",
+                  "wtp_stage"}  # v17: posúdenie ochoty platiť pri výsledku
 
 
 class ValueMixin:

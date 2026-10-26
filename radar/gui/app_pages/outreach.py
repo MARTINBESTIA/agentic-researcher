@@ -2,7 +2,8 @@ from datetime import date, datetime, timezone
 
 import streamlit as st
 
-from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh
+from radar.gui.common import cfg, db, esc, json_or, pick_hypothesis, refresh, willingness_inputs
+from radar.commercial import ASSESSMENTS
 from radar.outcomes import FLAGS, RELEVANCE, REPLIES, OutcomeError, outcome_metrics, record_outcome
 from radar.outreach import (
     MODE_LABEL, SEND_STATES, OutreachError, approve, confirm_manual_review, discard_for_card, follow_up_text, mailto_link,
@@ -175,6 +176,7 @@ for o in items:
                 st.dataframe([{"kedy": r["recorded_at"][:10], "odpoveď": REPLIES.get(r["reply"], r["reply"]),
                                "problém": RELEVANCE.get(r["problem_relevance"] or "", "–"),
                                "ďalej": ", ".join(lbl for f, lbl in FLAGS.items() if r[f]) or "–",
+                               "ochota platiť": ASSESSMENTS.get(r["wtp_stage"] or "", "–"),
                                "ďalší krok": r["next_action"] or ""} for r in past], hide_index=True,
                              alt="Zapísané výsledky tohto oslovenia")
             with st.form(key + "outcome", border=True):
@@ -191,6 +193,7 @@ for o in items:
                 cols = st.columns(2)
                 prep = cols[0].number_input("Príprava na kontakt (min)", min_value=0.0, value=None, key=key + "pm")
                 delivery = cols[1].number_input("Dodanie výstupu (dni)", min_value=0.0, value=None, key=key + "dd")
+                willingness = willingness_inputs(key)
                 from radar.value import domain_of
 
                 open_q = d.domain_questions(domain_of(d, o["hypothesis_id"])[0], "open")[:6]
@@ -207,7 +210,8 @@ for o in items:
                     try:
                         res = record_outcome(c, d, outreach_id=o["id"], reply=reply, problem_relevance=relevance or None,
                                              rejection_reason=rejection, next_action=next_step, note=note,
-                                             prep_minutes=prep, delivery_days=delivery, answers=answers, **flags)
+                                             prep_minutes=prep, delivery_days=delivery, answers=answers,
+                                             willingness=willingness, **flags)
                         msg = "Výsledok uložený"
                         if res.get("prehľad_domény"):
                             msg += " · prehľad domény sa aktualizuje pri najbližšom kroku value"

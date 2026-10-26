@@ -32,7 +32,7 @@ PRIORITY: list[tuple[str, int]] = [
     ("gate1-input", 10), ("gate1", 60), ("cards", 30), ("gate2", 60), ("people", 60), ("contacts", 20), ("drafts", 30),
     ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30),
 ]
-DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30)]
+DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30), ("procurement", 30)]
 # Sústredený režim prípravy oslovení (zadanie 17. 10. 2026, časť E): karty zvolených organizácií a návrhy pred
 # všetkým ostatným; nový všeobecný zber iba zo zvyšného času (bez vyhradeného podielu). Mimo režimu sa karty
 # v autopilote nevytvárajú (iba akciou na žiadosť) – žiadna hromadná regenerácia.
@@ -94,6 +94,18 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     cat = db.catalog_stats()  # index katalógu raz za týždeň (nové datasety pribúdajú)
     if cfg.gate1.nkod_enabled and (not cat["datasety"] or (cat["aktualizované"] or "") < utc_days_ago(7)):
         work["catalog"] = f"index katalógu: {cat['datasety']} datasetov, aktualizovaný {(cat['aktualizované'] or 'nikdy')[:10]}"
+    if cfg.procurement.enabled:  # TED raz za cadence_days; medzitým porovnanie nových hypotéz so zákazkami
+        from .procurement import SYNC_KEY, scope_hypotheses
+
+        sync = db.get_setting(SYNC_KEY, {}) or {}
+        if (sync.get("kedy") or "") < utc_days_ago(cfg.procurement.cadence_days):
+            work["procurement"] = (f"oznámenia TED: {db.procurement_stats()['oznámenia']}, stiahnuté "
+                                   f"{(sync.get('kedy') or 'nikdy')[:10]}")
+        elif cfg.embeddings.enabled:
+            done = db.procurement_matched_state()
+            missing = sum(1 for h in scope_hypotheses(cfg, db) if str(h["id"]) not in done)
+            if missing:
+                work["procurement"] = f"{missing} hypotéz bez porovnania so zákazkami TED"
     last_themes = db._one("SELECT MAX(updated_at) AS t FROM themes")["t"] or ""
     new_h = db._one("SELECT COUNT(*) AS n FROM hypotheses WHERE status != 'rejected' AND created_at > ?", (last_themes,))["n"]
     if new_h:

@@ -177,8 +177,24 @@ with st.container(border=True):
                                   "LinkedIn (nič sa neodosiela; návrhy oslovení sú samostatná akcia).")
     jobs_panel(show_last=False)
 
-tab_brief, tab_ev, tab_axes, tab_crit, tab_notes, tab_export = st.tabs(
-    ["Prehľad príležitosti", "Dôkazy", "Osi a obchodný stav", "Kritika a trh", "Poznámky", "Export všetkého"])
+tab_brief, tab_ev, tab_axes, tab_proc, tab_crit, tab_notes, tab_export = st.tabs(
+    ["Prehľad príležitosti", "Dôkazy", "Osi a obchodný stav", "Obstarávanie (TED)", "Kritika a trh", "Poznámky",
+     "Export všetkého"])
+with tab_proc:
+    from radar.procurement import signals, signals_lines
+
+    st.caption("Zákazky slovenských kupujúcich z TED podobné tomuto problému a navrhnutému produktu (podľa významu – "
+               "podobnosť je pri každej zákazke, over, či ide naozaj o to isté). TED má iba zákazky nad limitmi EÚ: "
+               "chýbajúci záznam neznamená, že nikto nekupuje. Čísla počíta kód zo záznamov, model sa nevolá.")
+    sig = signals(c, d, hid)
+    st.markdown("\n".join(signals_lines(sig)).replace("](", "]\\("))
+    if sig.get("zoznam"):
+        st.dataframe([{k: v for k, v in r.items() if k != "url"} | {"odkaz": r["url"]} for r in sig["zoznam"]],
+                     hide_index=True, column_config={"odkaz": st.column_config.LinkColumn("odkaz", display_text="TED")},
+                     alt="Podobné zákazky z TED: predmet, kupujúci, fáza, dátumy, podobnosť")
+    start_job_button("procurement", "Obstarávanie z TED – porovnať teraz", 20, [hid], key=f"proc_{hid}",
+                     icon=":material/gavel:",
+                     help="Stiahne nové oznámenia (ak sú) a porovná ich s touto hypotézou; bez GPU, nič sa neodosiela.")
 with tab_brief:
     from radar.problem_brief import problem_brief
 
@@ -216,6 +232,51 @@ with tab_axes:
             except ValueError as exc:
                 st.error(str(exc))
             else:
+                refresh()
+    from radar.commercial import BILLING, STAGE_LABEL, CommercialError, record
+
+    st.markdown("**Ochota platiť po organizáciách** (platiteľ → rozpočet → záujem o kúpu → platba; každý stupeň "
+                "s dôkazom, zapisuješ ty – zvyčajne cez výsledok oslovenia alebo rozhovor):")
+    ce_rows = d.commercial_evidence_for(hid, include_withdrawn=True)
+    if ce_rows:
+        st.dataframe([{"#": r["id"], "organizácia": r["org_name"] or "–", "stupeň": STAGE_LABEL.get(r["stage"], r["stage"]),
+                       "dôkaz": r["evidence"], "podmienky": r["conditions"] or "",
+                       "suma": f"{r['amount']:,.0f} {r['currency'] or ''}".replace(",", " ") if r["amount"] else "",
+                       "platba": BILLING.get(r["billing"] or "", ""), "stav": r["status"],
+                       "kedy": r["created_at"][:10]} for r in ce_rows], hide_index=True,
+                     alt="Obchodné dôkazy: stupeň ochoty platiť po organizáciách")
+    else:
+        st.caption("Zatiaľ žiadny obchodný dôkaz.")
+    orgs = {o["id"]: o["name"] for o in d.orgs_for_hypothesis(hid)}
+    with st.form(f"pr_wtp_{hid}", clear_on_submit=True):
+        org_pick = st.selectbox("Organizácia", [None, *orgs], format_func=lambda o: "– (celý segment)" if o is None else orgs[o],
+                                key=f"pr_wtp_org_{hid}")
+        stage = st.selectbox("Stupeň", list(STAGE_LABEL), format_func=STAGE_LABEL.get, key=f"pr_wtp_st_{hid}")
+        evidence = st.text_input("Dôkaz (kto, čo, kedy – bez mien a kontaktov)", key=f"pr_wtp_ev_{hid}")
+        conditions = st.text_input("Podmienky (záujem o kúpu: čo, rozsah, cena alebo rozpätie, termín)", key=f"pr_wtp_c_{hid}")
+        wc = st.columns(4)
+        amount = wc[0].number_input("Suma", min_value=0.0, value=None, key=f"pr_wtp_a_{hid}")
+        currency = wc[1].text_input("Mena", value="EUR", key=f"pr_wtp_m_{hid}")
+        billing = wc[2].selectbox("Platba", [None, *BILLING], format_func=lambda b: "–" if b is None else BILLING[b],
+                                  key=f"pr_wtp_b_{hid}")
+        contract = wc[3].number_input("Hodnota zmluvy", min_value=0.0, value=None, key=f"pr_wtp_v_{hid}")
+        if st.form_submit_button("Zapísať stupeň", icon=":material/payments:"):
+            try:
+                record(d, hid, {"stage": stage, "evidence": evidence, "conditions": conditions, "amount": amount or None,
+                                "currency": currency, "billing": billing, "contract_value": contract or None},
+                       org_id=org_pick)
+            except CommercialError as exc:
+                st.error(str(exc))
+            else:
+                refresh()
+    active_ce = [r for r in ce_rows if r["status"] == "active"]
+    if active_ce:
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            ce_id = st.selectbox("Odvolať zápis (napr. omyl alebo stiahnutý záujem)", [r["id"] for r in active_ce],
+                                 format_func=lambda i: f"#{i}", key=f"pr_wtp_wd_{hid}")
+            reason = st.text_input("Dôvod", key=f"pr_wtp_wdr_{hid}")
+            if st.button("Odvolať", key=f"pr_wtp_wdb_{hid}", disabled=len(reason.strip()) < 3):
+                d.withdraw_commercial_evidence(ce_id, reason.strip())
                 refresh()
 with tab_ev:
     for e in evidence[:40]:

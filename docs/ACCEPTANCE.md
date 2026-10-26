@@ -303,3 +303,15 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M34 | GUI Problémy → Prehľad príležitosti bez volania modelu | `test_m34_problem_brief.py::test_problems_page_shows_opportunity_brief_tab_without_model_calls` |
 | M9 | Spustiť všetko hneď: rozbehne poradie, prerušené úlohy znova raz, autopilot bez druhej reťaze (predĺži koniec, neskráti); nočný beh rovnako | `test_m9_agentic.py::test_run_now_resumes_queue_and_does_not_stack_autopilots` |
 | M2 | GUI: tlačidlo „Spustiť všetko hneď“ – počas behu autopilot do poradia, druhý klik ďalší nepridá | `test_m2_gui.py::test_action_manager_lists_all_actions_queue_and_switch` |
+| M37 | oznámenie bez osôb a kontaktov, IČO, lehota, hodnoty, víťaz iba právnická osoba, fáza z typu | `test_m37_procurement.py::test_parse_notice_keeps_organisations_only_and_masks_contacts` |
+| M37 | stránkovanie ITERATION, idempotentný zápis, posun od posledného dátumu, výpadok bez posunu | `test_m37_procurement.py::test_sync_iterates_pages_is_idempotent_and_moves_cursor` |
+| M37 | podobné zákazky, signály dopytu kódom, stav obstarávania z IČO (človek a odhad sa neprepíšu) | `test_m37_procurement.py::test_matches_signals_and_org_status_come_from_records` |
+| M37 | bez embeddingov alebo oznámení je to ohlásený preskok | `test_m37_procurement.py::test_no_embedder_or_no_notices_is_a_reported_skip` |
+| M37 | autopilot: raz za týždeň a pre neporovnané hypotézy | `test_m37_procurement.py::test_autopilot_plans_procurement_weekly_and_for_new_hypotheses` |
+| M37 | GUI Problémy → Obstarávanie a riadok v Prehľade príležitosti bez modelu | `test_m37_procurement.py::test_problems_page_shows_procurement_tab_and_brief_row` |
+| M35 | platiteľ nie je ochota platiť; stupne potrebujú dôkaz, záujem o kúpu podmienky a organizáciu | `test_m35_commercial.py::test_payer_is_not_willingness_and_stages_need_evidence` |
+| M35 | platba so sumou, menou a spôsobom; odvolaný zápis sa nepočíta | `test_m35_commercial.py::test_payment_needs_amount_currency_and_billing` |
+| M35 | potvrdený problém vyžaduje posúdenie ochoty platiť; „platené“ vyžaduje platbu | `test_m35_commercial.py::test_confirmed_outcome_requires_willingness_and_paid_requires_payment` |
+| M35 | rozhovor so zápisom ochoty platiť; forget nechá iba fakt o organizácii | `test_m35_commercial.py::test_interview_records_willingness_and_forget_keeps_only_the_org_fact` |
+| M35 | migrácia v17 bez vymýšľania súm | `test_m35_commercial.py::test_migration_v17_carries_old_payer_as_buyer_and_paid_flag_without_inventing_amount` |
+| M35 | Prehľad príležitosti: otázky na ochotu platiť a chýbajúca časť | `test_m35_commercial.py::test_brief_asks_willingness_questions_and_lists_it_as_missing` |

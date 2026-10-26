@@ -451,3 +451,26 @@ def json_or(value: str | None, default: Any) -> Any:
         return json.loads(value) if value else default
     except (TypeError, ValueError):
         return default
+
+
+def willingness_inputs(key: str) -> dict[str, Any] | None:
+    """Ochota platiť vo formulári (M35): stupeň s dôkazom, podmienky a suma. Vráti None, ak stupeň nie je vybraný
+    (pri potvrdenom probléme ho kód vyžaduje – „nepýtali sme sa“ je platná odpoveď)."""
+    from radar.commercial import ASSESSMENTS, BILLING
+
+    st.markdown("**Ochota platiť** – pri potvrdenom probléme povinné (aj „nepýtali sme sa“); potvrdená je až záujem "
+                "o kúpu za podmienok alebo platba")
+    stage = st.selectbox("Stupeň", [None, *ASSESSMENTS], key=key + "wtp",
+                         format_func=lambda s: "– nevyplnené –" if s is None else ASSESSMENTS[s])
+    evidence = st.text_input("Dôkaz (kto, čo, kedy – bez mien a kontaktov)", key=key + "wtpe")
+    conditions = st.text_input("Podmienky (záujem o kúpu: čo, rozsah, cena alebo rozpätie, termín)", key=key + "wtpc")
+    cols = st.columns(4)
+    amount = cols[0].number_input("Suma", min_value=0.0, value=None, key=key + "wtpa")
+    currency = cols[1].text_input("Mena", value="EUR", key=key + "wtpm")
+    billing = cols[2].selectbox("Platba", [None, *BILLING], key=key + "wtpb",
+                                format_func=lambda b: "–" if b is None else BILLING[b])
+    contract = cols[3].number_input("Hodnota zmluvy", min_value=0.0, value=None, key=key + "wtpv")
+    if stage is None:
+        return None
+    return {"stage": stage, "evidence": evidence, "conditions": conditions, "amount": amount or None,
+            "currency": currency, "billing": billing, "contract_value": contract or None}

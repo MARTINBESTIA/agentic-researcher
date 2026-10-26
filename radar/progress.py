@@ -4,7 +4,9 @@ Osi sa nesčítavajú do jedného skóre (invariant 7) – každá má stav a zl
 - literatúra: overené tvrdenia z nezávislých domén (bez dodávateľov a protidôkazov) – podklad na výber rozhovorov,
 - zákazník: rozhovory so zákazníkmi a podiel, keď problém spomenuli nevyžiadane (Brána 0),
 - dáta: Brána 1 – kľúčové polia so stĺpcom potvrdeným tebou na aktuálnej verzii dát,
-- ochota platiť: platiteľ potvrdený v rozhovoroch alebo v obchodnom stave.
+- ochota platiť (M35): najvyšší obchodný stupeň s dôkazom (`radar/commercial.py`) – platiteľ identifikovaný →
+  rozpočet overený → záujem o kúpu za podmienok → zaplatené; „potvrdená“ je až záujem o kúpu alebo platba.
+  Text „kto platí“ (payer_confirmed, krok obchodného stavu) znamená iba známeho platiteľa.
 Obchodný stav zapisuje človek (GUI Problémy → Obchodný stav): preukázaný problém → vlastník procesu → vzorka dát →
 nameraná úspora → pilot → platiteľ; každý krok s poznámkou (dôkaz) a dátumom. Metriky postupu merajú cestu
 k zákazníkovi; počet hypotéz a modelových rozhodnutí je iba prevádzková metrika.
@@ -23,7 +25,8 @@ from .util import utcnow
 BUSINESS_STEPS = ("preukázaný_problém", "vlastník_procesu", "vzorka", "nameraná_úspora", "pilot", "platiteľ")
 BUSINESS_LABELS = {"preukázaný_problém": "Preukázaný problém (u zákazníka, nie iba v článkoch)",
                    "vlastník_procesu": "Identifikovaný vlastník procesu", "vzorka": "Získaná vzorka dát",
-                   "nameraná_úspora": "Nameraná úspora", "pilot": "Dohodnutý pilot", "platiteľ": "Potvrdený platiteľ"}
+                   "nameraná_úspora": "Nameraná úspora", "pilot": "Dohodnutý pilot",
+                   "platiteľ": "Identifikovaný platiteľ (kto rozhoduje o rozpočte – nie ochota platiť)"}
 AXES = ("literatúra", "zákazník", "dáta", "ochota_platiť")
 
 
@@ -69,22 +72,29 @@ def axes(cfg: Config, db: DB, hid: int) -> dict[str, dict[str, Any]]:
     data = ("realizovateľné" if g1 == "passed" and not unmet else
             "treba znova overiť" if g1 == "needs_revalidation" or (g1 == "passed" and unmet) else
             "nezačaté" if g1 == "not_started" else "čaká na dáta")
+    from .commercial import STAGE_LABEL, summary_text, wtp_state
+
     payer = m["payer_confirmed"] or (business["platiteľ"].get("dôkaz") if business["platiteľ"].get("hotové") else None)
     commitments = m["commitments"]
+    wtp = wtp_state(db, hid)
+    wtp_stav = (wtp["stav"] if wtp["stupeň"] else "platiteľ známy" if payer else
+                "náznak (pilot)" if commitments.get("pilot") else "chýba")
     return {
         "literatúra": {"stav": label, "zložky": {"overené": verified, "čiastočné": partial, "nezávislé_domény": domains},
                        "pozn": "výber rozhovorov, nie dôkaz trhu"},
         "zákazník": {"stav": customer, "zložky": {"rozhovory": m["customer_interviews"], "cieľ": m["target"],
                                                   "nevyžiadane": m["unprompted"], "podiel": m["unprompted_share"]}},
         "dáta": {"stav": data, "zložky": {"Brána 1": g1, "kľúčové_polia": len(keys), "nesplnené": len(unmet)}},
-        "ochota_platiť": {"stav": "potvrdená" if payer else ("náznak" if commitments.get("pilot") else "chýba"),
-                          "zložky": {"platiteľ": payer or "chýba", "záväzky": commitments}},
+        "ochota_platiť": {"stav": wtp_stav,
+                          "zložky": {"stupeň": STAGE_LABEL.get(wtp["stupeň"], "–"), "dôkazy": summary_text(wtp),
+                                     "platiteľ": payer or "chýba", "záväzky": commitments}},
     }
 
 
 def customer_progress(cfg: Config, db: DB, ids: list[int] | None = None) -> dict[str, Any]:
     """Postup k zákazníkovi pre hypotézy vybrané na Bránu 0: relevantné kontakty → oslovení → odpovede →
     rozhovory → vzorky → piloty → nameraná úspora → ochota platiť. Prevádzkové metriky zvlášť."""
+    from .commercial import wtp_state
     from .crm import gate0_metrics
     from .shortlist import contact_shortlist
 
@@ -101,7 +111,7 @@ def customer_progress(cfg: Config, db: DB, ids: list[int] | None = None) -> dict
                "oslovení": m["funnel"]["odoslaní"], "odpovede": m["funnel"]["odpovede"], "rozhovory": m["customer_interviews"],
                "vzorky": samples, "piloty": int(bool(business["pilot"].get("hotové"))) + m["commitments"].get("pilot", 0),
                "nameraná_úspora": int(bool(business["nameraná_úspora"].get("hotové"))),
-               "ochota_platiť": int(bool(m["payer_confirmed"] or business["platiteľ"].get("hotové")))}
+               "ochota_platiť": int(wtp_state(db, hid)["potvrdená"])}
         rows.append(row)
         for k, v in row.items():
             if isinstance(v, int) and k != "hypotéza":

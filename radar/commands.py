@@ -92,6 +92,25 @@ def stage_catalog_sync(app, deadline: Deadline) -> dict:
                         progress=lambda m: log.info(m))
 
 
+def stage_procurement_sync(app, deadline: Deadline) -> dict:
+    """Obstarávanie z TED: nové a zmenené oznámenia slovenských kupujúcich (API, bez modelu)."""
+    from .procurement import TedClient, sync_notices
+
+    if not app.cfg.procurement.enabled:
+        return {"preskočené": "procurement.enabled = false"}
+    return sync_notices(app.cfg, app.db, TedClient(app.cfg.procurement, user_agent=app.cfg.fetch.user_agent), deadline)
+
+
+def stage_procurement_match(app, deadline: Deadline) -> dict:
+    """Obstarávanie z TED: podobné oznámenia k hypotézam (embeddingy na CPU) a stav obstarávania organizácií."""
+    from .procurement import match_hypotheses
+
+    if not app.cfg.procurement.enabled:
+        return {"preskočené": "procurement.enabled = false"}
+    embedder = app.embedder if app.cfg.embeddings.enabled else None
+    return match_hypotheses(app.cfg, app.db, embedder, deadline, getattr(app, "procurement_ids", None))
+
+
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu)."""
     from .person_contacts import run_person_contacts
@@ -306,6 +325,8 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "source-types": stage_source_types,
     "themes": stage_themes,
     "catalog-sync": stage_catalog_sync,
+    "procurement-sync": stage_procurement_sync,
+    "procurement-match": stage_procurement_match,
     "eval-all": stage_eval_all,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
@@ -374,6 +395,10 @@ STAGE_HELP = {
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
     "themes": "Témy: zhluky podobných hypotéz podľa embeddingov (kód), názvy tém (rýchly model); hypotézy sa nezlučujú.",
     "catalog-sync": "Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU).",
+    "procurement-sync": "Obstarávanie z TED: nové a zmenené oznámenia slovenských kupujúcich (CPV z config.yaml; "
+                        "bez osôb a kontaktov).",
+    "procurement-match": "Obstarávanie z TED: podobné zákazky k hypotézam (embeddingy, CPU) a stav obstarávania "
+                         "organizácií podľa IČO kupujúceho.",
     "eval-all": "Eval presnosti profilov modelov na úlohách s aspoň 50 gold labelmi.",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",
@@ -617,6 +642,26 @@ def cmd_problem_brief(app, args) -> int:
     out = Path(args.out) if args.out else app.cfg.path(app.cfg.reports_dir) / "prehlady_problemov"
     paths = write_briefs(app.cfg, app.db, out, args.hypothesis or None, with_names=args.with_names)
     print(f"Prehľady: {len(paths) - 1} problémov + INDEX.md v {out}")
+    return 0
+
+
+def cmd_procurement(app, args) -> int:
+    """Obstarávanie z TED: stav sťahovania alebo signály dopytu k hypotéze (bez modelu; sťahovanie a porovnanie je
+    akcia `procurement` – python -m radar job procurement)."""
+    from .procurement import SYNC_KEY, signals, signals_lines
+
+    if args.hypothesis:
+        for hid in args.hypothesis:
+            h = app.db.get_hypothesis(hid)
+            print(f"H{hid} {h['title'] if h is not None else '(neexistuje)'}")
+            for line in signals_lines(signals(app.cfg, app.db, hid)):
+                print(line)
+        return 0
+    stats = app.db.procurement_stats()
+    sync = app.db.get_setting(SYNC_KEY, {}) or {}
+    print(f"Oznámenia TED: {stats['oznámenia']}, najnovšie zverejnené {stats['najnovšie'] or '–'}, "
+          f"posledné stiahnutie {(sync.get('kedy') or 'nikdy')[:16]}; porovnané hypotézy "
+          f"{len(app.db.procurement_matched_state())}. Stiahnuť a porovnať: python -m radar job procurement")
     return 0
 
 
@@ -881,6 +926,9 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--out", default=None, help="priečinok (predvolene reports/prehlady_problemov)")
     p.add_argument("--with-names", action="store_true", help="s menami osôb (iba na tvoje vlastné použitie)")
 
+    p = sub.add_parser("procurement", help="Obstarávanie z TED: stav alebo signály dopytu k hypotéze (bez modelu).")
+    p.add_argument("--hypothesis", type=int, action="append", help="signály dopytu k týmto hypotézam")
+
     p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
     p.add_argument("--import", dest="import_id", type=int, required=True)
     p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
@@ -966,6 +1014,7 @@ HANDLERS = {
     "process-report": cmd_process_report,
     "org-cards": cmd_org_cards,
     "problem-brief": cmd_problem_brief,
+    "procurement": cmd_procurement,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

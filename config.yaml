@@ -443,6 +443,20 @@ org_cards:
   research_max_attempts: 1         # úloha sa po pokuse neopakuje (výpadok = zdroj nedostupný, otázka ostáva)
   research_model_calls: true       # posúdenie nájdených úryvkov modelom (gap_answer); false = iba uložiť úryvky
 
+# ---------------------------------------------------------------- obstarávanie z TED (M37, 26. 10. 2026)
+# Štruktúrované oznámenia z TED Search API (verejné, bez kľúča): kto čo opakovane kupuje, otvorené a plánované
+# zákazky, stav obstarávania organizácie podľa IČO kupujúceho. Bez osôb a kontaktov. TED má iba zákazky nad
+# limitmi EÚ – chýbajúci záznam neznamená, že nič neprebieha (ÚVO vestník a EKS ostávajú cez vyhľadávanie).
+procurement:
+  enabled: true
+  buyer_country: SVK
+  cpv: ["72000000", "48000000", "79000000"]   # IT služby, softvér, podnikové služby (outsourcing); pridať sa dajú ďalšie
+  years_back: 3                    # prvé stiahnutie (~4 500 oznámení), potom iba nové od posledného behu
+  cadence_days: 7                  # autopilot sťahuje raz za týždeň
+  match_threshold: 0.5             # podobnosť zákazka ↔ hypotéza (embeddingy); zobrazuje sa pri každej zhode
+  max_matches: 30
+  ipv4_only: true                  # IPv6 spojenie s api.ted.europa.eu na tomto notebooku padá pri TLS
+
 # ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)
 # Dáta organizácie sú v oddelenom DuckDB súbore (data/eventlogs/org_<id>.duckdb), nikdy spolu s verejným korpusom
 # a predvolene neopúšťajú počítač. Import nič nemaže potichu: problémové riadky sa označia a report kvality povie,

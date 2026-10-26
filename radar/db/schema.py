@@ -985,6 +985,59 @@ CREATE TABLE IF NOT EXISTS research_tasks (    -- cielené doplnenie medzery kar
 );
 CREATE INDEX IF NOT EXISTS idx_research_tasks_card ON research_tasks(card_id);
 """
+# ---------------------------------------------------------------- v16: obstarávanie z TED (M37)
+SCHEMA_V16 = """
+CREATE TABLE IF NOT EXISTS procurement_notices (  -- oznámenie o obstarávaní (TED); bez osôb, e-mailov a adries
+  id INTEGER PRIMARY KEY,
+  source TEXT NOT NULL DEFAULT 'ted',
+  notice_id TEXT NOT NULL,                    -- číslo publikácie, napr. 570007-2025
+  notice_type TEXT, procedure_type TEXT, contract_nature TEXT,
+  stage TEXT NOT NULL,                        -- planned | call | awarded | modified | other (z typu oznámenia)
+  title TEXT, description TEXT,
+  buyer_name TEXT, buyer_ico TEXT, buyer_legal_type TEXT, buyer_country TEXT,
+  cpv_json TEXT, main_cpv TEXT,
+  publication_date TEXT, deadline TEXT,
+  estimated_value REAL, estimated_currency TEXT, awarded_value REAL, awarded_currency TEXT,
+  winners_json TEXT,                          -- [{"ico", "name" (iba právnická osoba), "size"}]
+  url TEXT NOT NULL, raw_hash TEXT NOT NULL, fetched_at TEXT NOT NULL,
+  UNIQUE (source, notice_id)
+);
+CREATE INDEX IF NOT EXISTS idx_procurement_buyer ON procurement_notices(buyer_ico);
+CREATE TABLE IF NOT EXISTS procurement_matches (  -- oznámenie podobné hypotéze (embeddingy); podobnosť sa zobrazuje
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  notice_id INTEGER NOT NULL REFERENCES procurement_notices(id) ON DELETE CASCADE,
+  similarity REAL NOT NULL,
+  query_hash TEXT NOT NULL,                   -- text dopytu hypotézy (názov + navrhnutý produkt); zmena → nové priradenie
+  matched_at TEXT NOT NULL,
+  PRIMARY KEY (hypothesis_id, notice_id)
+);
+"""
+
+# ---------------------------------------------------------------- v17: obchodné stavy a ochota platiť (M35)
+SCHEMA_V17 = """
+CREATE TABLE IF NOT EXISTS commercial_evidence (  -- obchodný dôkaz o organizácii (zapisuje človek; nie osobný údaj)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  org_id INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+  person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,          -- voliteľné; forget vymaže väzbu aj text dôkazu
+  outcome_id INTEGER REFERENCES outreach_outcomes(id) ON DELETE SET NULL,
+  interview_id INTEGER REFERENCES interviews(id) ON DELETE SET NULL,
+  stage TEXT NOT NULL,          -- buyer_identified | budget_verified | purchase_intent | payment_received | no_willingness
+  evidence TEXT NOT NULL,       -- kto, čo, kedy
+  conditions TEXT,              -- záujem o kúpu: čo, v akom rozsahu a za akých podmienok
+  amount REAL, currency TEXT,   -- suma (záujem: navrhnutá / platba: prijatá)
+  billing TEXT,                 -- one_off | monthly | annual
+  contract_value REAL,          -- celková hodnota zmluvy, ak je známa
+  status TEXT NOT NULL DEFAULT 'active',  -- active | withdrawn
+  recorded_by TEXT NOT NULL DEFAULT 'human',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_commercial_h ON commercial_evidence(hypothesis_id, org_id);
+"""
+V17_COLUMNS = {
+    "outreach_outcomes": {"wtp_stage": "TEXT"},  # posúdenie ochoty platiť pri výsledku (aj not_asked / unclear)
+}
+
 V15_COLUMNS = {
     "value_proposals": [("card_id", "INTEGER REFERENCES org_cards(id) ON DELETE SET NULL"), ("card_version", "INTEGER"),
                         ("recipient_role", "TEXT"), ("stale_reason", "TEXT")],

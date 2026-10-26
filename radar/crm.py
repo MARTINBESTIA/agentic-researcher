@@ -29,11 +29,23 @@ COMMITMENTS = ("intro", "follow_up", "data", "pilot", "none")
 
 
 def record_interview(cfg: Config, db: DB, hypothesis_id: int, interviewee_kind: str, held_at: str,
-                     notes: str, quotes: list[str] | None = None, person_id: int | None = None, **fields: Any) -> dict[str, Any]:
+                     notes: str, quotes: list[str] | None = None, person_id: int | None = None,
+                     willingness: dict[str, Any] | None = None, org_id: int | None = None, **fields: Any) -> dict[str, Any]:
     """Uloží rozhovor; citáty z neho sa stanú tvrdeniami (origin interview) na pseudo-dokumente
-    s poznámkami. Citát musí prejsť rovnakou kontrolou kódom voči poznámkam (R-CRM-2)."""
+    s poznámkami. Citát musí prejsť rovnakou kontrolou kódom voči poznámkam (R-CRM-2).
+    v17 (M35): `willingness` – stupeň ochoty platiť s dôkazom (organizácia z osoby alebo `org_id`)."""
+    from .commercial import NEGATIVE, STAGES
+    from .commercial import record as record_commercial
+    from .commercial import validate as validate_commercial
+
     if interviewee_kind not in ("customer", "expert"):
         raise ValueError("Typ respondenta je customer alebo expert.")
+    stage = (willingness or {}).get("stage")
+    if stage in (*STAGES, NEGATIVE):
+        if not org_id and person_id:
+            person = db.get_person(person_id)
+            org_id = person["org_id"] if person is not None else None
+        validate_commercial(willingness or {}, org_id)  # pred zápisom rozhovoru – chyba nič nezapíše
     pseudonym = db.next_pseudonym()
     clean_notes = mask_text(notes or "")  # e-maily a telefóny do dôkazov nepatria
     iid = db.insert_interview(person_id=person_id, pseudonym=pseudonym, hypothesis_id=hypothesis_id,
@@ -66,7 +78,11 @@ def record_interview(cfg: Config, db: DB, hypothesis_id: int, interviewee_kind: 
     hyp = db.get_hypothesis(hypothesis_id)
     if hyp is not None and hyp["gate0_status"] == "not_started":
         db.set_hypothesis_fields(hypothesis_id, gate0_status="in_progress")
-    return {"interview_id": iid, "pseudonym": pseudonym, **stats}
+    out = {"interview_id": iid, "pseudonym": pseudonym, **stats}
+    if stage in (*STAGES, NEGATIVE):
+        out["ochota_platiť"] = record_commercial(db, hypothesis_id, willingness or {}, org_id=org_id,
+                                                 person_id=person_id, interview_id=iid)
+    return out
 
 
 def gate0_metrics(db: DB, hypothesis_id: int) -> dict[str, Any]:
@@ -91,7 +107,11 @@ def gate0_metrics(db: DB, hypothesis_id: int) -> dict[str, Any]:
         "dohodnuté": people_with(("scheduled", "interviewed", "no_show")),
         "rozhovory": len(customers),
     }
-    payer = hyp["payer_confirmed"] if hyp is not None else None
+    from .commercial import wtp_state
+
+    wtp = wtp_state(db, hypothesis_id)
+    # platiteľ = text „kto platí“ alebo obchodný dôkaz aspoň „platiteľ identifikovaný“ (ochota platiť je samostatná os)
+    payer = (hyp["payer_confirmed"] if hyp is not None else None) or (wtp["stav"] if wtp["stupeň"] else None)
     if len(customers) < TARGET_INTERVIEWS[0]:
         verdict = "nedostatok dát"
     elif share < UNPROMPTED_THRESHOLD:
@@ -108,6 +128,7 @@ def gate0_metrics(db: DB, hypothesis_id: int) -> dict[str, Any]:
         "unprompted_share": round(share, 3),
         "unprompted_threshold": UNPROMPTED_THRESHOLD,
         "payer_confirmed": payer,
+        "willingness_to_pay": wtp["stav"],
         "commitments": dict(commitments),
         "funnel": funnel,
         "response_rate": round(replied / sent_people, 3) if sent_people else None,
@@ -136,12 +157,13 @@ def _person_label(person) -> str:
 def export_rows(db: DB, what: str, include_personal: bool) -> tuple[list[str], list[list[Any]]]:
     if what == "hypotheses":
         cols = ["id", "title", "segment", "status", "origin", "people_enabled", "gate0_status", "verdict_proposal",
-                "customer_interviews", "founder_fit", "payer_confirmed"]
+                "customer_interviews", "founder_fit", "payer_confirmed", "willingness_to_pay"]
         rows = []
         for h in db.all_hypotheses():
             m = gate0_metrics(db, h["id"]) if h["people_enabled"] else {}
             rows.append([h["id"], h["title"], h["segment"], h["status"], h["origin"], h["people_enabled"], h["gate0_status"],
-                         m.get("verdict_proposal", ""), m.get("customer_interviews", ""), h["founder_fit"], h["payer_confirmed"]])
+                         m.get("verdict_proposal", ""), m.get("customer_interviews", ""), h["founder_fit"], h["payer_confirmed"],
+                         m.get("willingness_to_pay", "")])
         return cols, rows
     if what == "people":
         cols = ["person", "role", "organization", "hypothesis", "link", "priority", "status", "contacts", "source_url", "zdroj"]

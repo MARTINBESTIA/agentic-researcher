@@ -12,7 +12,7 @@ import json
 
 import streamlit as st
 
-from radar.gui.common import esc, json_or, refresh, start_job_button
+from radar.gui.common import esc, json_or, refresh, start_job_button, willingness_inputs
 
 
 def render(c, d, hid: int) -> None:
@@ -192,12 +192,13 @@ def render(c, d, hid: int) -> None:
             structured = {k: st.text_input(label) for k, label in STRUCTURED.items()}
             flags = {k: st.checkbox(label) for k, label in FLAGS.items()}
             note = st.text_area("Poznámka (bez mien a kontaktov)")
+            willingness = willingness_inputs(f"g0_reply_{row['id']}")
             contradicts = st.checkbox("Odpoveď odporuje karte")
             if st.form_submit_button("Zapísať", icon=":material/save:"):
                 try:
                     record_outcome(c, d, hid=hid, org_id=org_id, reply=reply, problem_relevance=rel, note=note,
                                    card_id=row["id"], decline_reason=decline, structured=structured,
-                                   contradicts=contradicts, **flags)
+                                   contradicts=contradicts, willingness=willingness, **flags)
                 except OutcomeError as exc:
                     st.error(str(exc))
                 else:

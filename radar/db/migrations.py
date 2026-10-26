@@ -10,15 +10,17 @@ Pravidlá:
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 from .schema import (
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12,
-    SCHEMA_V13, SCHEMA_V13_OUTREACH, SCHEMA_V14, SCHEMA_V15, ESCO_FTS, V1_COLUMNS, V15_COLUMNS,
+    SCHEMA_V13, SCHEMA_V13_OUTREACH, SCHEMA_V14, SCHEMA_V15, SCHEMA_V16, SCHEMA_V17, ESCO_FTS, V1_COLUMNS, V15_COLUMNS,
+    V17_COLUMNS,
     V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS, V10_COLUMNS, V12_COLUMNS,
 )
 
@@ -168,9 +170,44 @@ def migrate_v15(conn: sqlite3.Connection) -> None:
              AND COALESCE(json_array_length(json_extract(evidence_json, '$.evidence')), 0) = 0""")
 
 
+def migrate_v16(conn: sqlite3.Connection) -> None:
+    """Obstarávanie z TED (M37): štruktúrované oznámenia a ich podobnosť s hypotézami (iba pridávanie)."""
+    conn.executescript(SCHEMA_V16)
+
+
+def migrate_v17(conn: sqlite3.Connection) -> None:
+    """Obchodné stavy (M35): kto platí ≠ ochota platiť. Staré údaje sa prenesú iba ako to, čo naozaj dokladajú:
+    - `payer_confirmed` (text „kto platí“) a hotový krok „platiteľ“ obchodného stavu → platiteľ identifikovaný,
+    - príznak `paid` výsledku oslovenia bez sumy → platba s poznámkou „doplň sumu“ (nič sa nevymýšľa)."""
+    conn.executescript(SCHEMA_V17)
+    _add_columns(conn, V17_COLUMNS)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for row in conn.execute("SELECT id, payer_confirmed, business_json FROM hypotheses").fetchall():
+        notes = []
+        if (row[1] or "").strip():
+            notes.append(f"v17: payer_confirmed = „{row[1].strip()[:300]}“ (identifikovaný platiteľ, nie ochota platiť)")
+        try:
+            step = (json.loads(row[2] or "{}") or {}).get("platiteľ") or {}
+        except ValueError:
+            step = {}
+        if step.get("hotové"):
+            notes.append(f"v17: obchodný stav „platiteľ“: {(step.get('dôkaz') or '').strip()[:300]}")
+        if notes:
+            conn.execute("INSERT INTO commercial_evidence (hypothesis_id, stage, evidence, recorded_by, created_at, "
+                         "updated_at) VALUES (?, 'buyer_identified', ?, 'migration', ?, ?)", (row[0], " · ".join(notes), now, now))
+    conn.execute(
+        """INSERT INTO commercial_evidence (hypothesis_id, org_id, person_id, outcome_id, stage, evidence, recorded_by,
+                                           created_at, updated_at)
+           SELECT hypothesis_id, org_id, person_id, id, 'payment_received',
+                  'v17: výsledok oslovenia označený „platené“ bez sumy – doplň sumu, menu a spôsob platby', 'migration',
+                  recorded_at, recorded_at
+           FROM outreach_outcomes WHERE paid = 1""")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
                                                           migrate_v6, migrate_v7, migrate_v8, migrate_v9, migrate_v10,
-                                                          migrate_v11, migrate_v12, migrate_v13, migrate_v14, migrate_v15]
+                                                          migrate_v11, migrate_v12, migrate_v13, migrate_v14, migrate_v15,
+                                                          migrate_v16, migrate_v17]
 LATEST = len(MIGRATIONS)
 
 

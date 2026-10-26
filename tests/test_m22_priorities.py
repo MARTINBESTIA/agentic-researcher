@@ -93,7 +93,8 @@ def test_axes_are_separate_and_business_steps_need_proof(tmp_path):
     with pytest.raises(ValueError):
         set_business_step(db, hid, "vzorka", True, "")  # hotový krok bez dôkazu
     set_business_step(db, hid, "platiteľ", True, "riaditeľ účtovnej firmy, rozhovor 12. 10.: zaplatí 50 €/mes")
-    assert business_state(db, hid)["platiteľ"]["hotové"] and axes(cfg, db, hid)["ochota_platiť"]["stav"] == "potvrdená"
+    # M35 (26. 10. 2026): známy platiteľ nie je ochota platiť – „potvrdená“ je až záujem o kúpu alebo platba
+    assert business_state(db, hid)["platiteľ"]["hotové"] and axes(cfg, db, hid)["ochota_platiť"]["stav"] == "platiteľ známy"
     assert axes(cfg, db, hid)["zákazník"]["stav"] == "chýba"  # platiteľ nepotvrdzuje problém u zákazníka
 
 

@@ -11,7 +11,7 @@ import json
 import pytest
 
 from radar.config import Config, EmbeddingsConfig, ModelsConfig, OrgCardsConfig, OutreachConfig, PrivacyConfig
-from radar.db import DB
+from radar.db import DB, SCHEMA_VERSION
 from radar.search import SearchResult
 from radar.util import Deadline
 from tests.fakes import FakeFetcher, FakeSearx, Recorder, make_router
@@ -515,7 +515,7 @@ def test_migration_v15_keeps_data_and_version_change_marks_only_dependent_output
     db.conn.commit()
     db.close()
     db = DB(cfg.db_path)
-    assert db.migration["from"] == 14 and db.migration["to"] == 15 and db.migration["backup"]
+    assert db.migration["from"] == 14 and db.migration["to"] == SCHEMA_VERSION and db.migration["backup"]
     assert counts == {t: db.conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in counts}
     oh = db.org_hypothesis(org, hid)
     assert oh["procurement_status"] == "candidate" and oh["procurement_active"] == 0
@@ -571,7 +571,8 @@ def test_full_flow_evidence_card_gaps_trial_draft_reply_new_version_export(tmp_p
     assert draft["card_id"] == cid and pkg["karta"]["card_version"] == 1 and pkg["výstup"] == card_payload()["offer"]["deliverable"]
     assert pkg["hlavná_otázka"]["text"] == card_payload()["main_question"]["text"]
     record_outcome(cfg, db, outreach_id=draft["id"], reply="relevant", problem_relevance="confirmed",
-                   structured={"last_case": "minulý týždeň 40 faktúr ručne", "tool_used": "Pohoda"}, interview_agreed=True)
+                   structured={"last_case": "minulý týždeň 40 faktúr ručne", "tool_used": "Pohoda"}, interview_agreed=True,
+                   willingness={"stage": "not_asked"})
     assert db.get_org_card(cid)["stale_reason"]
     cid2 = ensure_card(cfg, db, router, org, hid)
     assert cid2 != cid and db.get_org_card(cid2)["version"] == 2 and db.get_org_card(cid)["status"] == "superseded"

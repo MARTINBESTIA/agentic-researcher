@@ -109,6 +109,14 @@ ACTIONS: dict[str, Action] = {
         "vektory. Brána 1 potom hľadá kandidátov na zdroje aj podľa významu poľa, nielen podľa slov. Prvý beh "
         "~22 tis. datasetov, ďalšie iba nové a zmenené; dá sa prerušiť.",
         "index katalógu (Zdroje → Národný katalóg – lokálny index)", "embeddingy (CPU), bez GPU", 40, gpu=False),
+    "procurement": Action(
+        "Obstarávanie z TED (kto čo kupuje)",
+        "Stiahne oznámenia o verejnom obstarávaní slovenských kupujúcich z TED API (CPV z config.yaml: IT služby, softvér, "
+        "podnikové služby; bez osôb a kontaktov) → k hypotézam priradí podobné zákazky podľa významu (embeddingy na CPU, "
+        "podobnosť sa zobrazí) → signály dopytu (opakovaný nákup, viac nezávislých kupujúcich, služba vs. softvér, "
+        "hodnoty) a stav obstarávania organizácií podľa IČO kupujúceho. TED má iba zákazky nad limitmi EÚ.",
+        "oznámenia TED, podobné zákazky k hypotézam (Problémy → Obstarávanie), stav obstarávania v Bráne 0",
+        "embeddingy (CPU), bez GPU", 45, gpu=False),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "
@@ -491,6 +499,12 @@ def _catalog(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("catalog-sync", deadline)
 
 
+def _procurement(app, deadline: Deadline, run, ids, report_progress) -> None:
+    app.procurement_ids = ids
+    run("procurement-sync", deadline.sub(deadline.remaining_minutes() * 0.3))
+    run("procurement-match", deadline)
+
+
 def _eval(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("eval-all", deadline)
 
@@ -518,4 +532,5 @@ FLOWS: dict[str, Callable[..., None]] = {
     "org_cards": _org_cards,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval, "funnel": _funnel,
+    "procurement": _procurement,
 }

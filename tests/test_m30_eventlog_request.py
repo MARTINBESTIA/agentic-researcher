@@ -21,7 +21,7 @@ def _confirmed(tmp_path):
     run_drafts(cfg, db, router, Deadline(1), [hid])
     out = next(o for o in db.outreach_list(hid) if o["person_id"] == pid)
     db.update_outreach(out["id"], status="sent", sent_at="2026-10-15T09:00:00")
-    record_outcome(cfg, db, outreach_id=out["id"], reply="relevant", problem_relevance="confirmed")
+    record_outcome(cfg, db, outreach_id=out["id"], reply="relevant", problem_relevance="confirmed", willingness={"stage": "not_asked"})
     return w, out
 
 

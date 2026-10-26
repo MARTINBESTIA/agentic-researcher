@@ -2,8 +2,9 @@ from datetime import date
 
 import streamlit as st
 
+from radar.commercial import CommercialError
 from radar.crm import COMMITMENTS, record_interview
-from radar.gui.common import cfg, db, pick_hypothesis
+from radar.gui.common import cfg, db, pick_hypothesis, willingness_inputs
 
 d, c = db(), cfg()
 hid = pick_hypothesis(d, "int_h")
@@ -32,16 +33,23 @@ with st.form("interview_form", clear_on_submit=True):
                                                      "data": "dáta", "pilot": "pilot", "none": "nič"}[x])
     notes = st.text_area("Poznámky (doslovné citáty sem)", height=180)
     quotes = st.text_area("Citáty ako dôkazy (jeden na riadok, musia byť doslova v poznámkach)")
+    willingness = willingness_inputs("int_")
     if st.form_submit_button("Uložiť rozhovor", icon=":material/save:"):
-        result = record_interview(
-            c, d, hid, kind or "customer", held.isoformat(), notes,
-            quotes=[q for q in quotes.splitlines() if q.strip()], person_id=person,
-            role_label=role or None, org_type=org_type or None, last_occurrence=last or None,
-            current_workaround=workaround or None, cost_impact=cost or None, decision_and_payer=payer or None,
-            tried_before=tried or None, mentioned_unprompted={"áno": 1, "nie": 0}.get(unprompted), commitment=commitment,
-        )
-        st.success(f"Uložené ako {result['pseudonym']}: citáty overené {result.get('verified', 0)}, "
-                   f"zamietnuté {result.get('rejected', 0)} (nie sú doslova v poznámkach).")
+        try:
+            result = record_interview(
+                c, d, hid, kind or "customer", held.isoformat(), notes,
+                quotes=[q for q in quotes.splitlines() if q.strip()], person_id=person,
+                role_label=role or None, org_type=org_type or None, last_occurrence=last or None,
+                current_workaround=workaround or None, cost_impact=cost or None, decision_and_payer=payer or None,
+                tried_before=tried or None, mentioned_unprompted={"áno": 1, "nie": 0}.get(unprompted),
+                commitment=commitment, willingness=willingness,
+            )
+        except CommercialError as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Uložené ako {result['pseudonym']}: citáty overené {result.get('verified', 0)}, "
+                       f"zamietnuté {result.get('rejected', 0)} (nie sú doslova v poznámkach)."
+                       + (" Ochota platiť zapísaná." if result.get("ochota_platiť") else ""))
 
 rows = [{"pseudonym": i["pseudonym"], "typ": i["interviewee_kind"], "funkcia": i["role_label"], "organizácia": i["org_type"],
          "dátum": i["held_at"], "spomenul sám": {1: "áno", 0: "nie"}.get(i["mentioned_unprompted"], "–"),

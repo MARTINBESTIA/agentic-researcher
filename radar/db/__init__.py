@@ -9,6 +9,8 @@
 - opportunity.py: posúdenia dôkazov voči cieľu, karty organizácií (verzie, pripravenosť) a výskumné úlohy z medzier,
 - domain.py: doménový výskum (stav, podklady, tvrdenia, otázky, mapovanie rolí), lokálny ESCO index,
 - eventlogs.py: žiadosti o event log, importy (udalosti sú v DuckDB organizácie), procesné reporty,
+- procurement.py: oznámenia TED a ich podobnosť s hypotézami (M37),
+- commercial.py: obchodné dôkazy – platiteľ, rozpočet, záujem o kúpu, platba (M35),
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
 """
 
@@ -17,6 +19,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from .commercial import CommercialMixin
 from .domain import DomainMixin
 from .dossier import DossierMixin
 from .eventlogs import EventLogMixin
@@ -26,6 +29,7 @@ from .gates import GatesMixin
 from .migrations import LATEST, migrate
 from .opportunity import OpportunityMixin
 from .ops import OpsMixin
+from .procurement import ProcurementMixin
 from .themes import ThemesMixin
 from .value import ValueMixin
 
@@ -42,7 +46,7 @@ SCHEMA_VERSION = LATEST
 
 
 class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin,
-         OpportunityMixin):
+         OpportunityMixin, ProcurementMixin, CommercialMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

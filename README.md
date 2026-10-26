@@ -259,6 +259,16 @@ dáta (Brána 1 s potvrdenými stĺpcami) a ochota platiť – a obchodný stav,
 vlastník procesu, vzorka, nameraná úspora, pilot, platiteľ (každý krok s dôkazom). **Prehľad** ukazuje postup
 k zákazníkovi (kontakty, odpovede, rozhovory, vzorky, piloty); počet hypotéz je iba prevádzková metrika.
 
+**Ochota platiť (M35):** „kto platí“ nie je „ochota platiť“. Os má stupne s dôkazom po organizáciách – platiteľ
+identifikovaný → rozpočet overený → záujem o kúpu za konkrétnych podmienok (čo, rozsah, cena alebo rozpätie, termín) →
+zaplatené (suma, mena, jednorazovo / mesačne / ročne, hodnota zmluvy); zvlášť aj „nezaplatia / nemajú rozpočet“.
+**Potvrdená** je až záujem o kúpu alebo platba. Výsledok oslovenia s potvrdeným problémom musí mať zapísané aj
+posúdenie ochoty platiť (aspoň „nepýtali sme sa“); „platené“ bez sumy sa neuloží. Zapisuješ vo výsledku oslovenia,
+v odpovedi organizácie (karta), v rozhovore alebo v Problémy → Osi a obchodný stav (aj odvolanie zápisu). Prehľad
+príležitosti má otázky na každý stupeň (podľa The Mom Test – dnešné náklady a konkrétny ďalší krok, nie „kúpili by
+ste…“) a Koho osloviť stĺpec „ochota platiť“. `forget` zmaže pri obchodnom dôkaze väzbu na osobu aj text, fakt
+o organizácii ostane.
+
 V **Koho osloviť** má každý kontakt účel s dôkazom: vlastník procesu (funkcia zodpovednosti zverejnená organizáciou),
 používateľ riešenia, správca dát, schvaľovateľ rozpočtu, expert. Politici a členovia predstavenstiev nie sú vlastníci
 procesu; osoba spomenutá v článku nemá doloženú kompetenciu.
@@ -430,6 +440,21 @@ katalógu sa použije až po potvrdení (`sources --check`, potom `verified: tru
 Zoznam a výťažnosť (dokumenty a overené tvrdenia podľa kategórie a zdroja) sú v GUI na stránke **Zdroje**.
 Nový problém je najprv „candidate“; hypotézou sa stane až s 2 overenými tvrdeniami z 2 domén.
 Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v správe vlastné sekcie.
+
+### Obstarávanie z TED (M37)
+
+Akcia **„Obstarávanie z TED (kto čo kupuje)“** (Správca akcií; autopilot raz za týždeň; `python -m radar job
+procurement`) stiahne štruktúrované oznámenia slovenských kupujúcich z TED Search API (verejné, bez kľúča; CPV v
+`config.yaml` → `procurement.cpv`, predvolene IT služby 72, softvér 48, podnikové služby 79; prvý beh 3 roky ≈ 4 100
+oznámení). Ukladá sa iba zákazka a organizácie (kupujúci s IČO, predmet, CPV, dátumy, hodnoty, víťaz – názov iba pri
+právnickej osobe); osoby, e-maily, telefóny a adresy nie. Potom k hypotézam priradí podobné zákazky podľa významu
+(embeddingy na CPU; podobnosť je pri každej zhode, prah `procurement.match_threshold`) a vypočíta signály dopytu:
+opakovaný nákup u kupujúceho, počet nezávislých kupujúcich, otvorené a plánované zákazky, služba vs. softvér, hodnoty
+v EUR, menší kupujúci s podobnou potrebou (Problémy → **Obstarávanie (TED)**, riadok v Prehľade príležitosti,
+`python -m radar procurement --hypothesis N`). Stav obstarávania organizácie v Bráne 0 sa určí z konkrétneho záznamu
+podľa IČO kupujúceho: otvorená výzva → potvrdené (iba oficiálna cesta), predbežné oznámenie → kandidát, zadaná →
+ukončené; tvoje overenie sa neprepíše a odhad z vyhľadávania nahradí iba otvorená výzva. **TED má iba zákazky nad
+limitmi EÚ** – chýbajúci záznam neznamená, že nikto nekupuje (ÚVO a EKS ostávajú cez vyhľadávanie).
 
 ## Cloudové modely (Azure OpenAI, voliteľné)
 

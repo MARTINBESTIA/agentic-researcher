@@ -569,6 +569,29 @@ class DomainResearchConfig(BaseModel):
     max_role_candidates: int = 5
 
 
+class ProcurementConfig(BaseModel):
+    """Štruktúrované oznámenia o obstarávaní z TED Search API (M37, 26. 10. 2026): kto čo opakovane kupuje, otvorené
+    a plánované zákazky. TED obsahuje iba zákazky nad limitmi EÚ (a dobrovoľne zverejnené) – chýbajúci záznam neznamená,
+    že obstarávanie neprebieha. Prahy podobnosti sú prevádzkové nastavenia, nie kalibrované optimum."""
+
+    enabled: bool = True
+    api_url: str = "https://api.ted.europa.eu/v3/notices/search"  # verejné API bez kľúča
+    buyer_country: str = "SVK"
+    # CPV: 72 IT služby, 48 softvér, 79 podnikové služby (outsourcing práce); súhlas používateľa 26. 10. 2026
+    cpv: list[str] = Field(default_factory=lambda: ["72000000", "48000000", "79000000"])
+    years_back: int = 3            # prvé stiahnutie: posledné roky
+    overlap_days: int = 14         # ďalšie behy: od posledného dátumu mínus prekryv (oneskorené zverejnenia, zmeny)
+    page_size: int = 100           # API: najviac 250 oznámení a 10 000 polí na stranu
+    max_pages_per_run: int = 60
+    pause_seconds: float = 1.0     # medzi stranami
+    timeout_seconds: float = 60.0
+    ipv4_only: bool = True         # na notebooku IPv6 spojenie s api.ted.europa.eu padá pri TLS (overené 26. 10. 2026)
+    cadence_days: int = 7          # autopilot stiahne nové oznámenia raz za týždeň
+    match_threshold: float = 0.5   # kosínusová podobnosť oznámenie ↔ hypotéza (zobrazuje sa pri každej zhode)
+    max_matches: int = 30          # najviac podobných oznámení na hypotézu
+    open_days_without_deadline: int = 60  # výzva bez lehoty v dátach sa berie ako otvorená toľko dní od zverejnenia
+
+
 class OrgCardsConfig(BaseModel):
     """Karty organizácií a ponuka z nich (zadanie 17. 10. 2026). Limity sú prevádzkové nastavenia, nie optimum."""
 
@@ -744,6 +767,7 @@ class Config(BaseModel):
     outreach: OutreachConfig = Field(default_factory=OutreachConfig)
     domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
     org_cards: OrgCardsConfig = Field(default_factory=OrgCardsConfig)
+    procurement: ProcurementConfig = Field(default_factory=ProcurementConfig)
     event_logs: EventLogConfig = Field(default_factory=EventLogConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)

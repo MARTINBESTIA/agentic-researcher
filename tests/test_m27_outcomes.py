@@ -47,7 +47,7 @@ def test_outcome_updates_outreach_status_need_and_triggers_brief_update_with_his
     cust = _of(db, hid, pid=pid)
     res = record_outcome(cfg, db, outreach_id=cust["id"], reply="relevant", problem_relevance="confirmed",
                          interview_agreed=True, note=f"{person['full_name']} potvrdil urgencie, píšte na x@y.sk",
-                         next_action="rozhovor v utorok", prep_minutes=25)
+                         next_action="rozhovor v utorok", prep_minutes=25, willingness={"stage": "not_asked"})
     assert res["stav_oslovenia"] == "scheduled" and res["potreba"] == {"stav": "confirmed", "potvrdili": 1, "vyvrátili": 0}
     assert db.get_outreach(cust["id"])["status"] == "scheduled"
     assert all(p["need_status"] == "confirmed" for p in db.value_proposals_for(hid, "customer"))
@@ -69,7 +69,7 @@ def test_metrics_count_unique_organizations_not_messages(tmp_path):
     out2 = db.insert_outreach(second, hid, "email", "A", "x", "text", [], {"ok": True}, "sent")
     db.update_outreach(out2, sent_at="2026-10-14T09:00:00")
     record_outcome(cfg, db, outreach_id=_of(db, hid, pid=pid)["id"], reply="relevant", problem_relevance="confirmed",
-                   prep_minutes=20)
+                   prep_minutes=20, willingness={"stage": "not_asked"})
     record_outcome(cfg, db, outreach_id=out2, reply="relevant", sample_obtained=True, prep_minutes=40, delivery_days=3)
     record_outcome(cfg, db, outreach_id=_of(db, hid, org=firma)["id"], reply="declined", rejection_reason="nemáme čas")
     m = outcome_metrics(db, [hid])
@@ -85,7 +85,8 @@ def test_refuted_and_mixed_need_status_and_validation(tmp_path):
     cfg, db, hid, pid, org_id, rec, router, dh, ex, firma = _sent(tmp_path)
     record_outcome(cfg, db, outreach_id=_of(db, hid, org=firma)["id"], reply="not_relevant", problem_relevance="refuted")
     assert need_summary(db, hid, "customer")["stav"] == "refuted"
-    record_outcome(cfg, db, outreach_id=_of(db, hid, pid=pid)["id"], reply="relevant", problem_relevance="confirmed")
+    record_outcome(cfg, db, outreach_id=_of(db, hid, pid=pid)["id"], reply="relevant", problem_relevance="confirmed",
+                   willingness={"stage": "not_asked"})
     assert need_summary(db, hid, "customer") == {"stav": "mixed", "potvrdili": 1, "vyvrátili": 1}
     assert need_summary(db, hid, "data_holder")["stav"] == "hypothesis"  # iný typ adresáta sa nemieša
     with pytest.raises(OutcomeError):
