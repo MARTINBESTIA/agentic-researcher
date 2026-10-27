@@ -443,6 +443,7 @@ def test_every_action_runs_its_stages_in_model_order(tmp_path, monkeypatch):
         "themes": ["embed", "themes"],
         "catalog": ["catalog-sync"],
         "procurement": ["procurement-sync", "procurement-match"],  # M37: obstarávanie z TED
+        "mail": ["mail-sync", "mail-extract"],  # M41: pošta (Gmail, iba čítanie)
         "eval": ["eval-all"],
     }
     for kind, stages in expected.items():

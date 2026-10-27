@@ -117,6 +117,13 @@ ACTIONS: dict[str, Action] = {
         "hodnoty) a stav obstarávania organizácií podľa IČO kupujúceho. TED má iba zákazky nad limitmi EÚ.",
         "oznámenia TED, podobné zákazky k hypotézam (Problémy → Obstarávanie), stav obstarávania v Bráne 0",
         "embeddingy (CPU) + rýchly", 45),
+    "mail": Action(
+        "Pošta: odoslané a odpovede (Gmail)",
+        "Gmail cez IMAP, iba čítanie: rozpozná tvoje odoslané oslovenia (odoslané, follow-up), odpovede, automatické "
+        "odpovede a nedoručené – iba správy od a pre kontakty z oslovení. Odpovede rozoberie lokálny model ako NÁVRH "
+        "(problém, ochota platiť s doslovnou citáciou, termín, ďalší krok); potvrdzuješ ty (Oslovenia → Pošta). Telá "
+        "e-mailov sa neukladajú; nič sa neodosiela.",
+        "stavy oslovení, návrhy z odpovedí na potvrdenie", "rýchly (lokálne)", 15),
     "contacts": Action(
         "Doplniť kontakty k ľuďom (e-mail, telefón, LinkedIn)",
         "Pre vybraných ľudí bez osobného kontaktu vyhľadá stránky s ich menom na webe ich organizácie alebo úradných "
@@ -499,6 +506,11 @@ def _catalog(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("catalog-sync", deadline)
 
 
+def _mail(app, deadline: Deadline, run, ids, report_progress) -> None:
+    run("mail-sync", deadline.sub(min(3.0, deadline.remaining_minutes())))
+    run("mail-extract", deadline)
+
+
 def _procurement(app, deadline: Deadline, run, ids, report_progress) -> None:
     app.procurement_ids = ids
     run("procurement-sync", deadline.sub(deadline.remaining_minutes() * 0.3))
@@ -532,5 +544,5 @@ FLOWS: dict[str, Callable[..., None]] = {
     "org_cards": _org_cards,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval, "funnel": _funnel,
-    "procurement": _procurement,
+    "procurement": _procurement, "mail": _mail,
 }

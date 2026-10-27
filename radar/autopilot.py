@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 # potom spracovanie existujúcich hypotéz; nový zber (aj index katalógu) má vyhradený podiel kola
 # (workflows.autopilot_discovery_share).
 PRIORITY: list[tuple[str, int]] = [
-    ("gate1-input", 10), ("gate1", 60), ("cards", 30), ("gate2", 60), ("people", 60), ("contacts", 20), ("drafts", 30),
+    ("mail", 15), ("gate1-input", 10), ("gate1", 60), ("cards", 30), ("gate2", 60), ("people", 60), ("contacts", 20), ("drafts", 30),
     ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30),
 ]
 DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30), ("procurement", 30)]
@@ -94,6 +94,10 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     cat = db.catalog_stats()  # index katalógu raz za týždeň (nové datasety pribúdajú)
     if cfg.gate1.nkod_enabled and (not cat["datasety"] or (cat["aktualizované"] or "") < utc_days_ago(7)):
         work["catalog"] = f"index katalógu: {cat['datasety']} datasetov, aktualizovaný {(cat['aktualizované'] or 'nikdy')[:10]}"
+    if cfg.mail.enabled:  # odpovede z pošty čakajú na rozbor (kontrolu robí Plánovač úloh – mail --sync)
+        replies = db.mail_messages(status="new", kind="reply")
+        if replies:
+            work["mail"] = f"{len(replies)} odpovedí z pošty na rozbor"
     if cfg.procurement.enabled:  # TED raz za cadence_days; medzitým porovnanie nových hypotéz so zákazkami
         from .procurement import SYNC_KEY, scope_hypotheses
 

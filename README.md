@@ -251,6 +251,29 @@ Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.
 
+### Pošta: odoslané a odpovede bez ručného zapisovania (M41, Gmail)
+
+Systém sám nič neodosiela – posielaš ty zo svojho Gmailu. Kontrola pošty potom za teba zapíše:
+- **odoslané** (aj keď si návrh v systéme neschválil) a follow-up, keď tvoju správu nájde vo vlákne s kontaktom,
+- **odpovedal**, **nedoručené** (nedoručenka) a automatickú odpoveď (iba záznam, stav sa nemení),
+- z odpovede **návrh** výsledku: odpoveď, problém, ochota platiť (s doslovnou citáciou), termín, ďalší krok –
+  pripraví ho lokálny model (nikdy cloud), citácie overí kód; zapíše sa až po tvojom kliknutí **Potvrdiť a zapísať**
+  (Oslovenia → Pošta). Model sám ochotu platiť nikdy nezapíše.
+
+Čítajú sa iba správy od a pre e-mailové adresy z oslovení (ostatná pošta sa neotvorí), pri kontrole iba hlavičky;
+telá e-mailov sa neukladajú (v návrhu ostane iba maskovaná citácia).
+
+Nastavenie (raz):
+1. Google účet → zapni dvojstupňové overenie → vytvor **heslo aplikácie** (Bezpečnosť → Heslá aplikácií). Kedykoľvek
+   ho tam môžeš zrušiť. IMAP musí byť v Gmaile zapnutý (Nastavenia → Presmerovanie a POP/IMAP).
+2. Heslo ulož do používateľskej premennej prostredia (nikam inam – nie do configu ani databázy):
+   `[Environment]::SetEnvironmentVariable("RADAR_GMAIL_APP_PASSWORD", "<heslo aplikácie>", "User")`
+3. Do `config.local.yaml` (git ho ignoruje) pridaj `mail: {enabled: true, user: tvoja@gmail.com}`.
+4. Over: `python -m radar mail --check` (prihlásenie a počet správ s kontaktmi, bez čítania tiel).
+5. Kontrola pri prihlásení a každých 15 min: `powershell -ExecutionPolicy Bypass -File scripts\register_mail_task.ps1`
+   (spúšťa `python -m radar mail --sync`; odpovede na rozbor zaradí ako úlohu „Pošta“ do poradia, keď je GPU voľná).
+   Ručne: Správca akcií → „Pošta: odoslané a odpovede (Gmail)“ alebo tlačidlo v Oslovenia → Pošta.
+
 ## Stav hypotézy a postup k zákazníkovi
 
 Overený citát nie je overený trh. Stránka **Problémy → Osi a obchodný stav** ukazuje štyri samostatné osi –

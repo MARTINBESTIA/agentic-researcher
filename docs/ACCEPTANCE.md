@@ -316,3 +316,9 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M35 | rozhovor so zápisom ochoty platiť; forget nechá iba fakt o organizácii | `test_m35_commercial.py::test_interview_records_willingness_and_forget_keeps_only_the_org_fact` |
 | M35 | migrácia v17 bez vymýšľania súm | `test_m35_commercial.py::test_migration_v17_carries_old_payer_as_buyer_and_paid_flag_without_inventing_amount` |
 | M35 | Prehľad príležitosti: otázky na ochotu platiť a chýbajúca časť | `test_m35_commercial.py::test_brief_asks_willingness_questions_and_lists_it_as_missing` |
+| M41 | odoslané (aj neschválené), odpovede, automatické, nedoručené; nesúvisiaca pošta sa nezapíše, telá sa nečítajú | `test_m41_mail.py::test_sync_records_sent_replies_bounces_and_ignores_unrelated_mail` |
+| M41 | odpoveď → návrh s overenými citáciami, lokálny model, zápis až po potvrdení človekom | `test_m41_mail.py::test_reply_becomes_a_proposal_with_verified_quotes_and_human_applies_it` |
+| M41 | vymyslené citácie sa oslabia, návrh sa dá zahodiť | `test_m41_mail.py::test_invented_quotes_are_downgraded_and_proposal_can_be_dismissed` |
+| M41 | zlyhanie modelu: odpoveď čaká na ďalší beh; chýbajúca správa sa označí | `test_m41_mail.py::test_model_failure_keeps_the_reply_for_the_next_run_and_missing_message_is_marked` |
+| M41 | hlavičky, čistý text odpovede, bez hesla sa neprihlási | `test_m41_mail.py::test_headers_bodies_and_login_without_password` |
+| M41 | GUI Oslovenia → Pošta: návrhy na potvrdenie bez volania modelu | `test_m41_mail.py::test_outreach_page_shows_mail_proposals_without_model_calls` |

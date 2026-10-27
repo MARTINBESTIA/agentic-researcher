@@ -1,5 +1,8 @@
 # Skopíruj ako config.local.yaml (git ho ignoruje) a doplň: hodnoty prepíšu config.yaml.
 # Sem patria osobné údaje, ktoré nemajú byť v repozitári – najmä profil odosielateľa v pätičke oslovení.
+mail:                                           # pošta (M41): adresa Gmail schránky, z ktorej posielaš oslovenia
+  enabled: true
+  user: "{EMAIL_ODOSIELATELA}"                  # heslo aplikácie iba v premennej RADAR_GMAIL_APP_PASSWORD
 outreach:
   sender:
     name: "{MENO_PRIEZVISKO}"

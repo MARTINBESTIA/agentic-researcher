@@ -1046,6 +1046,25 @@ CREATE TABLE IF NOT EXISTS procurement_judgments (  -- posúdenie kandidáta mod
   PRIMARY KEY (hypothesis_id, procedure_key, query_hash)
 );
 """
+# ---------------------------------------------------------------- v19: pošta (M41)
+SCHEMA_V19 = """
+CREATE TABLE IF NOT EXISTS mail_messages (  -- správa z pošty spárovaná s oslovením (iba metadáta, bez tela e-mailu)
+  id INTEGER PRIMARY KEY,
+  message_id TEXT NOT NULL UNIQUE,            -- hlavička Message-ID
+  thread_id TEXT,                             -- vlákno Gmailu (X-GM-THRID)
+  outreach_id INTEGER REFERENCES outreach(id) ON DELETE CASCADE,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL,                    -- out | in
+  kind TEXT NOT NULL,                         -- sent | follow_up | reply | auto_reply | bounce
+  sent_at TEXT, subject TEXT,                 -- predmet maskovaný
+  status TEXT NOT NULL,                       -- recorded | new | extracted | applied | dismissed | failed
+  proposal_json TEXT,                         -- návrh z odpovede (lokálny model + kontrola citácií kódom)
+  outcome_id INTEGER REFERENCES outreach_outcomes(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mail_outreach ON mail_messages(outreach_id);
+"""
+
 V18_COLUMNS = {
     "procurement_notices": {"procedure_id": "TEXT"},  # oznámenia jednej zákazky (výzva, zmeny, výsledok) majú spoločný
     "procurement_matches": {"procedure_key": "TEXT", "verdict": "TEXT", "reason": "TEXT"},

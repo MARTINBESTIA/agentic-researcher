@@ -25,6 +25,59 @@ if missing:
     st.info("Schvaľovanie je zablokované, kým profil odosielateľa obsahuje placeholdery: " + ", ".join(missing),
             icon=":material/badge:")
 
+from radar.mail import REPLY_LABEL, SYNC_KEY as MAIL_SYNC_KEY, MailError, apply_proposal, dismiss, pending_proposals
+
+proposals = pending_proposals(d)
+with st.expander(f"Pošta – návrhy z odpovedí na potvrdenie ({len(proposals)})", expanded=bool(proposals),
+                 icon=":material/inbox:"):
+    mail_state = d.get_setting(MAIL_SYNC_KEY, {}) or {}
+    mstats = d.mail_stats()
+    if not c.mail.enabled:
+        st.info("Pošta je vypnutá. Zapni ju v config.local.yaml (mail: enabled: true, user: tvoja Gmail adresa) a heslo "
+                f"aplikácie Google ulož do premennej prostredia {c.mail.password_env}. README → Pošta.",
+                icon=":material/mail_lock:")
+    st.caption(f"Posledná kontrola: {(mail_state.get('kedy') or 'nikdy')[:16].replace('T', ' ')} · rozpoznané odoslané "
+               f"{mstats.get('sent', 0)}, follow-upy {mstats.get('follow_up', 0)}, odpovede {mstats.get('reply', 0)}, "
+               f"automatické odpovede {mstats.get('auto_reply', 0)}, nedoručené {mstats.get('bounce', 0)}. Čítajú sa iba "
+               "správy od a pre kontakty z oslovení; telá sa neukladajú. Návrh pripravil lokálny model – potvrdzuješ ty.")
+    from radar.gui.common import start_job_button
+
+    start_job_button("mail", "Skontrolovať poštu a rozobrať odpovede", 15, key="mail_go", icon=":material/sync:",
+                     disabled=not c.mail.enabled)
+    from radar.commercial import ASSESSMENTS as _WTP
+    from radar.outcomes import RELEVANCE as _REL
+
+    for pr in proposals:
+        p = pr["návrh"]
+        with st.container(border=True):
+            st.markdown(f"**{esc(pr['kontakt'])}** · {esc(pr['organizácia'] or '')} · H{pr['hypothesis_id']} · "
+                        f"{pr['kedy']} · {esc(pr['predmet'])}")
+            st.markdown(
+                f"- Odpoveď: **{REPLY_LABEL.get(p.get('reply'), p.get('reply'))}** · problém: "
+                f"**{_REL.get(p.get('problem_relevance') or '', 'nejasné')}**"
+                + (f" – „{esc(p['problem_quote'])}“" if p.get("problem_quote") else "")
+                + f"\n- Ochota platiť: **{_WTP.get(p.get('wtp_stage') or 'not_asked', p.get('wtp_stage'))}**"
+                + (f" – „{esc(p['wtp_quote'])}“" if p.get("wtp_quote") else "")
+                + (f" (podmienky: {esc(p['wtp_conditions'])})" if p.get("wtp_conditions") else "")
+                + (f"\n- Termín: {esc(p['meeting_text'] or p.get('meeting'))}" if p.get("meeting") not in (None, "none") else "")
+                + "".join(f"\n- {lbl}: {esc(p[k])}" for k, lbl in (("tool_used", "nástroj"), ("last_case", "posledný prípad"),
+                                                                    ("buying_process", "rozhodovanie o kúpe"),
+                                                                    ("next_action", "ďalší krok"),
+                                                                    ("redirect_role", "presmerovanie na")) if p.get(k)))
+            for check in p.get("kontroly") or []:
+                st.caption(f"⚠ kontrola kódom: {check}")
+            with st.container(horizontal=True):
+                if st.button("Potvrdiť a zapísať", key=f"mail_ok_{pr['id']}", icon=":material/check:", type="primary"):
+                    try:
+                        apply_proposal(c, d, pr["id"])
+                    except (MailError, OutcomeError) as exc:
+                        st.error(f"{exc} – uprav ho v zápise výsledku pri oslovení nižšie.")
+                    else:
+                        refresh()
+                if st.button("Zahodiť návrh", key=f"mail_no_{pr['id']}", icon=":material/close:"):
+                    dismiss(d, pr["id"])
+                    refresh()
+
 hid = pick_hypothesis(d, "out_h")
 if hid is None:
     st.stop()

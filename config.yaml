@@ -458,6 +458,17 @@ procurement:
   max_judgments_per_run: 400       # posúdení modelom na beh (zvyšok v ďalšom behu, výsledky sa ukladajú)
   ipv4_only: true                  # IPv6 spojenie s api.ted.europa.eu na tomto notebooku padá pri TLS
 
+# ---------------------------------------------------------------- pošta (M41, 27. 10. 2026)
+# Gmail cez IMAP, iba čítanie: rozpozná tvoje odoslané oslovenia (stav „odoslané“, follow-up), odpovede („odpovedal“),
+# nedoručené a automatické odpovede; obsah odpovede rozoberie lokálny model ako NÁVRH na potvrdenie (problém, ochota
+# platiť s doslovnou citáciou, termín, ďalší krok). Spracujú sa iba správy od a pre kontakty z oslovení; telá sa
+# neukladajú. Adresu schránky daj do config.local.yaml (mail: user: ...), heslo aplikácie Google do premennej
+# prostredia RADAR_GMAIL_APP_PASSWORD. Kontrola každých 15 min: scripts/register_mail_task.ps1.
+mail:
+  enabled: false
+  lookback_days: 45
+  max_extract_per_run: 30
+
 # ---------------------------------------------------------------- event logy organizácií (dodatok 16. 10. 2026)
 # Dáta organizácie sú v oddelenom DuckDB súbore (data/eventlogs/org_<id>.duckdb), nikdy spolu s verejným korpusom
 # a predvolene neopúšťajú počítač. Import nič nemaže potichu: problémové riadky sa označia a report kvality povie,

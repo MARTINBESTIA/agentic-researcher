@@ -131,6 +131,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "org_card_check": _route("reviewer"),
     "gap_answer": _route("accurate"),
     "procurement_match": _route("fast"),  # TED: rieši zákazka problém hypotézy? (kandidátov navrhujú embeddingy)
+    "mail_reply": _route("fast"),  # rozbor odpovede na oslovenie (iba lokálne – osobné údaje); potvrdzuje človek
 }
 
 
@@ -596,6 +597,25 @@ class ProcurementConfig(BaseModel):
     open_days_without_deadline: int = 60  # výzva bez lehoty v dátach sa berie ako otvorená toľko dní od zverejnenia
 
 
+class MailConfig(BaseModel):
+    """Pošta (M41, 27. 10. 2026): odoslané oslovenia a odpovede z Gmailu (IMAP, iba čítanie). Spracujú sa iba správy
+    od a pre kontakty z oslovení; telá e-mailov sa neukladajú (iba maskovaný úryvok ako dôkaz návrhu). Heslo aplikácie je
+    iba v premennej prostredia; adresa schránky v config.local.yaml (mimo gitu)."""
+
+    enabled: bool = False
+    imap_host: str = "imap.gmail.com"
+    imap_port: int = 993
+    user: str = ""                      # adresa schránky – patrí do config.local.yaml
+    password_env: str = "RADAR_GMAIL_APP_PASSWORD"  # heslo aplikácie Google (nie heslo účtu) – iba premenná prostredia
+    lookback_days: int = 45             # koľko dní dozadu hľadať odoslané a odpovede
+    poll_minutes: int = 15              # Plánovač úloh (scripts/register_mail_task.ps1)
+    batch_addresses: int = 15           # adries v jednom dopyte X-GM-RAW
+    max_extract_per_run: int = 30       # odpovedí na rozbor lokálnym modelom v jednej úlohe
+    max_body_chars: int = 3000          # text odpovede pre model (bez citovanej pôvodnej správy a podpisu)
+    ipv4_only: bool = True
+    timeout_seconds: float = 30.0
+
+
 class OrgCardsConfig(BaseModel):
     """Karty organizácií a ponuka z nich (zadanie 17. 10. 2026). Limity sú prevádzkové nastavenia, nie optimum."""
 
@@ -772,6 +792,7 @@ class Config(BaseModel):
     domain_research: DomainResearchConfig = Field(default_factory=DomainResearchConfig)
     org_cards: OrgCardsConfig = Field(default_factory=OrgCardsConfig)
     procurement: ProcurementConfig = Field(default_factory=ProcurementConfig)
+    mail: MailConfig = Field(default_factory=MailConfig)
     event_logs: EventLogConfig = Field(default_factory=EventLogConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     cloud: CloudConfig = Field(default_factory=CloudConfig)

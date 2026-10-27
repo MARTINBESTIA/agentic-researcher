@@ -214,6 +214,10 @@ extras = {
     "gate1-input": f"Tvoje vstupy na posúdenie: {len(d.pending_gate1_inputs())} (vkladáš ich na stránke Brána 1 → Tvoje dáta).",
     "catalog": "Index: {datasety} datasetov, aktualizovaný {kedy}.".format(
         datasety=d.catalog_stats()["datasety"], kedy=(d.catalog_stats()["aktualizované"] or "nikdy")[:10]),
+    "mail": ("Pošta vypnutá (config.local.yaml → mail)." if not c.mail.enabled else
+             "Posledná kontrola {k}; odpovede na rozbor {n}, návrhy na potvrdenie {p} (Oslovenia → Pošta).".format(
+                 k=((d.get_setting("mail_sync") or {}).get("kedy") or "nikdy")[:16].replace("T", " "),
+                 n=len(d.mail_messages(status="new", kind="reply")), p=len(d.mail_messages(status="extracted", kind="reply")))),
     "procurement": "Oznámenia TED: {n}, stiahnuté {kedy}; porovnané hypotézy {m}.".format(
         n=d.procurement_stats()["oznámenia"], kedy=((d.get_setting("procurement_sync") or {}).get("kedy") or "nikdy")[:10],
         m=len(d.procurement_matched_state())),
@@ -233,8 +237,8 @@ for col, kind in zip(cols, ("gate1", "gate1-input", "cards", "gate2")):
 
 st.subheader("Ďalšie akcie")
 cols = st.columns(3)
-for i, kind in enumerate(("contacts", "drafts", "org_cards", "evidence", "themes", "topics", "critique", "catalog",
-                          "procurement", "bench", "eval", "run-all")):
+for i, kind in enumerate(("mail", "contacts", "drafts", "org_cards", "evidence", "themes", "topics", "critique",
+                          "catalog", "procurement", "bench", "eval", "run-all")):
     with cols[i % 3]:
         action_card(kind, "am", extras.get(kind))
 

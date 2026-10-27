@@ -909,11 +909,13 @@ def approve(cfg: Config, db: DB, outreach_id: int, now: datetime | None = None) 
         db.update_person(row["person_id"], status="approved")
 
 
-def mark_sent(cfg: Config, db: DB, outreach_id: int, when: date | None = None) -> date:
-    """Človek označí ručne odoslanú správu; follow-up pripadne na 5. pracovný deň (R-OUT-9)."""
+def mark_sent(cfg: Config, db: DB, outreach_id: int, when: date | None = None, detected: bool = False) -> date:
+    """Človek označí ručne odoslanú správu; follow-up pripadne na 5. pracovný deň (R-OUT-9). detected=True: odoslanie
+    rozpoznané v pošte (M41) – zapíše sa aj pri neschválenom návrhu (človek ho už poslal; fakt sa nezamlčí)."""
     when = when or date.today()
     row = db.get_outreach(outreach_id)
-    if row["status"] not in ("approved", "sent"):
+    allowed = ("draft", "needs_edit", "approved", "sent") if detected else ("approved", "sent")
+    if row["status"] not in allowed:
         raise OutreachError("Odoslané môže byť iba schválené oslovenie.")
     due = add_business_days(when, cfg.outreach.follow_up_business_days[0], cfg.outreach.holidays)
     follow = due.isoformat() if row["follow_up_count"] < cfg.outreach.max_follow_ups else None

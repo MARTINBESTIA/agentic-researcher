@@ -112,6 +112,44 @@ def stage_procurement_match(app, deadline: Deadline) -> dict:
                             router=app.router)
 
 
+def _mail_client(app):
+    from .mail import GmailImap, password
+
+    return GmailImap(app.cfg.mail, password(app.cfg.mail))
+
+
+def stage_mail_sync(app, deadline: Deadline) -> dict:
+    """Pošta: odoslané oslovenia, odpovede, automatické odpovede a nedoručené z Gmailu (iba hlavičky, bez modelu)."""
+    import imaplib
+
+    from .mail import MailError, sync
+
+    if not app.cfg.mail.enabled:
+        return {"preskočené": "mail.enabled = false"}
+    try:
+        with _mail_client(app) as client:
+            return sync(app.cfg, app.db, client)
+    except (MailError, imaplib.IMAP4.error, OSError) as exc:
+        log.warning("Pošta: %s", exc)
+        return {"chyba": str(exc)[:200]}
+
+
+def stage_mail_extract(app, deadline: Deadline) -> dict:
+    """Pošta: rozbor nových odpovedí lokálnym modelom → návrhy na potvrdenie (Oslovenia → Pošta)."""
+    import imaplib
+
+    from .mail import MailError, extract
+
+    if not app.cfg.mail.enabled or not app.db.mail_messages(status="new", kind="reply", limit=1):
+        return {}
+    try:
+        with _mail_client(app) as client:
+            return extract(app.cfg, app.db, client, app.router, deadline)
+    except (MailError, imaplib.IMAP4.error, OSError) as exc:
+        log.warning("Pošta: %s", exc)
+        return {"chyba": str(exc)[:200]}
+
+
 def stage_contacts(app, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """E-mail a telefón ku konkrétnej osobe z webu jej organizácie alebo úradných domén (bez modelu)."""
     from .person_contacts import run_person_contacts
@@ -327,6 +365,8 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "themes": stage_themes,
     "catalog-sync": stage_catalog_sync,
     "procurement-sync": stage_procurement_sync,
+    "mail-sync": stage_mail_sync,
+    "mail-extract": stage_mail_extract,
     "procurement-match": stage_procurement_match,
     "eval-all": stage_eval_all,
     "gate1-fields": stage_gate1("fields"),
@@ -396,6 +436,10 @@ STAGE_HELP = {
     "embed": "Embeddingy pre nezaradené tvrdenia a hypotézy (CPU).",
     "themes": "Témy: zhluky podobných hypotéz podľa embeddingov (kód), názvy tém (rýchly model); hypotézy sa nezlučujú.",
     "catalog-sync": "Lokálny index Národného katalógu otvorených dát: metadáta všetkých datasetov a vektory (CPU).",
+    "mail-sync": "Pošta (Gmail, iba čítanie): odoslané oslovenia, odpovede, automatické odpovede a nedoručené – iba "
+                 "správy od a pre kontakty z oslovení, iba hlavičky.",
+    "mail-extract": "Pošta: rozbor nových odpovedí lokálnym modelom → návrhy na potvrdenie (problém, ochota platiť "
+                    "s citáciou, termín, ďalší krok).",
     "procurement-sync": "Obstarávanie z TED: nové a zmenené oznámenia slovenských kupujúcich (CPV z config.yaml; "
                         "bez osôb a kontaktov).",
     "procurement-match": "Obstarávanie z TED: kandidátske zákazky k hypotézam (embeddingy, CPU), posúdenie rýchlym "
@@ -643,6 +687,41 @@ def cmd_problem_brief(app, args) -> int:
     out = Path(args.out) if args.out else app.cfg.path(app.cfg.reports_dir) / "prehlady_problemov"
     paths = write_briefs(app.cfg, app.db, out, args.hypothesis or None, with_names=args.with_names)
     print(f"Prehľady: {len(paths) - 1} problémov + INDEX.md v {out}")
+    return 0
+
+
+def cmd_mail(app, args) -> int:
+    """Pošta: --check (prihlásenie a počet správ s kontaktmi, bez tiel), --sync (kontrola pre Plánovač úloh; odpovede na
+    rozbor zaradí ako úlohu „mail“), inak stav."""
+    from .jobs import start_job
+    from .mail import SYNC_KEY, GmailImap, MailError, password
+    from .util import Deadline as _Deadline
+
+    mc = app.cfg.mail
+    if args.check:
+        try:
+            with GmailImap(mc, password(mc)) as client:
+                addrs = sorted({r["contact_value"].lower() for r in app.db.outreach_list()
+                                if r["contact_kind"] == "email" and r["contact_value"]})
+                n = len(client.search(addrs, mc.lookback_days)) if addrs else 0
+                print(f"Prihlásenie OK · schránka {client.all_mail()} · správ s kontaktmi z oslovení za "
+                      f"{mc.lookback_days} dní: {n} (telá sa nečítali)")
+            return 0
+        except MailError as exc:
+            print(f"Pošta: {exc}")
+            return 1
+    if args.sync:
+        print(json.dumps(stage_mail_sync(app, _Deadline(5)), ensure_ascii=False))
+        pending = app.db.mail_messages(status="new", kind="reply", limit=1)
+        busy = any(j["kind"] == "mail" for j in list(app.db.active_jobs()) + list(app.db.queued_jobs()))
+        if pending and not busy:
+            job = start_job(app.cfg, app.db, Path(app.cfg.config_dir) / "config.yaml", "mail", 15, mode="queue")
+            print(f"Odpovede na rozbor: úloha #{job}")
+        return 0
+    stats, state = app.db.mail_stats(), app.db.get_setting(SYNC_KEY, {}) or {}
+    print(f"Pošta: {'zapnutá' if mc.enabled else 'vypnutá (mail.enabled)'} · posledná kontrola "
+          f"{(state.get('kedy') or 'nikdy')[:16]} · odoslané {stats.get('sent', 0)}, odpovede {stats.get('reply', 0)}, "
+          f"na potvrdenie {stats.get('stav:extracted', 0)}, nedoručené {stats.get('bounce', 0)}")
     return 0
 
 
@@ -927,6 +1006,10 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--out", default=None, help="priečinok (predvolene reports/prehlady_problemov)")
     p.add_argument("--with-names", action="store_true", help="s menami osôb (iba na tvoje vlastné použitie)")
 
+    p = sub.add_parser("mail", help="Pošta (Gmail, iba čítanie): stav, --check prihlásenia, --sync pre Plánovač úloh.")
+    p.add_argument("--check", action="store_true", help="over prihlásenie a počet správ s kontaktmi (bez tiel)")
+    p.add_argument("--sync", action="store_true", help="skontroluj poštu; odpovede na rozbor zaraď ako úlohu „mail“")
+
     p = sub.add_parser("procurement", help="Obstarávanie z TED: stav alebo signály dopytu k hypotéze (bez modelu).")
     p.add_argument("--hypothesis", type=int, action="append", help="signály dopytu k týmto hypotézam")
 
@@ -1016,6 +1099,7 @@ HANDLERS = {
     "org-cards": cmd_org_cards,
     "problem-brief": cmd_problem_brief,
     "procurement": cmd_procurement,
+    "mail": cmd_mail,
     "gui": cmd_gui,
     "eval": cmd_eval,
     "forget": cmd_forget,

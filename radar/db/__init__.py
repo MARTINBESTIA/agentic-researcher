@@ -11,6 +11,7 @@
 - eventlogs.py: žiadosti o event log, importy (udalosti sú v DuckDB organizácie), procesné reporty,
 - procurement.py: oznámenia TED a ich podobnosť s hypotézami (M37),
 - commercial.py: obchodné dôkazy – platiteľ, rozpočet, záujem o kúpu, platba (M35),
+- mail.py: metadáta správ z pošty spárovaných s osloveniami a návrhy z odpovedí (M41),
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
 """
 
@@ -21,6 +22,7 @@ from pathlib import Path
 
 from .commercial import CommercialMixin
 from .domain import DomainMixin
+from .mail import MailMixin
 from .dossier import DossierMixin
 from .eventlogs import EventLogMixin
 from .evidence import ACTIVE_STATUSES, ASSIGNABLE_STATUSES, EXTRACTABLE_KINDS, HYPOTHESIS_STATUSES, EvidenceMixin
@@ -46,7 +48,7 @@ SCHEMA_VERSION = LATEST
 
 
 class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin,
-         OpportunityMixin, ProcurementMixin, CommercialMixin):
+         OpportunityMixin, ProcurementMixin, CommercialMixin, MailMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
