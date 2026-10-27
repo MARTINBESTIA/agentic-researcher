@@ -1,4 +1,4 @@
-# Zaregistruje kontrolu pošty (M41) v Plánovači úloh pod tvojím používateľom: pri prihlásení a potom každých N minút.
+﻿# Zaregistruje kontrolu pošty (M41) v Plánovači úloh pod tvojím používateľom: pri prihlásení a potom každých N minút.
 # Spúšťa „python -m radar mail --sync“ bez okna: iba hlavičky správ od a pre kontakty z oslovení, bez modelu; odpovede
 # na rozbor zaradí ako úlohu „mail“ do poradia Správcu akcií. Heslo aplikácie musí byť v premennej prostredia
 # RADAR_GMAIL_APP_PASSWORD (používateľská) a adresa schránky v config.local.yaml (mail: enabled: true, user: ...).
