@@ -354,7 +354,7 @@ people:
   max_org_contacts_per_kind: 5
   # Organizácie podľa segmentu (M42): po dopytoch z filtra segmentu ten istý dopyt po mestách – najprv kraj
   # hypotézy, potom ostatné okresné mestá; najviac toľko dopytov na hypotézu a beh (opakovanie po contact_research_days).
-  segment_queries_per_run: 5
+  segment_queries_per_run: 10
   segment_expand_places: true
   registry_delay_s: 1.0            # pauza medzi volaniami RPO a RÚZ
   registry_cache_days: 30
