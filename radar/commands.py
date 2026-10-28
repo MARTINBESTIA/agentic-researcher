@@ -745,6 +745,46 @@ def cmd_procurement(app, args) -> int:
     return 0
 
 
+def cmd_commercial_yield(app, args) -> int:
+    """Zdroj → obchodný výsledok (M36): výskumný a obchodný lievik podľa stratégie a kategórie zdroja (bez modelu)."""
+    from .commercial_yield import COLUMNS, commercial_yield, yield_markdown
+
+    report = commercial_yield(app.cfg, app.db)
+    if args.out:
+        Path(args.out).write_text(yield_markdown(report), encoding="utf-8")
+        print(f"Uložené: {args.out}")
+    rows = report["kategórie"] if args.categories else report["stratégie"]
+    for r in [*rows, report["spolu"]]:
+        parts = [f"{k} {r[k]}" for k in COLUMNS if r[k]]
+        print(f"{r['zdroj']}: " + (", ".join(parts) or "–"))
+    print(report["bandit"]["text"])
+    return 0
+
+
+def cmd_benchmark(app, args) -> int:
+    """Benchmark v reálnom svete (M40): kohorty systém a ručne z TED, porovnanie obchodných stavov (bez modelu)."""
+    from .benchmark import COHORTS, BenchmarkError, add_member, cohort_report, set_prep_minutes
+
+    try:
+        for hid in args.add_system or []:
+            add_member(app.db, hid, "system", note="pridané príkazom")
+            print(f"H{hid} pridaná do kohorty {COHORTS['system']}.")
+        if args.prep:
+            set_prep_minutes(app.db, args.prep[0], args.prep[1])
+            print(f"H{int(args.prep[0])}: čas prípravy {args.prep[1]:g} min.")
+    except BenchmarkError as exc:
+        print(f"Chyba: {exc}")
+        return 1
+    report = cohort_report(app.db)
+    for r in report["kohorty"]:
+        print(f"{r['kohorta']}: problémy {r['problémy']}, odoslané {r['odoslané správy']}, odpovede {r['odpovede']}, "
+              f"rozhovory {r['rozhovory']}, potvrdený problém {r['potvrdený problém']}, platiteľ {r['platiteľ']}, "
+              f"rozpočet {r['rozpočet']}, záujem o kúpu {r['záujem o kúpu']}, zaplatené {r['zaplatené']}, "
+              f"príprava {r['príprava (min, medián)'] if r['príprava (min, medián)'] is not None else '–'} min")
+    print(f"Verdikt: {report['verdikt']}")
+    return 0
+
+
 def cmd_process_report(app, args) -> int:
     """Procesný report z importu event logu (deterministicky); s --review aj posúdenie formulácií hodnotiteľom."""
     from .event_logs import EventLogError
@@ -1013,6 +1053,14 @@ def add_parsers(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("procurement", help="Obstarávanie z TED: stav alebo signály dopytu k hypotéze (bez modelu).")
     p.add_argument("--hypothesis", type=int, action="append", help="signály dopytu k týmto hypotézam")
 
+    p = sub.add_parser("commercial-yield", help="Zdroj → obchodný výsledok: výskumný a obchodný lievik podľa zdroja (M36).")
+    p.add_argument("--categories", action="store_true", help="po kategóriách zdroja (inak po stratégiách)")
+    p.add_argument("--out", help="uložiť Markdown do súboru")
+
+    p = sub.add_parser("benchmark", help="Benchmark v reálnom svete: kohorta systému vs. ručne z TED (M40).")
+    p.add_argument("--add-system", type=int, action="append", help="pridať hypotézu do kohorty systému")
+    p.add_argument("--prep", nargs=2, type=float, metavar=("HYPOTÉZA", "MINÚTY"), help="čas prípravy problému")
+
     p = sub.add_parser("process-report", help="Procesný report z importu event logu (iba podporované metriky).")
     p.add_argument("--import", dest="import_id", type=int, required=True)
     p.add_argument("--review", action="store_true", help="posúdiť formulácie hodnotiteľom (model; iba agregáty)")
@@ -1099,6 +1147,8 @@ HANDLERS = {
     "org-cards": cmd_org_cards,
     "problem-brief": cmd_problem_brief,
     "procurement": cmd_procurement,
+    "commercial-yield": cmd_commercial_yield,
+    "benchmark": cmd_benchmark,
     "mail": cmd_mail,
     "gui": cmd_gui,
     "eval": cmd_eval,

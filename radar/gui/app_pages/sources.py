@@ -1,5 +1,6 @@
 import streamlit as st
 
+from radar.commercial_yield import commercial_yield
 from radar.discover import MATRIX_ARM, load_sources
 from radar.gui.common import cfg, db, safe_url
 from radar.util import domain_of
@@ -37,6 +38,17 @@ st.dataframe([{
     column_config={"úspešnosť (bandit)": st.column_config.ProgressColumn(min_value=0, max_value=1, format="%.2f")})
 st.caption("Dokumenty = stiahnuté z objavovania; relevantné = prešli posúdením začiatku (screen); overené tvrdenia = citáty "
            "overené kódom a modelom. Kategórie bez dokumentov ešte nedostali rozpočet alebo sú nové.")
+
+st.subheader("Zdroj → obchodný výsledok")
+cy = commercial_yield(c, d)
+st.caption("Vedľa výskumnej výťažnosti (dokumenty → overené tvrdenia) obchodný lievik hypotéz z daného zdroja: test → "
+           "Brána 0 → oslovené → odpovede → rozhovory → potvrdený problém → ochota platiť. Počty sú hypotézy, ktoré "
+           "krok dosiahli („odoslané správy“ sú správy). Pôvod hypotézy = dokument jej najstaršieho tvrdenia; riadok TED "
+           "(zhodná zákazka) sa ráta navyše. Objavovanie sa zatiaľ učí iba z výskumnej výťažnosti.")
+cy_view = st.segmented_control("Pohľad", ["stratégie", "kategórie"], default="stratégie", key="cy_view")
+st.dataframe([*cy["kategórie" if cy_view == "kategórie" else "stratégie"], cy["spolu"]], hide_index=True,
+             alt="Výskumný a obchodný lievik podľa zdroja hypotéz")
+st.info(cy["bandit"]["text"], icon=":material/casino:")
 
 st.subheader("Zdroje")
 per_domain: dict[str, tuple[int, int]] = {}

@@ -1065,6 +1065,18 @@ CREATE TABLE IF NOT EXISTS mail_messages (  -- správa z pošty spárovaná s os
 CREATE INDEX IF NOT EXISTS idx_mail_outreach ON mail_messages(outreach_id);
 """
 
+SCHEMA_V21 = """
+CREATE TABLE IF NOT EXISTS benchmark_members (  -- kohorty benchmarku v reálnom svete (M40): systém vs. ručne z TED
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL UNIQUE REFERENCES hypotheses(id) ON DELETE CASCADE,
+  cohort TEXT NOT NULL,                       -- system | manual
+  source_url TEXT,                            -- ručná kohorta: oznámenie o obstarávaní, z ktorého problém vznikol
+  note TEXT,
+  prep_minutes REAL,                          -- čas prípravy zadaný človekom (výber problému, kontakty, správy)
+  added_at TEXT NOT NULL
+);
+"""
+
 V20_COLUMNS = {
     "org_hypotheses": {"people_version": "INTEGER NOT NULL DEFAULT 0"},  # verzia pravidiel zberu ľudí (M42)
 }

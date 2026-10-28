@@ -13,7 +13,8 @@ if hid is None:
     st.stop()
 h = d.get_hypothesis(hid)
 
-tab_who, tab_value, tab_metrics = st.tabs(["Koho osloviť", "Doména a prínos", "Metriky a rozhodnutie"])
+tab_who, tab_value, tab_metrics, tab_bench = st.tabs(["Koho osloviť", "Doména a prínos", "Metriky a rozhodnutie",
+                                                        "Benchmark: systém vs. ručne"])
 
 with tab_who:
     if not c.privacy.lia_completed:
@@ -369,3 +370,79 @@ with tab_metrics:
     rows_d = [{"dátum": r["created_at"][:10], "rozhodnutie": r["decision"], "odôvodnenie": r["rationale"],
                "verdikt v tom čase": json_or(r["metrics_json"], {}).get("verdict_proposal")} for r in d.decisions_for(hid)]
     st.dataframe(rows_d, hide_index=True, alt="Doterajšie rozhodnutia k hypotéze")
+
+with tab_bench:
+    from radar.benchmark import (COHORTS, TARGET_INTERVIEWS, TARGET_SENT, BenchmarkError, add_manual_problem, add_member,
+                                 cohort_report, record_manual_outreach, set_prep_minutes)
+
+    rep = cohort_report(d)
+    st.caption("Kohorta systému: najviac 10 príležitostí zo systému (celý reťazec v Prehľade príležitosti). Kontrolná "
+               "kohorta: najviac 10 problémov, ktoré vyberieš sám z čerstvých oznámení o obstarávaní (TED) bez agentov – "
+               "problém, kontakty aj správu pripravíš ručne. Ak systém ručnú kohortu neprekoná v obchodných stavoch, "
+               "ďalší míľnik o lepšom uvažovaní modelov sa nerobí.")
+    with st.container(horizontal=True):
+        st.metric("Odoslané oslovenia", f"{rep['odoslané']} / {TARGET_SENT}", border=True)
+        st.metric("Rozhovory", f"{rep['rozhovory']} / {TARGET_INTERVIEWS}", border=True)
+    st.info(f"Verdikt: {rep['verdikt']}", icon=":material/balance:")
+    st.dataframe(rep["kohorty"], hide_index=True, alt="Porovnanie kohort benchmarku")
+    st.caption("Porovnáva sa v poradí: " + ", ".join(rep["porovnanie"]) + " (počty organizácií). Čas prípravy zadávaš ty.")
+    if rep["členovia"]:
+        st.dataframe(rep["členovia"], hide_index=True, alt="Problémy v kohortách benchmarku",
+                     column_config={"zdroj": st.column_config.LinkColumn("Zdroj")})
+    col_this, col_new = st.columns(2)
+    with col_this:
+        st.markdown(f"**Táto hypotéza (H{hid})**")
+        member = d.benchmark_member(hid)
+        if member is None:
+            if h["origin"] == "manual":
+                st.caption("Ručne zadaný problém sa pridáva formulárom vpravo.")
+            elif st.button("Pridať do kohorty systému", key="bm_add_sys", icon=":material/add:"):
+                try:
+                    add_member(d, hid, "system")
+                    refresh()
+                except BenchmarkError as exc:
+                    st.error(str(exc))
+        else:
+            st.caption(f"Kohorta: {COHORTS[member['cohort']]}")
+            with st.form("bm_prep"):
+                minutes = st.number_input("Čas prípravy spolu (minúty)", min_value=0.0, step=5.0,
+                                          value=float(member["prep_minutes"] or 0))
+                if st.form_submit_button("Uložiť čas prípravy"):
+                    set_prep_minutes(d, hid, minutes)
+                    refresh()
+        options = {}
+        for link in d.links_for_hypothesis(hid):
+            for cp in d.contacts_for_person(link["person_id"]):
+                if cp["kind"] == "email":
+                    options[cp["id"]] = f"{link['full_name']} – {cp['value']}"
+        for org in d.orgs_for_hypothesis(hid):
+            for cp in d.org_contacts(org["id"]):
+                if cp["kind"] == "email":
+                    options[cp["id"]] = f"{org['name']} (organizácia) – {cp['value']}"
+        with st.form("bm_manual_out", clear_on_submit=True):
+            st.markdown("**Zapísať ručne napísané oslovenie**")
+            st.caption("Správu píšeš a posielaš sám; záznam slúži na spárovanie pošty a metriky. Text sa neukladá, "
+                       "stačí predmet.")
+            cp_id = st.selectbox("Kontakt", list(options), format_func=options.get, index=None,
+                                 placeholder="vyber e-mail" if options else "k hypotéze zatiaľ nie je e-mail")
+            subject = st.text_input("Predmet")
+            if st.form_submit_button("Zapísať oslovenie", disabled=not options):
+                try:
+                    record_manual_outreach(c, d, hid, cp_id or 0, subject)
+                    st.success("Zapísané – po odoslaní ho pošta označí ako odoslané (alebo v Osloveniach ručne).")
+                except BenchmarkError as exc:
+                    st.error(str(exc))
+    with col_new:
+        with st.form("bm_manual", clear_on_submit=True):
+            st.markdown("**Nový ručný problém z oznámenia o obstarávaní**")
+            m_title = st.text_input("Problém jednou vetou")
+            m_segment = st.text_input("Segment (kto ho má)")
+            m_desc = st.text_area("Popis a prečo si myslíš, že zaň zaplatia", height=90)
+            m_url = st.text_input("Odkaz na oznámenie (TED)")
+            m_note = st.text_input("Poznámka")
+            if st.form_submit_button("Pridať do ručnej kohorty"):
+                try:
+                    new_id = add_manual_problem(d, m_title, m_segment, m_desc, m_url, m_note)
+                    st.success(f"Pridaná H{new_id}. Kontakty pridaj v karte Koho osloviť (Pridať kontakt zo stránky).")
+                except BenchmarkError as exc:
+                    st.error(str(exc))

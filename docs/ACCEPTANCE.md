@@ -328,3 +328,10 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M42 | neznáma veľkosť = malá iba v segmente mikro a malých organizácií | `test_m42_people_fix.py::test_unknown_size_counts_as_small_only_in_small_segment` |
 | M42 | organizácie zo starších pravidiel sa zozbierajú znova raz | `test_m42_people_fix.py::test_orgs_from_older_rules_are_collected_again_once` |
 | M42 | dopyty podľa segmentu pokračujú mestami kraja, vyskúšané sa pamätajú | `test_m42_people_fix.py::test_segment_queries_continue_by_towns_of_the_region_and_remember_tried` |
+| M36 | výskumný a obchodný lievik po stratégiách; pôvod = najstaršie tvrdenie; podklady Brány 1 sa nerátajú | `test_m36_m40_business.py::test_two_funnels_by_strategy_origin_is_the_oldest_claim` |
+| M36 | bandit sa nemení pred 30 osloveniami v 3 kategóriách; TED navyše, nie do súčtu | `test_m36_m40_business.py::test_bandit_rule_needs_30_sent_in_3_categories_and_ted_counts_extra` |
+| M36 | priradenie stratégie a kategórie | `test_m36_m40_business.py::test_source_mapping` |
+| M40 | kohorty po 10, ručný problém z oznámenia TED, pôvod podľa kohorty | `test_m36_m40_business.py::test_cohorts_limits_and_manual_problem_from_ted` |
+| M40 | ručne napísané oslovenie ako záznam pre poštu; zoznam potlačenia | `test_m36_m40_business.py::test_manual_outreach_is_recorded_for_mail_matching_and_respects_suppression` |
+| M40 | porovnanie obchodných stavov so zložkami, verdikt až po 20 osloveniach a 5 rozhovoroch | `test_m36_m40_business.py::test_report_compares_commercial_states_only_after_targets` |
+| M36, M40 | GUI: Brána 0 → Benchmark a Zdroje → obchodný výsledok | `test_m36_m40_business.py::test_gate0_benchmark_tab_and_sources_yield_render` |

@@ -146,7 +146,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
 - ~~**2026-10-26 – TED – kalibrácia prahu podobnosti.**~~ **Hotové 26. 10. 2026** (podobnosť nestačila – kandidátov posudzuje rýchly model; zákazka = postup; DECISIONS). Ostáva: po prvom plnom behu prezrieť posúdenia 10 hypotéz a zmerať presnosť (správne / nesprávne). `procurement.match_threshold` 0,5 je predbežný; po prvom behu akcie `procurement` (beží sama, CPU voľné) prezrieť zhody 10 hypotéz (správne / nesprávne) a nastaviť prah, príp. pridať kontrolu kľúčových slov predmetu. · 0,5 dňa.
 - **2026-10-26 – TED – kupujúci ako organizácie hypotézy.** Opakovaní kupujúci podobných zákaziek sú kandidáti na zákazníka; tlačidlo „pridať kupujúceho k hypotéze“ (organizácia podľa IČO, bez automatického zberu ľudí). · 0,5 dňa.
 - **2026-10-26 – obstarávanie pod limitmi EÚ.** TED nemá podlimitné zákazky; ÚVO vestník zakazuje sťahovanie (robots.txt), EKS overiť API alebo otvorené dáta, CRZ (`crz.py`) využiť aj ako signál uzavretých zmlúv k hypotéze. · 1–2 dni.
-- **2026-10-26 – audit (komerčné objavovanie) – M36: zdroj → obchodný výsledok (zatiaľ iba správa).** Objavovanie
+- ~~**2026-10-26 – audit (komerčné objavovanie) – M36: zdroj → obchodný výsledok (zatiaľ iba správa).**~~ **Hotové 28. 10. 2026** (`commercial_yield.py`). Objavovanie
   (Thompson sampling v `discover.py`) odmeňuje dokument s overeným tvrdením – výskumnú výťažnosť, nie obchodnú. Pre
   každú kategóriu a stratégiu (scout, matica dopytov, katalóg, TED, ručne) dva lieviky vedľa seba: výskumný
   (dokumenty → overené tvrdenia) a obchodný (hypotézy → prešli testom → Brána 0 → oslovení → odpovede → rozhovory →
@@ -168,7 +168,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   výskumné úlohy. Nový stav `no_defensible_gap`: kód ho **navrhne**, keď každá alternatíva pokrýva proces a chýba
   dôkaz nevyriešenej časti; **potvrdzuje človek** (súhlas používateľa 26. 10. 2026); lievik a autopilot potom
   hypotézu vynechajú. · 2 dni.
-- **2026-10-26 – audit – M40: benchmark v reálnom svete.** Kohorta 10 príležitostí zo systému (celý reťazec
+- ~~**2026-10-26 – audit – M40: benchmark v reálnom svete.**~~ **Kód hotový 28. 10. 2026** (`benchmark.py`; ostávajú oslovenia). Kohorta 10 príležitostí zo systému (celý reťazec
   v Prehľade príležitosti) a kontrolná kohorta 10 problémov vybraných ručne z čerstvých oznámení o obstarávaní (TED,
   M37) bez agentov. Ciele: ≥ 20 oslovení a ≥ 5 rozhovorov (odosiela používateľ ručne; 26. 10. „neviem či stihnem 20,
   ale nejaké písať budem“), stavy z M35. Kód: označenie kohort a porovnávacia správa (obchodné stavy, čas na

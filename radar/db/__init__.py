@@ -12,6 +12,7 @@
 - procurement.py: oznámenia TED a ich podobnosť s hypotézami (M37),
 - commercial.py: obchodné dôkazy – platiteľ, rozpočet, záujem o kúpu, platba (M35),
 - mail.py: metadáta správ z pošty spárovaných s osloveniami a návrhy z odpovedí (M41),
+- business.py: pôvod hypotéz a lieviky podľa zdroja (M36), kohorty benchmarku (M40),
 - schema.py a migrations.py: schéma po verziách a migrácie cez PRAGMA user_version.
 """
 
@@ -20,6 +21,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from .business import BusinessMixin
 from .commercial import CommercialMixin
 from .domain import DomainMixin
 from .mail import MailMixin
@@ -48,7 +50,7 @@ SCHEMA_VERSION = LATEST
 
 
 class DB(EvidenceMixin, Gate0Mixin, GatesMixin, OpsMixin, ThemesMixin, DossierMixin, ValueMixin, DomainMixin, EventLogMixin,
-         OpportunityMixin, ProcurementMixin, CommercialMixin, MailMixin):
+         OpportunityMixin, ProcurementMixin, CommercialMixin, MailMixin, BusinessMixin):
     def __init__(self, path: str | Path, migrate_schema: bool = True):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)

@@ -239,6 +239,16 @@ na webe organizácie v bloku osoby, z výsledku vyhľadávania (celé meno v tit
 alebo zadaná ručne v GUI. Stránka LinkedIn sa nikdy nesťahuje (zakazujú to podmienky); bezplatný
 účet má limit 200 znakov na poznámku a približne 5 personalizovaných pozvánok mesačne.
 
+### Benchmark: systém vs. ručne (M40)
+
+GUI → Brána 0 → **Benchmark: systém vs. ručne**. Do kohorty systému pridáš najviac 10 príležitostí („Pridať do
+kohorty systému“ pri vybranej hypotéze, alebo `python -m radar benchmark --add-system 3`). Kontrolnú kohortu tvorí
+najviac 10 problémov, ktoré vyberieš sám z čerstvých oznámení o obstarávaní (TED) bez agentov – formulár „Nový ručný
+problém“ (veta, segment, odkaz na oznámenie); kontakty pridáš v karte Koho osloviť a ručne napísanú správu zapíšeš
+formulárom „Zapísať ručne napísané oslovenie“ (iba predmet a kontakt – pošta ju potom spáruje). Čas prípravy zadávaš
+v minútach. Verdikt sa ukáže až po 20 odoslaných osloveniach a 5 rozhovoroch; ak systém ručnú kohortu v obchodných
+stavoch neprekoná, ďalšie vylepšovanie modelov a agentov sa nerobí.
+
 ### Nočný beh
 
 `run_nightly.bat` (alebo `scripts\run_weekly.ps1 -Minutes 480`) spustí Docker a SearXNG, skontroluje
@@ -467,6 +477,10 @@ Medzi kategórie sa delí Thompson samplingom (úspech = dokument s overeným tv
 katalógu sa použije až po potvrdení (`sources --check`, potom `verified: true`); od 12. 10. 2026 je povolených
 146 overených zdrojov (úrady, inšpekcie, analytické útvary, zväzy, komory, kraje, odborné médiá, EÚ), 69 cez RSS.
 Zoznam a výťažnosť (dokumenty a overené tvrdenia podľa kategórie a zdroja) sú v GUI na stránke **Zdroje**.
+**Zdroj → obchodný výsledok (M36):** tam aj v `python -m radar commercial-yield [--categories] [--out subor.md]` je vedľa
+výskumného lievika obchodný – koľko hypotéz z daného zdroja prešlo testom, Bránou 0, oslovením, odpoveďou, rozhovorom,
+potvrdením problému a stupňami ochoty platiť. Objavovanie sa učí ďalej iba z výskumnej výťažnosti, kým nie je aspoň
+30 odoslaných oslovení v 3 kategóriách.
 Nový problém je najprv „candidate“; hypotézou sa stane až s 2 overenými tvrdeniami z 2 domén.
 Regulačné povinnosti s termínom a signály dopytu (PTK, výzvy) majú v správe vlastné sekcie.
 
