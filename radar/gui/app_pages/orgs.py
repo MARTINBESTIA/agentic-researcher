@@ -2,6 +2,7 @@ import json
 
 import streamlit as st
 
+from radar.contacts import org_email_ok
 from radar.gui.common import cfg, db, json_or, pick_hypothesis, refresh, safe_url
 from radar.registers import RPO_ATTRIBUTION
 
@@ -22,10 +23,15 @@ for o in orgs:
     fit = json_or(o["fit_json"], {})
     org_contacts = d.org_contacts(o["id"])
     company = next((ct["value"] for ct in org_contacts if ct["kind"] == "profile_url"), None)
+    form = next((ct["value"] for ct in org_contacts if ct["kind"] == "contact_form"), None)
     rows.append({
         "id": o["id"], "organizácia": o["name"], "IČO": o["ico"] or "", "zdroj zaradenia": RELATION.get(o["relation"], o["relation"]),
         "ľudia": selected.get(o["id"], 0),
-        "kontakt org.": next((ct["value"] for ct in org_contacts if ct["kind"] == "email"), ""),
+        # adresa, ktorá organizácii naozaj patrí (staršie záznamy mohli uložiť adresu partnera z tej istej stránky)
+        "kontakt org.": next((ct["value"] for ct in org_contacts if ct["kind"] == "email"
+                              and org_email_ok(o, ct["value"], c.people.official_domains)), ""),
+        "telefón org.": next((ct["value"] for ct in org_contacts if ct["kind"] == "phone"), ""),
+        "formulár": safe_url(form),
         "LinkedIn firmy": safe_url(company),
         "web": safe_url(o["website"]), "web overený": bool(o["website_verified"]), "overenie webu": o["website_evidence"] or "",
         "odvetvie (SK NACE)": o["sk_nace"] or "", "veľkosť": o["size_category"] or "", "kraj": o["region"] or "",
@@ -38,6 +44,7 @@ st.caption(f"{len(rows)} organizácií, pre ktoré môže byť problém dôleži
 edited = st.data_editor(
     rows, hide_index=True, key="org_editor", disabled=[k for k in (rows[0] if rows else {}) if k != "vylúčiť"],
     column_config={"web": st.column_config.LinkColumn("Web"), "vylúčiť": st.column_config.CheckboxColumn("Vylúčiť"),
+                   "formulár": st.column_config.LinkColumn("Formulár", help="kontaktný formulár – vypĺňaš iba ty, pošta ho nespáruje"),
                    "LinkedIn firmy": st.column_config.LinkColumn("LinkedIn firmy", display_text="stránka")},
     alt="Organizácie k hypotéze so zdrojom zaradenia a overením webu",
 )
