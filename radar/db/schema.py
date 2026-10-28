@@ -1065,6 +1065,10 @@ CREATE TABLE IF NOT EXISTS mail_messages (  -- správa z pošty spárovaná s os
 CREATE INDEX IF NOT EXISTS idx_mail_outreach ON mail_messages(outreach_id);
 """
 
+V20_COLUMNS = {
+    "org_hypotheses": {"people_version": "INTEGER NOT NULL DEFAULT 0"},  # verzia pravidiel zberu ľudí (M42)
+}
+
 V18_COLUMNS = {
     "procurement_notices": {"procedure_id": "TEXT"},  # oznámenia jednej zákazky (výzva, zmeny, výsledok) majú spoločný
     "procurement_matches": {"procedure_key": "TEXT", "verdict": "TEXT", "reason": "TEXT"},

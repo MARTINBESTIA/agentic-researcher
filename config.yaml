@@ -335,7 +335,7 @@ people:
   # Limity zvýšené 14. 10. 2026 (požiadavka: čo najviac relevantných kontaktov); predvolené v kóde 30/15/2/3.
   max_orgs_per_hypothesis: 50
   max_people_per_hypothesis: 30    # zákazníci (vlastníci problému); nevybraní kandidáti sa vymažú (minimalizácia)
-  max_people_per_org: 3
+  max_people_per_org: 3            # konateľ alebo majiteľ malej organizácie sa vyberie vždy, mimo tohto limitu (M42)
   max_experts_per_hypothesis: 6    # zväzy, výskum, watchdog – nepočítajú sa do metrík Brány 0
   max_data_holders_per_hypothesis: 5   # kto drží dáta k hypotéze (vzorka, schéma) – zvlášť od zákazníkov
   # Hľadanie kontaktov podľa hypotézy (krok contact-search): rýchly model navrhne ciele – zákazník, držiteľ dát,
@@ -349,6 +349,13 @@ people:
   # sú webom organizácie (kontrolór, watchdog, štatistický úrad).
   expert_org_domains: [nku.gov.sk, slovensko.digital, transparency.sk, statistics.sk, uvo.gov.sk, rpvs.gov.sk]
   max_contact_pages_per_org: 5
+  # Kontakty samotnej organizácie: generické (info@, podateľňa, ústredňa), adresa s názvom firmy alebo domény
+  # (firma@firma.sk) a kontaktný formulár (iba odkaz) – z každého druhu najviac toľko (M42).
+  max_org_contacts_per_kind: 5
+  # Organizácie podľa segmentu (M42): po dopytoch z filtra segmentu ten istý dopyt po mestách – najprv kraj
+  # hypotézy, potom ostatné okresné mestá; najviac toľko dopytov na hypotézu a beh (opakovanie po contact_research_days).
+  segment_queries_per_run: 5
+  segment_expand_places: true
   registry_delay_s: 1.0            # pauza medzi volaniami RPO a RÚZ
   registry_cache_days: 30
   check_mx: false

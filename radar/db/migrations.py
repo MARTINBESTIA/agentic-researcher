@@ -20,7 +20,7 @@ from typing import Callable
 from .schema import (
     SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8, SCHEMA_V9, SCHEMA_V10, SCHEMA_V11, SCHEMA_V12,
     SCHEMA_V13, SCHEMA_V13_OUTREACH, SCHEMA_V14, SCHEMA_V15, SCHEMA_V16, SCHEMA_V17, SCHEMA_V18, SCHEMA_V19, ESCO_FTS, V1_COLUMNS,
-    V15_COLUMNS, V17_COLUMNS, V18_COLUMNS,
+    V15_COLUMNS, V17_COLUMNS, V18_COLUMNS, V20_COLUMNS,
     V1_INDEXES, V2_COLUMNS, V3_COLUMNS, V4_COLUMNS, V5_COLUMNS, V6_COLUMNS, V8_COLUMNS, V10_COLUMNS, V12_COLUMNS,
 )
 
@@ -219,10 +219,17 @@ def migrate_v19(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_V19)
 
 
+def migrate_v20(conn: sqlite3.Connection) -> None:
+    """Zber ľudí (M42): verzia pravidiel zberu pri organizácii hypotézy. Doterajšie záznamy majú verziu 0, takže ďalší
+    beh zberu ich zozbiera znova (konateľ malej firmy, firemné kontakty, formulár)."""
+    _add_columns(conn, V20_COLUMNS)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [migrate_v1, migrate_v2, migrate_v3, migrate_v4, migrate_v5,
                                                           migrate_v6, migrate_v7, migrate_v8, migrate_v9, migrate_v10,
                                                           migrate_v11, migrate_v12, migrate_v13, migrate_v14, migrate_v15,
-                                                          migrate_v16, migrate_v17, migrate_v18, migrate_v19]
+                                                          migrate_v16, migrate_v17, migrate_v18, migrate_v19,
+                                                          migrate_v20]
 LATEST = len(MIGRATIONS)
 
 

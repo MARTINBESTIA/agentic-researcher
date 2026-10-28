@@ -322,3 +322,9 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M41 | zlyhanie modelu: odpoveď čaká na ďalší beh; chýbajúca správa sa označí | `test_m41_mail.py::test_model_failure_keeps_the_reply_for_the_next_run_and_missing_message_is_marked` |
 | M41 | hlavičky, čistý text odpovede, bez hesla sa neprihlási | `test_m41_mail.py::test_headers_bodies_and_login_without_password` |
 | M41 | GUI Oslovenia → Pošta: návrhy na potvrdenie bez volania modelu | `test_m41_mail.py::test_outreach_page_shows_mail_proposals_without_model_calls` |
+| M42 | firemná adresa (názov firmy alebo domény) a formulár k organizácii; generická adresa partnera a osobná nie | `test_m42_people_fix.py::test_firm_email_and_form_are_org_contacts_partner_and_personal_are_not` |
+| M42 | pravidlá adresy organizácie (doména, subdoména, názov firmy na inej doméne) | `test_m42_people_fix.py::test_org_email_rules` |
+| M42 | konateľ malej firmy vybraný vždy, mimo limitu na organizáciu; ostatní podľa limitu | `test_m42_people_fix.py::test_small_org_lead_is_kept_outside_per_org_limit` |
+| M42 | neznáma veľkosť = malá iba v segmente mikro a malých organizácií | `test_m42_people_fix.py::test_unknown_size_counts_as_small_only_in_small_segment` |
+| M42 | organizácie zo starších pravidiel sa zozbierajú znova raz | `test_m42_people_fix.py::test_orgs_from_older_rules_are_collected_again_once` |
+| M42 | dopyty podľa segmentu pokračujú mestami kraja, vyskúšané sa pamätajú | `test_m42_people_fix.py::test_segment_queries_continue_by_towns_of_the_region_and_remember_tried` |

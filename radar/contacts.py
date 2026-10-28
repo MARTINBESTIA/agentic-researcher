@@ -18,7 +18,7 @@ import lxml.html
 import phonenumbers
 from lxml import etree
 
-from .names import fold
+from .names import fold, org_name_key
 
 EMAIL_RE = re.compile(r"(?<![\w.+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,24}(?![\w-])")
 EMAIL_SYNTAX = re.compile(r"^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,24}$")
@@ -83,6 +83,7 @@ class PageContacts:
     generic_phones: set[str] = field(default_factory=set)  # telefóny s označením ústredňa, sekretariát…
     links: list[tuple[str, str]] = field(default_factory=list)  # (absolútna URL, text odkazu)
     profiles: dict[str, str] = field(default_factory=dict)  # URL LinkedIn -> úryvok (stránka sa nesťahuje)
+    has_form: bool = False  # kontaktný formulár (form s poľom na správu); vypĺňa ho iba človek ručne
 
 
 # ---------------------------------------------------------------- LinkedIn (iba URL, nikdy sa nesťahuje)
@@ -125,6 +126,24 @@ def is_generic_email(email: str) -> bool:
     local = email.split("@", 1)[0]
     local_key = re.sub(r"[^a-z]", "", local)
     return local in GENERIC_LOCAL or local_key in GENERIC_LOCAL or local.split(".")[0] in GENERIC_LOCAL
+
+
+def is_org_email(email: str, org_name: str | None = None, website: str | None = None) -> bool:
+    """Adresa samotnej organizácie (M42): generická schránka na jej doméne (info@, kontakt@…) alebo schránka
+    s názvom firmy či domény (firma@firma.sk, firmareality@gmail.com). Generická adresa inej domény patrí
+    inej organizácii (partner na tej istej stránke), nie tejto."""
+    local, _, domain = email.lower().partition("@")
+    site = urlparse(website or "").netloc.lower().removeprefix("www.")
+    if is_generic_email(email) and (not site or domain == site or domain.endswith("." + site)):
+        return True
+    keys = {site.split(".")[-2]} if "." in site else set()
+    if org_name:
+        words = org_name_key(org_name).split()
+        keys.add("".join(words))
+        keys.update(w for w in words if len(w) >= 5)
+    local_key = re.sub(r"[^a-z]", "", fold(local))
+    keys = {re.sub(r"[^a-z]", "", fold(k)) for k in keys}
+    return any(len(k) >= 4 and k in local_key for k in keys)
 
 
 def _inside_url(text: str, start: int) -> bool:
@@ -257,6 +276,7 @@ def extract_contacts(html: str, url: str) -> PageContacts:
         return page
     title_el = doc.find(".//title")
     page.title = _clean_text(title_el) if title_el is not None else ""
+    page.has_form = any(form.xpath(".//textarea") for form in doc.xpath("//form"))
     for a in doc.xpath("//a[@href]"):
         href = (a.get("href") or "").strip()
         if href and not href.lower().startswith(("mailto:", "tel:", "javascript:", "#")):

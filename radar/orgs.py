@@ -19,6 +19,7 @@ import csv
 import json
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
@@ -162,6 +163,61 @@ def is_excluded(cfg: Config, ico: str | None, website: str | None) -> bool:
 
 
 ICO_PATHS = ("/kontakt", "/o-nas", "/kontakty")  # keď úvodná stránka nemá odkaz na kontakt
+# Mestá na rozšírenie dopytov podľa segmentu (M42): krajské mesto prvé, potom ďalšie okresné mestá kraja.
+REGION_TOWNS = {
+    "Bratislavský kraj": ["Bratislava", "Pezinok", "Senec", "Malacky"],
+    "Trnavský kraj": ["Trnava", "Piešťany", "Dunajská Streda", "Galanta", "Hlohovec", "Senica", "Skalica"],
+    "Trenčiansky kraj": ["Trenčín", "Prievidza", "Považská Bystrica", "Nové Mesto nad Váhom", "Partizánske", "Púchov",
+                         "Bánovce nad Bebravou", "Myjava"],
+    "Nitriansky kraj": ["Nitra", "Nové Zámky", "Komárno", "Levice", "Topoľčany", "Šaľa", "Zlaté Moravce"],
+    "Žilinský kraj": ["Žilina", "Martin", "Liptovský Mikuláš", "Ružomberok", "Čadca", "Dolný Kubín", "Námestovo",
+                      "Kysucké Nové Mesto", "Bytča", "Tvrdošín", "Turčianske Teplice", "Liptovský Hrádok"],
+    "Banskobystrický kraj": ["Banská Bystrica", "Zvolen", "Lučenec", "Rimavská Sobota", "Brezno", "Žiar nad Hronom",
+                             "Banská Štiavnica", "Detva", "Revúca", "Veľký Krtíš"],
+    "Prešovský kraj": ["Prešov", "Poprad", "Humenné", "Bardejov", "Vranov nad Topľou", "Kežmarok", "Stará Ľubovňa",
+                       "Svidník", "Snina", "Levoča"],
+    "Košický kraj": ["Košice", "Michalovce", "Spišská Nová Ves", "Trebišov", "Rožňava", "Moldava nad Bodvou"],
+}
+# Slová, ktoré nie sú jadrom dopytu („realitná kancelária Žilina kontakt“ → „realitná kancelária“).
+QUERY_FILLER = {"kontakt", "kontakty", "web", "webstranka", "webova", "stranka", "email", "mail", "telefon", "tel", "kraj",
+                "kraji", "okres", "okrese", "mesto", "sk", "slovensko", "v", "na", "a"}
+
+
+def _place_tokens() -> set[str]:
+    out = set()
+    for region, towns in REGION_TOWNS.items():
+        for name in [region, *towns]:
+            out.update(t for t in re.findall(r"\w+", fold(name)) if len(t) >= 3 and t not in ("nad", "kraj"))
+    return out
+
+
+def query_core(query: str) -> str:
+    """Dopyt bez miesta a výplňových slov (kontakt, web, e-mail, telefón)."""
+    places = _place_tokens()
+    words = [w for w in re.findall(r"[\w-]+", query) if fold(w).replace("-", "") not in QUERY_FILLER
+             and fold(w) not in places]
+    return " ".join(words)
+
+
+def segment_query_plan(flt: "SegmentFilter", expand: bool = True) -> list[str]:
+    """Dopyty segmentu (M42): pôvodné z filtra, potom jadro dopytu s mestami – najprv kraj hypotézy, potom krajské
+    mestá a ostatné okresné mestá. Mesto, ktoré už je v pôvodnom dopyte, sa nezopakuje."""
+    base = [q.strip() for q in flt.search_queries[:5] if q.strip()]
+    if not expand:
+        return base
+    used = {t for q in base for t in re.findall(r"\w+", fold(q))}
+    region = next((r for r in REGION_TOWNS if flt.region and (fold(r) in fold(flt.region) or fold(flt.region) in fold(r))),
+                  None)
+    towns = list(REGION_TOWNS.get(region, []))
+    towns += [ts[0] for r, ts in REGION_TOWNS.items() if r != region]  # krajské mestá
+    towns += [t for r, ts in REGION_TOWNS.items() if r != region for t in ts[1:]]
+    cores = list(dict.fromkeys(c for c in (query_core(q) for q in base) if len(c) >= 4))
+    out = list(base)
+    for town in towns:
+        if all(t in used for t in re.findall(r"\w+", fold(town)) if len(t) >= 3):
+            continue
+        out += [f"{core} {town}" for core in cores]
+    return list(dict.fromkeys(out))
 
 
 def root_url(url: str) -> str:
@@ -511,7 +567,13 @@ class OrgFinder:
         flt = self.segment_filter(hyp)
         if flt is None:
             return
-        for q in flt.search_queries[:5]:
+        # Vyskúšané dopyty (M42): pôvodných 5 dopytov sa opakovalo pri každom behu a nové kancelárie nepribúdali
+        # (H3: 6 realitných kancelárií); ďalší beh pokračuje mestami, vyskúšaný dopyt sa zopakuje po contact_research_days.
+        key = f"segment_queries:{hyp['id']}"
+        tried: dict[str, str] = self.db.get_setting(key, {}) or {}
+        since = (datetime.now(timezone.utc) - timedelta(days=self.cfg.people.contact_research_days)).isoformat()
+        plan = [q for q in segment_query_plan(flt, self.cfg.people.segment_expand_places) if tried.get(q, "") < since]
+        for q in plan[: self.cfg.people.segment_queries_per_run]:
             if self.deadline.expired() or self._full(hyp["id"]):
                 return
             try:
@@ -519,6 +581,9 @@ class OrgFinder:
             except Exception as exc:  # noqa: BLE001
                 log.warning("Hľadanie organizácií '%s' zlyhalo: %s", q, exc)
                 continue
+            tried[q] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            self.db.set_setting(key, tried)
+            self.stats["segment_queries"] += 1
             for r in results:
                 if self.deadline.expired() or self._full(hyp["id"]):
                     return

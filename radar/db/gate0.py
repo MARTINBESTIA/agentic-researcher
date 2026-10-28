@@ -126,7 +126,7 @@ class Gate0Mixin:
     def set_org_hypothesis(self, org_id: int, hid: int, **fields: Any) -> None:
         allowed = {"status", "procurement_active", "procurement_note", "fit_json", "procurement_status",
                    "procurement_subject", "procurement_date", "procurement_url", "procurement_checked_at",
-                   "segment_fit_json", "relation"}
+                   "segment_fit_json", "relation", "people_version"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"Neznáme polia: {bad}")
@@ -144,7 +144,7 @@ class Gate0Mixin:
             f"""SELECT o.*, oh.relation, oh.evidence_claim_id, oh.evidence_url, oh.fit_json, oh.status AS oh_status,
                        oh.procurement_active, oh.procurement_note, oh.hypothesis_id, oh.target_id,
                        oh.procurement_status, oh.procurement_subject, oh.procurement_date, oh.procurement_url,
-                       oh.segment_fit_json
+                       oh.segment_fit_json, oh.people_version AS oh_people_version
                 FROM org_hypotheses oh JOIN organizations o ON o.id = oh.org_id
                 WHERE oh.hypothesis_id = ? {excl}
                 ORDER BY CASE oh.relation {rank} ELSE 9 END, o.website_verified DESC, o.id""",

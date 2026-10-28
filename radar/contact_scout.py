@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from .catalogs import NKOD_DATASET_RE, NKODClient
 from .config import Config
-from .contacts import extract_contacts, is_generic_email, normalize_email, snippet_around, visible_text
+from .contacts import extract_contacts, is_generic_email, is_org_email, normalize_email, snippet_around, visible_text
 from .db import DB
 from .fetch import domain_blocked
 from .models import ModelRouter, as_router
@@ -487,7 +487,9 @@ def add_contact_from_url(cfg: Config, db: DB, fetcher, hid: int, url: str, name:
     db.set_people_selection(hid, True)
     out: dict[str, Any] = {"organizácia": db.get_organization(org_id)["name"], "osoba": None, "kontakty": []}
     manual = {"zadané_ručne": True}
-    generic = [(e, snip) for e, snip in contacts.emails.items() if is_generic_email(e)][:2]
+    org = db.get_organization(org_id)
+    generic = [(e, snip) for e, snip in contacts.emails.items()
+               if is_org_email(e, org["name"], org["website"] or final)][: cfg.people.max_org_contacts_per_kind]
     for email, snip in generic:  # info@, podateľňa… k organizácii (aj keď sa osoba píše „cez info@…“)
         collector.save_contact(None, org_id, "email", email, final, snip, "manual_page", generic=True, extra_checks=manual)
     if not name.strip():

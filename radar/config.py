@@ -489,6 +489,13 @@ class PeopleConfig(BaseModel):
     max_people_per_org: int = 2
     max_experts_per_hypothesis: int = 3
     max_contact_pages_per_org: int = 5
+    # Kontakty samotnej organizácie (generický a firemný e-mail, telefón, formulár) z každého druhu najviac toľko (M42).
+    max_org_contacts_per_kind: int = 5
+    # Hľadanie organizácií podľa segmentu (M42): dopyty z filtra segmentu, potom rovnaký dopyt po mestách – najprv kraj
+    # hypotézy, potom ostatné okresné mestá; najviac toľko dopytov na hypotézu a beh. Vyskúšaný dopyt sa zopakuje najskôr
+    # po contact_research_days.
+    segment_queries_per_run: int = 5
+    segment_expand_places: bool = True
     registry_delay_s: float = 1.0
     registry_cache_days: int = 30
     check_mx: bool = False  # SMTP overovanie schránok sa nerobí nikdy

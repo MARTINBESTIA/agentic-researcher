@@ -137,6 +137,12 @@ pseudonymizované. Pre nového používateľa: `docs/PRE_NOVEHO_POUZIVATELA.md`.
    v dôkazoch, štatutári z RPO, z kontaktných stránok a zo stránky, kde sa organizácia našla) a ich
    zverejnené pracovné kontakty. Ku každej osobe uloží zdroj a úryvok, v ktorom kontakt doslova je.
    Ďalšie kolo dopytov príde, kým je kontaktovateľných menej ako `people.contact_goal_per_hypothesis`.
+   **M42:** k organizácii sa ukladajú jej vlastné kontakty – generická schránka na jej doméne, adresa s názvom
+   firmy (`firma@firma.sk`), telefón a odkaz na kontaktný formulár (vypĺňaš ho iba ty; pošta ho nespáruje).
+   Konateľ alebo majiteľ malej firmy sa vyberie vždy (mimo `people.max_people_per_org`); ostatní ľudia zo stránky
+   sa po výbere vymažú (minimalizácia). Organizácie zozbierané staršími pravidlami sa pri ďalšom behu zozbierajú
+   znova. Organizácie podľa segmentu: po pôvodných dopytoch ten istý dopyt po mestách kraja, potom celého
+   Slovenska (`people.segment_queries_per_run`).
 3. **GUI → Brána 0 → Koho osloviť:** ľudia a organizácie k hypotéze s e-mailom, odporúčaním („oslov
    najprv“, „oslov“, „doplň kontakt“, „neoslovovať“) a jeho dôvodmi, **stavom komunikácie naprieč
    hypotézami** (nové, návrh, pripravené na odoslanie, čaká na odpoveď, nadviazanie, uzavreté) a ďalšou

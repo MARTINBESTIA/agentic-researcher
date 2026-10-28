@@ -21,6 +21,7 @@ Beží iba po potvrdení LIA (privacy.lia_completed).
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import Counter, defaultdict
@@ -33,7 +34,7 @@ from rapidfuzz import fuzz
 
 from .config import Config
 from .contacts import (
-    Block, PageContacts, contact_page_links, extract_contacts, is_generic_email, is_person_profile,
+    Block, PageContacts, contact_page_links, extract_contacts, is_generic_email, is_org_email, is_person_profile,
     normalize_profile_url, sitemap_contact_links, snippet_around, value_in_snippet,
 )
 from .db import DB
@@ -50,7 +51,10 @@ log = logging.getLogger(__name__)
 
 ROLE_FIT_CALLS_PER_HYPOTHESIS = 15  # posúdenia funkcie presným modelom na hypotézu a beh (~20 s)
 WINDOW = 400  # meno a kontakt musia byť v tom istom bloku alebo v okne ≤ 400 znakov (R-PPL-10)
-MAX_GENERIC_PER_KIND = 2  # generické kontakty organizácie (e-mail, telefón)
+# Verzia pravidiel zberu ľudí z webu (M42). Organizácia zozbieraná staršou verziou sa pri ďalšom behu zozbiera znova:
+# výber s menším limitom na organizáciu ľudí natrvalo vymazal (minimalizácia) a stav „people_done“ zber zastavil.
+# Pri zmene pravidiel zberu alebo výberu zvýš.
+PEOPLE_COLLECT_VERSION = 2
 LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "data_holder": 0.6, "process_user": 0.55, "org_affected": 0.5,
                  "procurement_contact": 0.4, "expert": 0.3}
 COLLECTED_LINKS = ("quoted_about_problem", "procurement_contact")
@@ -447,20 +451,28 @@ class PeopleCollector:
             for url in vp.profiles:
                 self.save_contact(pid, org["id"], "profile_url", url, page.url, _snip_for_value(vp.block_text, url), "page_link")
                 assigned.add(url)
-        # K organizácii iba generické kontakty (info@, podateľňa, ústredňa…), najviac 2 e-maily a 2 telefóny.
-        # Nepriradené osobné kontakty zamestnancov sa neukladajú (minimalizácia, R-PRIV-2).
+        # K organizácii jej vlastné kontakty: generické (info@, podateľňa, ústredňa…) a adresa s názvom firmy alebo
+        # domény (firma@firma.sk, M42), najviac people.max_org_contacts_per_kind z každého druhu. Nepriradené osobné
+        # kontakty zamestnancov ani generické adresy iných organizácií (partneri na tej istej stránke) sa neukladajú
+        # (minimalizácia, R-PRIV-2).
+        limit = self.cfg.people.max_org_contacts_per_kind
         existing = Counter(c["kind"] for c in self.db.org_contacts(org["id"]))
         for email, snip in page.emails.items():
-            if email in assigned or not is_generic_email(email):
+            if email in assigned or not is_org_email(email, org["name"], org["website"] or page.url):
                 continue
-            if existing["email"] < MAX_GENERIC_PER_KIND:
+            if existing["email"] < limit:
                 self.save_contact(None, org["id"], "email", email, page.url, snip, "mailto_or_text", generic=True)
                 existing["email"] += 1
         phones = [(ph, snip) for ph, snip in page.phones.items() if ph not in assigned]
         for phone, snip in phones:
-            if (phone in page.generic_phones or len(page.phones) <= 2) and existing["phone"] < MAX_GENERIC_PER_KIND:
+            if (phone in page.generic_phones or len(page.phones) <= 2) and existing["phone"] < limit:
                 self.save_contact(None, org["id"], "phone", phone, page.url, snip, "phonenumbers", generic=True)
                 existing["phone"] += 1
+        if page.has_form and not existing["contact_form"]:
+            # Formulár iba ako odkaz (posledná možnosť; vypĺňa ho človek ručne a pošta ho nespáruje).
+            self.save_contact(None, org["id"], "contact_form", page.url, page.url, (page.title or "kontaktný formulár")[:120],
+                              "page_form", generic=True, extra_checks={"over_ručne": True})
+            existing["contact_form"] += 1
         if page.hidden_snippets and not any(vp.hidden for vp in verified_all) and not existing["hidden_contact"]:
             self.save_contact(None, org["id"], "hidden_contact", page.url, page.url, page.hidden_snippets[0], "obfuscated", generic=True)
         # Stránka organizácie na LinkedIn (/company/) ako jej kontakt; profily osôb iba cez blok osoby.
@@ -481,8 +493,10 @@ class PeopleCollector:
         for org in self.db.orgs_for_hypothesis(hyp["id"]):
             if self.deadline.expired() or processed >= self.cfg.people.max_orgs_per_hypothesis:
                 break
-            if org["oh_status"] == "people_done":
+            if org["oh_status"] == "people_done" and (org["oh_people_version"] or 0) >= PEOPLE_COLLECT_VERSION:
                 continue
+            if org["oh_status"] == "people_done":
+                self.stats["orgs_recollected"] += 1  # staršie pravidlá zberu (PEOPLE_COLLECT_VERSION)
             try:
                 if org["relation"] != "data_holder":  # pri úrade, ktorý drží dáta, by to bol minister alebo prednosta
                     self.statutory_people(hyp, org)  # bez overeného webu iba meno a funkcia z RPO
@@ -493,7 +507,7 @@ class PeopleCollector:
             except Exception as exc:  # noqa: BLE001 – jedna organizácia nezastaví ostatné
                 log.warning("Organizácia %s preskočená: %s", org["name"], exc)
                 self.stats["errors"] += 1
-            self.db.set_org_hypothesis(org["id"], hyp["id"], status="people_done")
+            self.db.set_org_hypothesis(org["id"], hyp["id"], status="people_done", people_version=PEOPLE_COLLECT_VERSION)
 
 
 def _snip_for_value(text: str, value: str) -> str:
@@ -715,7 +729,33 @@ OWN_SOURCES = {"website": "web organizácie", "rpo": "register RPO", "catalog": 
 PURPOSES = ("vlastník procesu", "používateľ riešenia", "správca dát", "schvaľovateľ rozpočtu", "expert")
 
 
-def contact_purposes(person, fit: float, org=None, expert: bool = False) -> list[dict[str, str]]:
+def small_org(org, hyp=None) -> bool:
+    """Mikro alebo malá organizácia. Neznáma veľkosť (RÚZ bez údaja, M42: 7 zo 14 organizácií H3) sa ráta ako malá,
+    ak bola organizácia vybraná podľa segmentu hypotézy, ktorý cieli iba na mikro a malé organizácie."""
+    if org is None:
+        return False
+    if org["size_category"] in ("micro", "small"):
+        return True
+    if org["size_category"] or hyp is None or "relation" not in org.keys() or org["relation"] != "segment_match":
+        return False
+    try:
+        sizes = set(json.loads(hyp["segment_filter_json"] or "{}").get("sizes") or [])
+    except ValueError:
+        return False
+    return bool(sizes) and sizes <= {"micro", "small"}
+
+
+def is_small_org_lead(person, org, hyp=None) -> bool:
+    """Vedenie malej organizácie (konateľ, majiteľ, riaditeľ; štatutár z RPO) – rozhoduje aj platí (M42)."""
+    if not small_org(org, hyp):
+        return False
+    title = fold(person["role_title"] or "")
+    if POLITICAL_RE.search(title) or BOARD_RE.search(title):
+        return False
+    return person["source_kind"] == "rpo" or any(g in title_key(person["role_title"]) for g in GENERAL_MANAGEMENT)
+
+
+def contact_purposes(person, fit: float, org=None, expert: bool = False, small: bool | None = None) -> list[dict[str, str]]:
     """Účely kontaktu, každý s vlastným dôkazom (kód, bez modelu). Vlastník procesu: funkcia zodpovednosti (vedúci,
     riaditeľ, manažér…) zodpovedá roli z mapy (role_fit ≥ 0,5) a zverejnila ju organizácia alebo register."""
     title = fold(person["role_title"] or "")
@@ -731,7 +771,7 @@ def contact_purposes(person, fit: float, org=None, expert: bool = False) -> list
     out = []
     if expert:
         out.append({"rola": "expert", "dôkaz": where})
-    small = org is not None and org["size_category"] in ("micro", "small")
+    small = small_org(org) if small is None else small
     if fit >= 0.5 and (RESPONSIBILITY_RE.search(title) or src == "manual"):
         out.append({"rola": "vlastník procesu", "dôkaz": where + (" · vedenie malej organizácie" if small and
                                                                   "konatel" in title else "")})
@@ -810,7 +850,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             types, group = {"data_holder"}, "data_holder"
         else:
             fit, cat, fit_src = role_fit_for(cfg, db, router, hyp, roles, person["role_title"], budget)
-            if fit == FIT_SCORE["general"] and org is not None and org["size_category"] in ("micro", "small"):
+            if fit == FIT_SCORE["general"] and small_org(org, hyp):
                 # V malej organizácii vedenie zvyčajne samo rozhoduje o procese s problémom (R-PPL-14, príklad „konateľ malej firmy“).
                 fit, cat, fit_src = FIT_SCORE["related"], "vedenie malej organizácie", fit_src + " + veľkosť"
             expert = is_expert(person, org) and relation != "mentioned_with_problem"
@@ -820,7 +860,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
                     fit, cat, fit_src = tfit, tcat or cat, "kód (cieľ plánu)"
             # Väzby zo zberu (citácia, obstarávanie) ostávajú; ostatné sa pri každom poradí počítajú znova.
             types = {t for t in existing if t in COLLECTED_LINKS}
-            purposes = {p_["rola"] for p_ in contact_purposes(person, fit, org, expert)}
+            purposes = {p_["rola"] for p_ in contact_purposes(person, fit, org, expert, small_org(org, hyp))}
             if expert:
                 types.add("expert")
             else:
@@ -850,7 +890,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             "kanál": channel, "kanál_popis": channel_label,
             "zhoda_org": org_fit, "zhoda_org_popis": org_label,
             "skupina": group, "váhy": w.model_dump(),
-            "účely": contact_purposes(person, fit, org, group == "expert") if not manual else
+            "účely": contact_purposes(person, fit, org, group == "expert", small_org(org, hyp)) if not manual else
             [{"rola": "vlastník procesu" if "role_owner" in types else "podľa teba", "dôkaz": "zadané tebou"}],
         }
         if target is not None:
@@ -865,6 +905,20 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
     per_org: dict[str, Counter] = {g: Counter() for g in limits}
     chosen: list = [item for item in scored if item[8]]  # ručne pridaní vždy
     count: Counter = Counter()
+    # Vedenie malej organizácie (konateľ, majiteľ) sa vyberie vždy, najviac jeden na organizáciu a mimo
+    # max_people_per_org (M42): s limitom 2 na organizáciu predbehli konateľku mikro kancelárie dve maklérky
+    # s presnou zhodou funkcie a výber ju natrvalo vymazal.
+    leads: set[int] = set()
+    for item in scored:
+        priority, pid, person, org, types, link_type, comp, group, manual = item
+        if manual or group != "customer" or person["org_id"] in leads or count[group] >= limits[group]:
+            continue
+        if is_small_org_lead(person, org, hyp):
+            comp["vedenie_malej_organizácie"] = "vybraté vždy (mimo limitu na organizáciu)"
+            chosen.append(item)
+            leads.add(person["org_id"])
+            count[group] += 1
+            stats["small_org_leads"] += 1
     # Prednosť majú rôzne organizácie: najprv najlepší z každej organizácie, potom druhí, tretí…
     for round_ in range(1, max(1, cfg.people.max_people_per_org) + 1):
         for item in scored:
