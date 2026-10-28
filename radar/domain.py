@@ -60,7 +60,7 @@ def gate0_domains(cfg: Config, db: DB) -> dict[str, dict[str, Any]]:
     from .value import domain_of
 
     out: dict[str, dict[str, Any]] = {}
-    for h in db.people_enabled_hypotheses():
+    for h in db.automation_hypotheses():  # M39/M40: vynechané hypotézy nedostanú automatický doménový výskum
         key, title, ids = domain_of(db, h["id"])
         _, verified, _, domains = evidence_strength(db.evidence_for(h["id"]))
         d = out.setdefault(key, {"key": key, "title": title, "hypotheses": [], "score": (0, 0)})

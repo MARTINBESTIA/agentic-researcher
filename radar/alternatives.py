@@ -202,11 +202,11 @@ def assess(cfg: Config, db: DB, router, fetcher, hid: int, key: str | None = Non
 
 
 def pending(cfg: Config, db: DB, ids: list[int] | None = None) -> list[int]:
-    """Hypotézy Brány 0 (nie potvrdené bez medzery), ktorých vstupy sa od posledného posúdenia zmenili."""
+    """Hypotézy, ktorých vstupy sa od posledného posúdenia zmenili: zadané (aj človekom pre konkrétnu hypotézu), inak
+    hypotézy pre automatiku (bez potvrdených „bez obhájiteľnej medzery“ a ručnej kohorty benchmarku)."""
     out = []
-    for h in db.people_enabled_hypotheses():
-        if (ids and h["id"] not in ids) or h["gap_status"] == GAP_STATUS:
-            continue
+    hyps = [h for h in (db.get_hypothesis(i) for i in ids) if h is not None] if ids else db.automation_hypotheses()
+    for h in hyps:
         last = db.latest_alternative_assessment(h["id"])
         if last is None or last["inputs_hash"] != inputs_key(cfg, db, h["id"]):
             out.append(h["id"])

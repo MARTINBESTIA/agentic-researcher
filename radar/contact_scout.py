@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from .catalogs import NKOD_DATASET_RE, NKODClient
 from .config import Config
-from .contacts import extract_contacts, is_generic_email, is_org_email, normalize_email, snippet_around, visible_text
+from .contacts import extract_contacts, is_generic_email, normalize_email, org_email_ok, snippet_around, visible_text
 from .db import DB
 from .fetch import domain_blocked
 from .models import ModelRouter, as_router
@@ -419,7 +419,7 @@ def run_contact_search(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: 
         ruz = RUZClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
     if catalog is None and cfg.gate1.nkod_enabled:
         catalog = NKODClient(cfg.gate1.nkod_sparql)
-    ids = least_recently_searched(db, hypothesis_ids or [h["id"] for h in db.people_enabled_hypotheses()])
+    ids = least_recently_searched(db, hypothesis_ids or [h["id"] for h in db.automation_hypotheses()])
     scout = ContactScout(cfg, db, router, searx, fetcher, deadline, rpo, ruz, catalog)
     for hid in ids:
         if deadline.expired():
@@ -488,8 +488,9 @@ def add_contact_from_url(cfg: Config, db: DB, fetcher, hid: int, url: str, name:
     out: dict[str, Any] = {"organizácia": db.get_organization(org_id)["name"], "osoba": None, "kontakty": []}
     manual = {"zadané_ručne": True}
     org = db.get_organization(org_id)
+    org = dict(org) | {"website": org["website"] or final}
     generic = [(e, snip) for e, snip in contacts.emails.items()
-               if is_org_email(e, org["name"], org["website"] or final)][: cfg.people.max_org_contacts_per_kind]
+               if org_email_ok(org, e, cfg.people.official_domains)][: cfg.people.max_org_contacts_per_kind]
     for email, snip in generic:  # info@, podateľňa… k organizácii (aj keď sa osoba píše „cez info@…“)
         collector.save_contact(None, org_id, "email", email, final, snip, "manual_page", generic=True, extra_checks=manual)
     if not name.strip():

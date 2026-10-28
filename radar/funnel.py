@@ -222,7 +222,7 @@ def pick(cfg: Config, db: DB, now: datetime | None = None) -> dict[str, Any]:
     w = cfg.workflows
     find_ok = in_window(cfg, "find", now)
     last = db.funnel_last()
-    closed = db.gap_closed_ids()  # M39: potvrdené „bez obhájiteľnej medzery“ lievik vynecháva
+    closed = db.automation_excluded_ids()  # M39 „bez obhájiteľnej medzery“ a M40 ručná kohorta – lievik vynecháva
     if last is not None and last["hypothesis_id"] and last["next_step"] and last["hypothesis_id"] not in closed:
         h = db.get_hypothesis(last["hypothesis_id"])
         u = _usable(cfg, db, h, now) if h is not None else None
@@ -421,9 +421,10 @@ def waiting_for_you(db: DB, limit: int = 300) -> list[dict[str, Any]]:
     """Hypotézy, pri ktorých lievik naposledy skončil s „čaká na tvoje …“ (dáta, uzamknutie plánu, rozhodnutie)."""
     seen: set[int] = set()
     out = []
+    excluded = db.automation_excluded_ids()  # lievik ich už nespracúva – nečakajú na teba
     for r in db.funnel_log(limit):
         hid = r["hypothesis_id"]
-        if not hid or hid in seen or r["finished_at"] is None:
+        if not hid or hid in seen or hid in excluded or r["finished_at"] is None:
             continue
         seen.add(hid)
         if r["next_step"] is None and r["reason"] and ("tvoje" in r["reason"] or "tvojím" in r["reason"]):

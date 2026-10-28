@@ -251,7 +251,8 @@ najviac 10 problémov, ktoré vyberieš sám z čerstvých oznámení o obstará
 problém“ (veta, segment, odkaz na oznámenie); kontakty pridáš v karte Koho osloviť a ručne napísanú správu zapíšeš
 formulárom „Zapísať ručne napísané oslovenie“ (iba predmet a kontakt – pošta ju potom spáruje). Čas prípravy zadávaš
 v minútach. Verdikt sa ukáže až po 20 odoslaných osloveniach a 5 rozhovoroch; ak systém ručnú kohortu v obchodných
-stavoch neprekoná, ďalšie vylepšovanie modelov a agentov sa nerobí.
+stavoch neprekoná, ďalšie vylepšovanie modelov a agentov sa nerobí. Problémy ručnej kohorty automatika (lievik,
+autopilot, predvolený výber akcií) vynecháva – aby ostali „bez agentov“; akciu pre ne môžeš spustiť ručne.
 
 ### Nočný beh
 
@@ -481,7 +482,7 @@ konkurencie z kritiky vypíše, čím zákazník problém rieši už dnes – aj
 modul ERP, zrušenie procesu): či to pokrýva proces, ako sa to kupuje, bariéry a čo ostáva nevyriešené. Každý citát
 overí kód; nedoložené sa zoslabí. Keď všetko pokrýva proces doloženým citátom a medzera doložená nie je, kód navrhne
 **„bez obhájiteľnej medzery“** – potvrdzuješ ty, potom hypotézu lievik a autopilot vynechajú (tlačidlo „Obnoviť
-hypotézu“ ju vráti).
+hypotézu“ ju vráti). Prehľad príležitosti pri takej hypotéze napíše, prečo ju automatika vynecháva.
 
 ## Objavovanie nových problémov
 

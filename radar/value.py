@@ -639,7 +639,7 @@ def run_value(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[int] 
     from .domain import sync_priorities
 
     stats: Counter = Counter()
-    hyps = ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    hyps = ids or [h["id"] for h in db.automation_hypotheses()]
     prio = {r["domain_key"]: r["priority"] for r in sync_priorities(cfg, db)}
     hyps = sorted(hyps, key=lambda h: -prio.get(domain_of(db, h)[0], 0))  # prioritné domény prvé (poradie, nie právo)
     done_domains: set[str] = set()

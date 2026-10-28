@@ -213,6 +213,21 @@ def collect(cfg: Config, db: DB, hid: int, personal: bool = False, include_relat
         ({"meno": who(i["person_id"])} if personal else {}) | {k: i[k] for k in i.keys() if k != "person_id"}
         for i in interviews]))
     add(Table("brana0/rozhodnutia", "Rozhodnutia B0", [_parsed(r) for h in hids for r in db.decisions_for(h)]))
+
+    def no_person(row) -> dict[str, Any]:
+        out = _parsed(row)
+        pid = out.pop("person_id", None)
+        return ({"osoba": who(pid)} if personal and pid else {}) | out
+
+    add(Table("brana0/vysledky_osloveni", "Výsledky oslovení", [no_person(r) for h in hids for r in db.outcomes_for(h)]))
+    add(Table("brana0/obchodne_dokazy", "Obchodné dôkazy", [no_person(r) for h in hids
+                                                             for r in db.commercial_evidence_for(h, include_withdrawn=True)]))
+    add(Table("brana0/ekonomika_zakaznika", "Ekonomika u zákazníka", [
+        no_person(r) for h in hids for oid in db.orgs_with_buyer_factors(h)
+        for r in db.buyer_factors(h, oid, include_withdrawn=True)]))
+    add(Table("hypoteza/alternativy", "Alternatívy", [_parsed(r) for h in hids for r in db.alternative_assessments_for(h)]))
+    add(Table("hypoteza/benchmark", "Benchmark", [_parsed(m) for h in hids if (m := db.benchmark_member(h)) is not None]))
+    add(Table("obstaravanie/zakazky_ted", "Zákazky TED", [_parsed(r) for h in hids for r in db.procurement_matches_for(h)]))
     role_maps = {f"H{h}": db.get_role_map(h) for h in hids if db.get_role_map(h)}
 
     # -------------------------------------------------------------- Brána 1
@@ -639,14 +654,15 @@ def _readme(cfg: Config, db: DB, dos: Dossier, entries: list[dict[str, Any]], da
     except Exception:  # noqa: BLE001
         cards = []
     if cards:
-        out += ["## Karty organizácií", "", "| org | pracovný prípad | rola | verzia | stav | rozhovor | skúška | prínos |",
-                "|---|---|---|---|---|---|---|---|"]
+        out += ["## Karty organizácií", "", "| org | pracovný prípad | rola | verzia | stav | rozhovor | skúška | prínos | ponuka |",
+                "|---|---|---|---|---|---|---|---|---|"]
         for c in cards:
             r = json.loads(c["readiness_json"] or "{}")
-            yes = {k: "áno" if (r.get(k) or {}).get("pripravené") else "nie" for k in ("rozhovor", "skúška", "prínos")}
+            yes = {k: "áno" if (r.get(k) or {}).get("pripravené") else "nie"
+                   for k in ("rozhovor", "skúška", "prínos", "ponuka")}
             out.append(f"| org {c['organization_id']} | {c['process_key']} | {c['recipient_role']} | v{c['version']} | "
                        f"{c['status']}{' (zastarané)' if c['stale_reason'] else ''} | {yes['rozhovor']} | {yes['skúška']} | "
-                       f"{yes['prínos']} |")
+                       f"{yes['prínos']} | {yes['ponuka']} |")
         out += ["", "Celé karty: `brana0/karty/`, prehľad domény, z ktorého vychádzajú: `brana0/prehlad_domeny_<id>.md`.", ""]
     if main.get("parent_id") and "rodič" not in dict(dos.scope).values():
         out += ["Ľudia a organizácie rozdelenej hypotézy ostávajú pri rodičovi – exportuj so súvisiacimi hypotézami.", ""]

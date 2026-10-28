@@ -229,7 +229,11 @@ class Gate0Mixin:
         )
 
     def delete_person(self, person_id: int) -> None:
-        """Zmaže osobu; kontakty, väzby a oslovenia zmaže CASCADE, rozhovor ostane pseudonymizovaný."""
+        """Zmaže osobu; kontakty, väzby a oslovenia zmaže CASCADE, rozhovor ostane pseudonymizovaný. Obchodné dôkazy
+        (M35) a ekonomika u zákazníka (M38) ostanú ako fakt o organizácii, bez väzby na osobu a bez textu „kto a kedy“ –
+        pri forget, retencii aj výbere ľudí rovnako."""
+        self.scrub_commercial_evidence_of_person(person_id)
+        self.scrub_buyer_factors_of_person(person_id)
         self._exec("DELETE FROM people WHERE id = ?", (person_id,))
 
     def people_by_contact(self, kind: str, value: str) -> list[int]:

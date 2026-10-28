@@ -363,7 +363,7 @@ people:
   # musia sedieť), alebo zadaná ručne v GUI. Stránka LinkedIn sa nikdy nesťahuje; označenie "over ručne".
   search_profiles: true
   # Kontakty ku konkrétnej osobe (e-mail, telefón): iba z overeného webu jej organizácie alebo z úradných domén.
-  official_domains: [gov.sk, nrsr.sk]
+  official_domains: [gov.sk, nrsr.sk, mil.sk]   # aj adresa organizácie: verejný subjekt má poštu inde ako web
   max_contact_pages_per_person: 3
   priority_weights: {role_fit: 0.35, link: 0.25, channel: 0.20, org_fit: 0.20}
 

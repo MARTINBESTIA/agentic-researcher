@@ -706,7 +706,8 @@ def run_orgs(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: Deadline, 
         rpo = RPOClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
     if ruz is None:
         ruz = RUZClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
-    ids = least_recently_searched(db, hypothesis_ids or select_people_hypotheses(cfg, db))
+    excluded = db.automation_excluded_ids()  # M39/M40: automatika ich vynecháva (zadané ids áno)
+    ids = least_recently_searched(db, hypothesis_ids or [i for i in select_people_hypotheses(cfg, db) if i not in excluded])
     finder = OrgFinder(cfg, db, router, searx, fetcher, rpo, ruz, deadline, model_filters=model_filters)
     for hid in ids:
         if deadline.expired():

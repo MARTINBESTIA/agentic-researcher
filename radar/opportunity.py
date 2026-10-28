@@ -1283,7 +1283,7 @@ def run_org_cards(cfg: Config, db: DB, llm: Any, deadline: Deadline, ids: list[i
             targets = focus["items"]
         else:
             targets = []
-            for hid in ids or [h["id"] for h in db.people_enabled_hypotheses()]:
+            for hid in ids or [h["id"] for h in db.automation_hypotheses()]:
                 targets += default_targets(cfg, db, hid, cfg.org_cards.focus_max_orgs - len(targets))
                 if len(targets) >= cfg.org_cards.focus_max_orgs:
                     break
@@ -1387,7 +1387,8 @@ def card_markdown(db: DB, row, with_names: bool = False) -> str:
     out += ["## Päť odpovedí", "", f"1. **Komu pomáham:** {answers['komu']}", f"2. **V akom úkone:** {answers['úkon']}",
             f"3. **Čo sa zmení:** {answers['zmena']}", f"4. **Minimálny vstup:** {answers['vstup']}",
             f"5. **Ako overíme prínos:** {answers['overenie']}", "", "## Pripravenosť (nezávislé úrovne)", ""]
-    for key, label in (("rozhovor", "Na rozhovor"), ("skúška", "Na návrh skúšky"), ("prínos", "Na tvrdenie o prínose")):
+    for key, label in (("rozhovor", "Na rozhovor"), ("skúška", "Na návrh skúšky"), ("prínos", "Na tvrdenie o prínose"),
+                       ("ponuka", "Na ponuku")):
         r = ready.get(key) or {}
         line = f"- **{label}:** {'áno' if r.get('pripravené') else 'nie'}"
         if r.get("dôvody"):

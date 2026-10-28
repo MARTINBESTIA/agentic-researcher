@@ -165,27 +165,33 @@ for o in items:
         if checks.get("generic"):
             st.caption("Ide na generickú adresu organizácie – správa prosí o nasmerovanie na správneho človeka.")
         key = f"o{o['id']}"
-        subject = st.text_input("Predmet", o["subject"] or "", key=key + "s") if o["channel"] == "email" else None
-        body = st.text_area("Text", o["body"], height=320, key=key + "b")
-        st.caption(f"Slová bez pätičky: {checks.get('words', '?')} · znaky: {len(body)} · fakty: "
-                   + "; ".join(f"{f['id']}: {f['text'][:80]}" for f in json_or(o["facts_json"], [])))
-        with st.container(horizontal=True):
-            if st.button("Uložiť a skontrolovať", key=key + "chk", icon=":material/spellcheck:"):
-                recheck(c, d, o["id"], body, subject)
-                refresh()
-            if st.button("Schváliť na odoslanie", key=key + "ok", icon=":material/task_alt:", disabled=o["status"] != "draft"):
-                try:
-                    approve(c, d, o["id"])
+        manual = o["variant"] == "manual"
+        if manual:
+            st.info("Ručne napísané oslovenie (benchmark): text píšeš a posielaš zo svojej pošty, systém ho neskladá ani "
+                    "nekontroluje. Po odoslaní ho pošta spáruje podľa adresy, alebo ho označ nižšie."
+                    + (f" Adresát: {o['contact_value']}" if o["contact_value"] else ""), icon=":material/edit_note:")
+        else:
+            subject = st.text_input("Predmet", o["subject"] or "", key=key + "s") if o["channel"] == "email" else None
+            body = st.text_area("Text", o["body"], height=320, key=key + "b")
+            st.caption(f"Slová bez pätičky: {checks.get('words', '?')} · znaky: {len(body)} · fakty: "
+                       + "; ".join(f"{f['id']}: {f['text'][:80]}" for f in json_or(o["facts_json"], [])))
+            with st.container(horizontal=True):
+                if st.button("Uložiť a skontrolovať", key=key + "chk", icon=":material/spellcheck:"):
+                    recheck(c, d, o["id"], body, subject)
                     refresh()
-                except OutreachError as exc:
-                    st.error(str(exc))
-            if o["status"] in ("approved", "sent") and o["contact_kind"] == "email" and o["channel"] == "email":
-                link = mailto_link(o["contact_value"], o["subject"] or "", o["body"], c.outreach.mailto_max_chars)
-                if link:
-                    st.link_button("Otvoriť v pošte", link, icon=":material/forward_to_inbox:")
-                else:
-                    st.caption("Text je na mailto: príliš dlhý – skopíruj ho.")
-        if o["status"] in ("approved", "sent"):
+                if st.button("Schváliť na odoslanie", key=key + "ok", icon=":material/task_alt:", disabled=o["status"] != "draft"):
+                    try:
+                        approve(c, d, o["id"])
+                        refresh()
+                    except OutreachError as exc:
+                        st.error(str(exc))
+                if o["status"] in ("approved", "sent") and o["contact_kind"] == "email" and o["channel"] == "email":
+                    link = mailto_link(o["contact_value"], o["subject"] or "", o["body"], c.outreach.mailto_max_chars)
+                    if link:
+                        st.link_button("Otvoriť v pošte", link, icon=":material/forward_to_inbox:")
+                    else:
+                        st.caption("Text je na mailto: príliš dlhý – skopíruj ho.")
+        if o["status"] in ("approved", "sent") and not manual:
             st.code(o["body"], language=None, wrap_lines=True)
             if o["contact_value"]:
                 st.caption(f"Adresát: {o['contact_value']}")

@@ -48,6 +48,14 @@ def test_org_email_rules():
     assert is_org_email("podatelna@msu.fiktivne-mesto.sk", "Mesto Fiktívne", "https://www.fiktivne-mesto.sk/")
     assert not is_org_email("info@partnerbanka.sk", "Fiktívne Reality s.r.o.", SITE)  # generická adresa partnera
     assert not is_org_email("jana.maklerova@fiktivnereality.sk", "Fiktívne Reality s.r.o.", SITE)  # osobná adresa
+    # spresnené po kontrole na živých dátach (28. 10. 2026): staré pravidlo ich uložilo správne, prísne by ich zahodilo
+    assert is_org_email("info@fiktivnyurad.sk", "Fiktívny úrad", "https://tv.fiktivnyurad.sk/")  # web na subdoméne
+    assert is_org_email("info@fiktivna-firma.sk", "Fiktívna Firma s.r.o.", "https://fiktivnafirma.biz/")  # značka, iná koncovka
+    assert is_org_email("info@abtechnika.sk", "A & B technika s.r.o.", "https://produkt-xyz.cz/")  # doména s názvom firmy
+    assert is_org_email("podatelna@fiktivne.gov.sk", "Ministerstvo fikcie", "https://www.minfikcie.sk/", ["gov.sk"])
+    assert not is_org_email("podatelna@fiktivne.gov.sk", "Ministerstvo fikcie", "https://www.minfikcie.sk/")
+    assert not is_org_email("email@vzor.example", "Úrad Fiktívny", "https://urad.example/")  # vzorová adresa z formulára
+    assert not is_org_email("info@webyobci.sk", "Obec Fiktívna", "https://www.obecfiktivna.sk/")  # dodávateľ webu
 
 
 def test_firm_email_and_form_are_org_contacts_partner_and_personal_are_not(tmp_path):

@@ -303,8 +303,9 @@ def scope_hypotheses(cfg: Config, db: DB, ids: list[int] | None = None) -> list:
     if ids:
         return [h for h in (db.get_hypothesis(i) for i in ids) if h is not None and h["status"] != "rejected"]
     seen, out = set(), []
+    excluded = db.automation_excluded_ids()  # M39/M40: automatika ich vynecháva
     for h in list(db.people_enabled_hypotheses()) + list(db.validated_hypotheses(tuple(cfg.people.auto_select_verdicts))):
-        if h["id"] not in seen and h["status"] != "rejected":
+        if h["id"] not in seen and h["status"] != "rejected" and h["id"] not in excluded:
             seen.add(h["id"])
             out.append(h)
     return out

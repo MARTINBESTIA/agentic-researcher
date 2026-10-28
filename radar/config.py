@@ -502,7 +502,7 @@ class PeopleConfig(BaseModel):
     check_mx: bool = False  # SMTP overovanie schránok sa nerobí nikdy
     search_profiles: bool = True  # URL profilu (napr. LinkedIn) z výsledku vyhľadávania, nesťahuje sa
     # Kontakty ku konkrétnej osobe (krok contacts): stránky iba z overeného webu jej organizácie alebo z týchto domén.
-    official_domains: list[str] = Field(default_factory=lambda: ["gov.sk", "nrsr.sk"])
+    official_domains: list[str] = Field(default_factory=lambda: ["gov.sk", "nrsr.sk", "mil.sk"])
     max_contact_pages_per_person: int = 3
     # Brána 0 automaticky aj pre hypotézy, ktorých test (validate) skončil jedným z týchto verdiktov; ručná voľba
     # (vypnutie v GUI alebo `select --people off`) má prednosť a automatický výber ju neprepíše.

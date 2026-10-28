@@ -578,7 +578,9 @@ class EvidenceMixin:
             """SELECT h.*, (SELECT COUNT(*) FROM hypothesis_claims hc JOIN claims c ON c.id = hc.claim_id
                             WHERE hc.hypothesis_id = h.id AND c.status = 'verified') AS n_verified
                FROM hypotheses h
-               WHERE h.validation_state IS NULL OR (h.validation_state = 'tested' AND h.validated_at < ?)
+               WHERE (h.validation_state IS NULL OR (h.validation_state = 'tested' AND h.validated_at < ?))
+                 AND COALESCE(h.gap_status, '') != 'no_defensible_gap'
+                 AND h.id NOT IN (SELECT hypothesis_id FROM benchmark_members WHERE cohort = 'manual')
                ORDER BY CASE WHEN h.validation_state IS NULL THEN 0 ELSE 1 END, h.validation_runs, h.people_enabled DESC,
                         CASE h.status WHEN 'interviewing' THEN 0 WHEN 'watch' THEN 1 WHEN 'candidate' THEN 2
                                       WHEN 'new' THEN 3 ELSE 4 END,

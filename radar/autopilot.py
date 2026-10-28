@@ -51,9 +51,9 @@ def _since_last(db: DB, kinds: tuple[str, ...]) -> str:
 
 
 def _open(db: DB) -> list:
-    """Hypotézy Brány 0 okrem potvrdených „bez obhájiteľnej medzery“ (M39 – autopilot ich vynechá)."""
-    closed = db.gap_closed_ids()
-    return [h for h in db.people_enabled_hypotheses() if h["id"] not in closed]
+    """Hypotézy Brány 0 pre autopilota – bez potvrdených „bez obhájiteľnej medzery“ (M39) a ručnej kohorty
+    benchmarku (M40)."""
+    return db.automation_hypotheses()
 
 
 def selected_ids(db: DB) -> list[int]:
@@ -163,7 +163,8 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     cards = card_targets(cfg, db, None)
     if cards:
         work["cards"] = "bez karty: " + ", ".join(f"H{h['id']}" for h in cards[:8]) + (" …" if len(cards) > 8 else "")
-    passed = [h["id"] for h in db.gate2_hypotheses()]
+    excluded = db.automation_excluded_ids()
+    passed = [h["id"] for h in db.gate2_hypotheses() if h["id"] not in excluded]
     todo = {h["id"] for h, _ in plan_targets(cfg, db, None)}
     for hid in passed:
         exps = db.experiments_for(hid)
@@ -177,6 +178,8 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
     if alt:
         work["alternatives"] = "alternatívy na posúdenie: " + ", ".join(f"H{i}" for i in alt)
     for h in db.active_hypotheses():
+        if h["id"] in excluded:
+            continue
         evidence = db.evidence_for(h["id"])
         if len(evidence) < cfg.pipeline.critique_min_claims or evidence_strength(evidence)[0] == "slabá":
             continue
@@ -245,7 +248,8 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
     used = 0.0
     ids_for = {"gate1": gate1_ids(db, wf.autopilot_max_priorities), "people": priority_ids(cfg, db),
                "contacts": priority_ids(cfg, db), "drafts": priority_ids(cfg, db),
-               "alternatives": priority_ids(cfg, db)}
+               "alternatives": priority_ids(cfg, db),
+               "gate2": [h["id"] for h in db.gate2_hypotheses() if h["id"] not in db.automation_excluded_ids()]}
     if focus_on:
         from .opportunity import focus_settings
 

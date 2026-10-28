@@ -128,22 +128,52 @@ def is_generic_email(email: str) -> bool:
     return local in GENERIC_LOCAL or local_key in GENERIC_LOCAL or local.split(".")[0] in GENERIC_LOCAL
 
 
-def is_org_email(email: str, org_name: str | None = None, website: str | None = None) -> bool:
-    """Adresa samotnej organizácie (M42): generická schránka na jej doméne (info@, kontakt@…) alebo schránka
-    s názvom firmy či domény (firma@firma.sk, firmareality@gmail.com). Generická adresa inej domény patrí
-    inej organizácii (partner na tej istej stránke), nie tejto."""
+SECOND_LEVEL_SUFFIXES = ("gov.sk", "co.uk", "org.uk", "com.au")  # registrovaná doména má o úroveň viac
+
+
+def registered_domain(host: str) -> str:
+    """tv.urad.sk → urad.sk; urad.gov.sk ostane (gov.sk je zóna úradov)."""
+    parts = host.lower().removeprefix("www.").split(".")
+    n = 3 if any(host.lower().endswith("." + s) for s in SECOND_LEVEL_SUFFIXES) else 2
+    return ".".join(parts[-n:])
+
+
+def _label(host: str) -> str:
+    """Meno domény bez TLD a znakov: nemocnica-mesto.sk → nemocnicamesto."""
+    return re.sub(r"[^a-z]", "", fold(registered_domain(host).split(".")[0]))
+
+
+def is_org_email(email: str, org_name: str | None = None, website: str | None = None,
+                 official: tuple[str, ...] | list[str] = ()) -> bool:
+    """Adresa samotnej organizácie (M42, spresnené po kontrole na živých dátach 28. 10. 2026):
+    - generická schránka (info@, podateľňa…) na jej doméne – aj subdoména a tá istá značka s inou koncovkou alebo
+      pomlčkou (tv.urad.sk ↔ urad.sk, firma.biz ↔ firma.sk, nemocnica-mesto.sk ↔ nemocnicamesto.sk), doména
+      s názvom firmy (abtechnika.sk pri „A & B technika“), pri verejnom subjekte aj úradná doména (`official`,
+      napr. ministerstvo.sk ↔ odbor.gov.sk);
+    - alebo schránka s názvom firmy či domény (firma@firma.sk, firmareality@gmail.com).
+    Generická adresa inej organizácie na tej istej stránke (partner, dodávateľ webu, vzorová adresa vo formulári) nie."""
     local, _, domain = email.lower().partition("@")
-    site = urlparse(website or "").netloc.lower().removeprefix("www.")
-    if is_generic_email(email) and (not site or domain == site or domain.endswith("." + site)):
-        return True
-    keys = {site.split(".")[-2]} if "." in site else set()
+    host = urlparse(website or "").netloc.lower().removeprefix("www.")
+    names = set()
     if org_name:
         words = org_name_key(org_name).split()
-        keys.add("".join(words))
-        keys.update(w for w in words if len(w) >= 5)
+        names = {"".join(words), *(w for w in words if len(w) >= 5)}
+    names = {k for k in (re.sub(r"[^a-z]", "", fold(n)) for n in names) if len(k) >= 4}
+    site_label, mail_label = (_label(host) if host else ""), _label(domain)
+    if is_generic_email(email):
+        if not host or registered_domain(domain) == registered_domain(host):
+            return True
+        if (len(site_label) >= 3 and mail_label == site_label) or mail_label in names:
+            return True
+        return any(domain == d or domain.endswith("." + d) for d in official)
     local_key = re.sub(r"[^a-z]", "", fold(local))
-    keys = {re.sub(r"[^a-z]", "", fold(k)) for k in keys}
-    return any(len(k) >= 4 and k in local_key for k in keys)
+    return any(k in local_key for k in names | ({site_label} if len(site_label) >= 4 else set()))
+
+
+def org_email_ok(org, email: str, official_domains: tuple[str, ...] | list[str] = ()) -> bool:
+    """Patrí e-mail tejto organizácii? Úradné domény sa uznajú iba pri verejnom subjekte alebo neznámom sektore."""
+    sector = org["sector_kind"] if "sector_kind" in org.keys() else None
+    return is_org_email(email, org["name"], org["website"], official_domains if sector in (None, "public") else ())
 
 
 def _inside_url(text: str, start: int) -> bool:

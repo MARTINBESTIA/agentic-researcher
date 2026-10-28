@@ -48,9 +48,12 @@ def evidence_block(rows: list, max_items: int = 25) -> str:
 def run_critique(cfg: Config, db: DB, llm: Any, searx: SearxClient, deadline: Deadline) -> dict:
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
+    excluded = db.automation_excluded_ids()  # M39/M40: automatika ich vynecháva
     for hyp in db.active_hypotheses():
         if deadline.expired():
             break
+        if hyp["id"] in excluded:
+            continue
         evidence = db.evidence_for(hyp["id"])
         if len(evidence) < cfg.pipeline.critique_min_claims:
             continue

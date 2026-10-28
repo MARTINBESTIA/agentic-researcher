@@ -223,7 +223,7 @@ def run_person_contacts(cfg: Config, db: DB, searx, fetcher, deadline: Deadline,
     require_lia(cfg)
     collector = PeopleCollector(cfg, db, None, searx, fetcher, deadline)
     stats: Counter = Counter()
-    ids = hypothesis_ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    ids = hypothesis_ids or [h["id"] for h in db.automation_hypotheses()]
     seen: set[int] = set()
     for hid in ids:
         for link in db.links_for_hypothesis(hid):

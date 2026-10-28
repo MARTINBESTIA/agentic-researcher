@@ -20,7 +20,7 @@ from typing import Any
 
 from .config import Config
 from .contact_scout import DEFAULT_ASK, KIND_LABEL, target_ask, target_roles
-from .contacts import is_generic_email
+from .contacts import is_generic_email, org_email_ok
 from .db import DB
 from .people import LINK_STRENGTH
 from .recipients import procurement_of
@@ -80,7 +80,9 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
         contacts = db.contacts_for_person(pid)
         personal = [c for c in contacts if c["kind"] == "email" and not is_generic_email(c["value"])]
         person_generic = [c for c in contacts if c["kind"] == "email" and is_generic_email(c["value"])]
-        org_emails = [c for c in db.org_contacts(link["org_id"]) if c["kind"] == "email"] if link["org_id"] else []
+        # adresa organizácie iba ak jej naozaj patrí (staršie záznamy mohli uložiť adresu partnera z tej istej stránky)
+        org_emails = ([c for c in db.org_contacts(link["org_id"]) if c["kind"] == "email"
+                       and org_email_ok(org, c["value"], cfg.people.official_domains)] if org is not None else [])
         phones = [c for c in contacts if c["kind"] == "phone"]
         hidden = [c for c in contacts if c["kind"] == "hidden_contact"]
         profiles = [c for c in contacts if c["kind"] == "profile_url"]
@@ -139,7 +141,8 @@ def contact_shortlist(cfg: Config, db: DB, hid: int) -> list[dict[str, Any]]:
     for org in orgs.values():
         if org["id"] in orgs_with_people:
             continue
-        emails = [c for c in db.org_contacts(org["id"]) if c["kind"] == "email"]
+        emails = [c for c in db.org_contacts(org["id"]) if c["kind"] == "email"
+                  and org_email_ok(org, c["value"], cfg.people.official_domains)]
         if not emails:
             continue
         group = GROUP_OF_RELATION.get(org["relation"], "customer")

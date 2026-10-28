@@ -10,7 +10,7 @@ o „lepšom uvažovaní“ (modely, agenti, Brána 2) sa nerobí. Odosiela vžd
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from statistics import median
 from typing import Any
 
@@ -81,9 +81,23 @@ def record_manual_outreach(cfg: Config, db: DB, hid: int, contact_point_id: int,
         raise BenchmarkError("Kontakt je na zozname potlačenia – neoslovuj ho.")
     if not subject.strip():
         raise BenchmarkError("Zadaj predmet správy (podľa neho sa nájde vo vlákne).")
+    from .outreach import SEND_STATES, send_state
+
+    # Rovnaké pravidlá ako pri schválení návrhu systému: stav kontaktu, vylúčená organizácia, neoverené obstarávanie
+    # a denný limit (kontrola konzistentnosti 28. 10. 2026).
+    row = {"status": "draft", "person_id": cp["person_id"], "org_id": cp["org_id"], "hypothesis_id": hid,
+           "contact_point_id": contact_point_id, "package_json": None, "checks_json": "{}"}
+    state, reasons = send_state(cfg, db, row)
+    if state in ("suppressed", "procurement_unverified"):
+        raise BenchmarkError(f"Nedá sa zapísať ({SEND_STATES[state]}): " + "; ".join(reasons))
+    now = datetime.now(timezone.utc)
+    if db.approvals_on(now.date().isoformat()) >= cfg.outreach.daily_cap:
+        raise BenchmarkError(f"Denný limit {cfg.outreach.daily_cap} schválených oslovení je vyčerpaný.")
     body = note.strip() or "(text napísaný ručne mimo systému)"
-    return db.insert_outreach(cp["person_id"], hid, "email", "manual", subject.strip(), body, [],
-                              {"napísané_ručne": True}, "approved", contact_point_id, org_id=cp["org_id"])
+    oid = db.insert_outreach(cp["person_id"], hid, "email", "manual", subject.strip(), body, [],
+                             {"napísané_ručne": True}, "approved", contact_point_id, org_id=cp["org_id"])
+    db.update_outreach(oid, approved_at=now.isoformat(timespec="seconds"))
+    return oid
 
 
 def _days(a: str | None, b: str | None) -> float | None:

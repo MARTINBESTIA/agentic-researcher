@@ -32,7 +32,7 @@ from urllib.parse import quote
 from pydantic import BaseModel, Field
 
 from .config import Config
-from .contacts import is_generic_email
+from .contacts import is_generic_email, org_email_ok
 from .db import DB
 from .models import ModelRouter, as_router
 from .names import fold, public_salutation, split_titles
@@ -447,7 +447,7 @@ def model_check(cfg: Config, router: ModelRouter, body: str, facts: list[dict[st
     return {"verdict": res.value.verdict, "problems": [p.model_dump() for p in res.value.problems]}
 
 
-def plan_channels(db: DB, person, org_id: int | None) -> list[tuple[str, Any, bool]]:
+def plan_channels(db: DB, person, org_id: int | None, official: tuple[str, ...] | list[str] = ("gov.sk",)) -> list[tuple[str, Any, bool]]:
     """(kanál, kontakt, generický) podľa dostupných kontaktov osoby."""
     contacts = db.contacts_for_person(person["id"])
     out = []
@@ -459,7 +459,9 @@ def plan_channels(db: DB, person, org_id: int | None) -> list[tuple[str, Any, bo
     elif hidden is not None:
         out.append(("email", hidden, False))  # adresu treba otvoriť ručne na stránke
     elif org_id is not None:
-        generic = next((c for c in db.org_contacts(org_id) if c["kind"] == "email"), None)
+        org = db.get_organization(org_id)
+        generic = next((c for c in db.org_contacts(org_id) if c["kind"] == "email"
+                        and org_email_ok(org, c["value"], official)), None)
         if generic is not None:
             out.append(("email", generic, True))
     profile = next((c for c in contacts if c["kind"] == "profile_url"), None)
@@ -604,7 +606,8 @@ def create_drafts_for(cfg: Config, db: DB, router: ModelRouter, hyp, row: dict[s
         stats["blocked_procurement"] += 1
         return stats
     if person is not None:
-        channels = [c for c in plan_channels(db, person, org_id) if c[0] in cfg.outreach.channels]
+        channels = [c for c in plan_channels(db, person, org_id, cfg.people.official_domains)
+                    if c[0] in cfg.outreach.channels]
         link = next((lk for lk in db.links_for_person(pid) if lk["hypothesis_id"] == hyp["id"]), None)
         link_type = link["link_type"] if link is not None else "contact"
     else:
@@ -728,7 +731,7 @@ def run_drafts(cfg: Config, db: DB, llm: Any, deadline: Deadline, hypothesis_ids
     router = as_router(llm, cfg, db)
     stats: Counter = Counter()
     budget: Counter = Counter()
-    ids = hypothesis_ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    ids = hypothesis_ids or [h["id"] for h in db.automation_hypotheses()]
     queue = []
     for hid in ids:
         for r in contact_shortlist(cfg, db, hid):
@@ -756,6 +759,8 @@ def run_drafts(cfg: Config, db: DB, llm: Any, deadline: Deadline, hypothesis_ids
 def recheck(cfg: Config, db: DB, outreach_id: int, body: str, subject: str | None, router: ModelRouter | None = None) -> dict:
     """Po ručnej úprave: znova kontroly kódom (a voliteľne modelom); stav draft alebo needs_edit."""
     row = db.get_outreach(outreach_id)
+    if row["variant"] == "manual":
+        raise OutreachError("Ručne napísané oslovenie sa v systéme neupravuje ani nekontroluje – text je v tvojej pošte.")
     facts = json.loads(row["facts_json"] or "[]")
     old = json.loads(row["checks_json"] or "{}")
     pkg = json.loads(row["package_json"]) if row["package_json"] else {}
@@ -810,6 +815,12 @@ def send_state(cfg: Config, db: DB, row) -> tuple[str | None, list[str]]:
     contact = db.get_contact(row["contact_point_id"]) if row["contact_point_id"] else None
     if contact is not None and contact["kind"] == "email" and Suppression(cfg, db).is_suppressed(email=contact["value"]):
         return "suppressed", ["adresa je v zozname potlačenia (námietka alebo výmaz)"]
+    if (status in ("draft", "needs_edit") and contact is not None and contact["kind"] == "email"
+            and contact["person_id"] is None and org is not None
+            and not org_email_ok(org, contact["value"], cfg.people.official_domains)):
+        return "needs_contact_evidence", [f"adresa {contact['value']} nepatrí tejto organizácii (iná doména – partner, "
+                                          f"dodávateľ webu alebo vzorová adresa zo stránky {contact['source_url']}); "
+                                          "pridaj správny kontakt alebo návrh zahoď"]
     oh = db.org_hypothesis(row["org_id"], row["hypothesis_id"]) if row["org_id"] else None
     if oh is not None:
         from .recipients import procurement_of
@@ -927,6 +938,9 @@ def mark_sent(cfg: Config, db: DB, outreach_id: int, when: date | None = None, d
 
 def follow_up_text(row) -> tuple[str, str]:
     subject = f"Re: {row['subject']}" if row["subject"] else "Re:"
+    if row["variant"] == "manual":  # text je iba v pošte človeka (M40) – zástupný text sa necituje
+        return subject, ("Dobrý deň, pripomínam sa s mojou správou" + (f" z {row['sent_at']}" if row["sent_at"] else "")
+                         + ". Ak to pre vás nie je téma, pochopím a viac sa neozvem.\nS pozdravom")
     body = ("Dobrý deň, pripomínam sa s otázkou nižšie. Ak to pre vás nie je téma, pochopím a viac sa neozvem.\n"
             "S pozdravom\n\n> " + (row["body"] or "").split(FOOTER_MARK)[0].replace("\n", "\n> "))
     return subject, body

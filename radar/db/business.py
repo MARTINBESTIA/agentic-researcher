@@ -167,8 +167,22 @@ class BusinessMixin:
         self._exec("UPDATE hypotheses SET gap_status = ?, gap_note = ?, gap_decided_at = ?, updated_at = ? WHERE id = ?",
                    (status, note, utcnow(), utcnow(), hid))
 
-    def gap_closed_ids(self) -> set[int]:
-        return {r[0] for r in self.conn.execute("SELECT id FROM hypotheses WHERE gap_status = 'no_defensible_gap'")}
+    def alternative_assessments_for(self, hid: int) -> list[sqlite3.Row]:
+        return self._all("SELECT * FROM alternative_assessments WHERE hypothesis_id = ? ORDER BY id", (hid,))
+
+    # ------------------------------------------------------------- automatika (M39, M40)
+    def automation_excluded_ids(self) -> set[int]:
+        """Hypotézy, ktoré automatika (lievik, autopilot, predvolený výber akcií) vynecháva: potvrdené „bez obhájiteľnej
+        medzery“ (M39) a ručná kohorta benchmarku (M40 – problém, kontakty aj správy pripravuje človek bez agentov).
+        Akcia, ktorú človek spustí pre konkrétnu hypotézu, ich nevynecháva."""
+        return {r[0] for r in self.conn.execute(
+            "SELECT id FROM hypotheses WHERE gap_status = 'no_defensible_gap' "
+            "UNION SELECT hypothesis_id FROM benchmark_members WHERE cohort = 'manual'")}
+
+    def automation_hypotheses(self) -> list[sqlite3.Row]:
+        """Hypotézy Brány 0 pre automatickú prácu (bez `automation_excluded_ids`)."""
+        excluded = self.automation_excluded_ids()
+        return [h for h in self.people_enabled_hypotheses() if h["id"] not in excluded]
 
     def scrub_buyer_factors_of_person(self, person_id: int) -> int:
         """Forget: údaj o organizácii ostane, väzba na osobu a text „kto a kedy“ nie."""

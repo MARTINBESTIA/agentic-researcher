@@ -102,9 +102,10 @@ def card_targets(cfg: Config, db: DB, ids: list[int] | None) -> list:
         hyps = [h for h in (db.get_hypothesis(i) for i in ids) if h is not None]
     else:
         seen, hyps = set(), []
+        excluded = db.automation_excluded_ids()  # M39/M40: automatika ich vynecháva
         for h in list(db.gate2_hypotheses()) + list(db.people_enabled_hypotheses()):
             for x in [h, *db.children_of(h["id"])]:  # podhypotézy rozdelených hypotéz dostanú vlastnú kartu
-                if x["id"] not in seen and x["status"] != "rejected":
+                if x["id"] not in seen and x["status"] != "rejected" and x["id"] not in excluded:
                     seen.add(x["id"])
                     hyps.append(x)
     out = []

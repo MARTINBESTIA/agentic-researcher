@@ -34,7 +34,7 @@ from rapidfuzz import fuzz
 
 from .config import Config
 from .contacts import (
-    Block, PageContacts, contact_page_links, extract_contacts, is_generic_email, is_org_email, is_person_profile,
+    Block, PageContacts, contact_page_links, extract_contacts, is_generic_email, is_person_profile, org_email_ok,
     normalize_profile_url, sitemap_contact_links, snippet_around, value_in_snippet,
 )
 from .db import DB
@@ -58,6 +58,8 @@ PEOPLE_COLLECT_VERSION = 2
 LINK_STRENGTH = {"quoted_about_problem": 1.0, "role_owner": 0.7, "data_holder": 0.6, "process_user": 0.55, "org_affected": 0.5,
                  "procurement_contact": 0.4, "expert": 0.3}
 COLLECTED_LINKS = ("quoted_about_problem", "procurement_contact")
+# Väzba osoby s oslovením, ktorá podľa nových pravidiel inú väzbu nemá – podľa účelu oslovenia.
+OUTREACH_LINK = {"data_request": "data_holder", "expert_review": "expert"}
 # Funkcie ľudí, ktorí v organizácii, ktorá drží dáta, vedia poslať vzorku alebo schému: začiatky slov bez diakritiky
 # (dátový, databáza, údaje, štatistik, analytik, informatik, informačný, otvorené dáta, metodik, register, evidencia,
 # hovorca – vybavuje žiadosti podľa 211/2000). Celé slovo, nie časť („podateľňa“ nie je „dát…“).
@@ -458,7 +460,8 @@ class PeopleCollector:
         limit = self.cfg.people.max_org_contacts_per_kind
         existing = Counter(c["kind"] for c in self.db.org_contacts(org["id"]))
         for email, snip in page.emails.items():
-            if email in assigned or not is_org_email(email, org["name"], org["website"] or page.url):
+            if email in assigned or not org_email_ok(dict(org) | {"website": org["website"] or page.url}, email,
+                                                     self.cfg.people.official_domains):
                 continue
             if existing["email"] < limit:
                 self.save_contact(None, org["id"], "email", email, page.url, snip, "mailto_or_text", generic=True)
@@ -536,7 +539,8 @@ def run_people_collect(cfg: Config, db: DB, llm: Any, searx, fetcher, deadline: 
     router = as_router(llm, cfg, db)
     if rpo is None:
         rpo = RPOClient(db, cfg.people.registry_delay_s, cfg.people.registry_cache_days, cfg.fetch.user_agent)
-    ids = least_recently_searched(db, hypothesis_ids or select_people_hypotheses(cfg, db))
+    excluded = db.automation_excluded_ids()  # M39/M40: automatika ich vynecháva (zadané ids áno)
+    ids = least_recently_searched(db, hypothesis_ids or [i for i in select_people_hypotheses(cfg, db) if i not in excluded])
     collector = PeopleCollector(cfg, db, router, searx, fetcher, deadline, rpo, ruz)
     for hid in ids:
         if deadline.expired():
@@ -658,7 +662,7 @@ def role_fit_for(cfg: Config, db: DB, router: ModelRouter, hyp, roles: list[dict
     return s, res.value.category, "model"
 
 
-def channel_of(db: DB, person_id: int, org_id: int | None) -> tuple[float, str]:
+def channel_of(db: DB, person_id: int, org_id: int | None, official: tuple[str, ...] | list[str] = ("gov.sk",)) -> tuple[float, str]:
     """Najlepší kanál osoby (R-PPL-17)."""
     kinds = {c["kind"]: c for c in db.contacts_for_person(person_id)}
     if "email" in kinds:
@@ -667,7 +671,9 @@ def channel_of(db: DB, person_id: int, org_id: int | None) -> tuple[float, str]:
         return CHANNEL_VALUE["phone"], "osobný telefón"
     if "hidden_contact" in kinds:
         return CHANNEL_VALUE["hidden_contact"], "skrytý kontakt (otvor ručne)"
-    if org_id is not None and any(c["kind"] == "email" for c in db.org_contacts(org_id)):
+    org = db.get_organization(org_id) if org_id is not None else None
+    if org is not None and any(c["kind"] == "email" and org_email_ok(org, c["value"], official)
+                               for c in db.org_contacts(org_id)):
         return CHANNEL_VALUE["generic_email"], "generický e-mail organizácie"
     if "profile_url" in kinds:
         return CHANNEL_VALUE["profile_url"], "iba profil"
@@ -822,6 +828,11 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             people[p["id"]] = p
     for link in db.links_for_hypothesis(hid):
         people.setdefault(link["person_id"], db.get_person(link["person_id"]))
+    # Osoba s oslovením k tejto hypotéze (návrh aj odoslané) ostáva vybraná a s väzbou, mimo limitov (kontrola
+    # konzistentnosti 28. 10. 2026): výber jej inak zmazal väzbu a návrh ostal bez kontaktu v „Koho osloviť“.
+    with_outreach = {o["person_id"]: o["mode"] for o in db.outreach_list(hid) if o["person_id"]}
+    for pid in with_outreach:
+        people.setdefault(pid, db.get_person(pid))
     w = cfg.people.priority_weights
     scored = []
     for pid, person in people.items():
@@ -843,7 +854,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             cat, fit_src = "práca s dátami", "kód (dáta)"
             if person["source_kind"] == "catalog":
                 fit, cat, fit_src = 1.0, "kontaktný bod datasetu", "úradné zverejnenie"
-            if fit < 0.5:
+            if fit < 0.5 and pid not in with_outreach:
                 stats["data_holder_role_mismatch"] += 1
                 stats["no_link"] += 1
                 continue
@@ -878,11 +889,15 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
             group = "expert" if expert else "customer"
         if cat and cat != (person["role_category"] or ""):
             db.update_person(pid, role_category=cat)
+        if not types and pid in with_outreach:
+            fallback = OUTREACH_LINK.get(with_outreach[pid] or "", "role_owner")
+            types, group = {fallback}, {"data_holder": "data_holder", "expert": "expert"}.get(fallback, "customer")
+            stats["kept_with_outreach"] += 1
         if not types:
             stats["no_link"] += 1
             continue
         link_type = max(types, key=lambda t: LINK_STRENGTH.get(t, 0.0))
-        channel, channel_label = channel_of(db, pid, person["org_id"])
+        channel, channel_label = channel_of(db, pid, person["org_id"], cfg.people.official_domains)
         org_fit, org_label = org_fit_of(org)
         components = {
             "role_fit": fit, "role_fit_zdroj": fit_src, "kategória": cat,
@@ -903,7 +918,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
     limits = {"customer": cfg.people.max_people_per_hypothesis, "expert": cfg.people.max_experts_per_hypothesis,
               "data_holder": cfg.people.max_data_holders_per_hypothesis}
     per_org: dict[str, Counter] = {g: Counter() for g in limits}
-    chosen: list = [item for item in scored if item[8]]  # ručne pridaní vždy
+    chosen: list = [item for item in scored if item[8] or item[1] in with_outreach]  # ručne pridaní a s oslovením vždy
     count: Counter = Counter()
     # Vedenie malej organizácie (konateľ, majiteľ) sa vyberie vždy, najviac jeden na organizáciu a mimo
     # max_people_per_org (M42): s limitom 2 na organizáciu predbehli konateľku mikro kancelárie dve maklérky
@@ -911,7 +926,7 @@ def rank_hypothesis(cfg: Config, db: DB, router: ModelRouter, hyp, budget: Count
     leads: set[int] = set()
     for item in scored:
         priority, pid, person, org, types, link_type, comp, group, manual = item
-        if manual or group != "customer" or person["org_id"] in leads or count[group] >= limits[group]:
+        if manual or item in chosen or group != "customer" or person["org_id"] in leads or count[group] >= limits[group]:
             continue
         if is_small_org_lead(person, org, hyp):
             comp["vedenie_malej_organizácie"] = "vybraté vždy (mimo limitu na organizáciu)"
@@ -1051,7 +1066,7 @@ def search_profiles(cfg: Config, db: DB, searx, hid: int, limit: int | None = No
 def run_profiles(cfg: Config, db: DB, searx, deadline: Deadline, hypothesis_ids: list[int] | None = None) -> dict:
     """Doplní LinkedIn profily už vybraným ľuďom (napr. po zmene pravidiel); nič nesťahuje."""
     require_lia(cfg)
-    ids = hypothesis_ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    ids = hypothesis_ids or [h["id"] for h in db.automation_hypotheses()]
     stats: Counter = Counter()
     for hid in ids:
         if deadline.expired():
@@ -1081,7 +1096,7 @@ def run_people_rank(cfg: Config, db: DB, llm: Any, searx, deadline: Deadline, hy
     router = as_router(llm, cfg, db)
     budget: Counter = Counter()
     stats: Counter = Counter()
-    ids = hypothesis_ids or [h["id"] for h in db.people_enabled_hypotheses()]
+    ids = hypothesis_ids or [h["id"] for h in db.automation_hypotheses()]
     for hid in ids:
         if deadline.expired():
             break

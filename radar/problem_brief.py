@@ -133,6 +133,16 @@ def problem_brief(cfg: Config, db: DB, hid: int, with_names: bool = False) -> st
            f"kontakty na oslovenie {len(c['osloviteľní'])} · návrhy oslovení {len(c['návrhy_oslovení'])} · "
            f"karty organizácií {len(c['karty_org'])}", ""]
 
+    why_skip = []
+    if hyp["gap_status"] == "no_defensible_gap":
+        why_skip.append("potvrdené „bez obhájiteľnej medzery“ (alternatívy pokrývajú proces)")
+    member = db.benchmark_member(hid)
+    if member is not None and member["cohort"] == "manual":
+        why_skip.append("ručná kohorta benchmarku – problém, kontakty aj správy pripravuješ bez agentov")
+    if why_skip:
+        out += ["> **Automatika túto hypotézu vynecháva** (lievik, autopilot, predvolené akcie): " + "; ".join(why_skip)
+                + ". Akcia, ktorú spustíš ručne pre túto hypotézu, funguje.", ""]
+
     # 1 problém
     out += ["## 1. Problém jednou vetou", ""]
     if card:

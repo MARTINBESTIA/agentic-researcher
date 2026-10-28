@@ -348,3 +348,11 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M39 | človek potvrdí → lievik a autopilot vynechajú; obnovenie | `test_m39_alternatives.py::test_human_confirms_then_funnel_and_autopilot_skip_until_reopened` |
 | M39 | potvrdiť iba návrh kódu; nezmenené vstupy sa znova neposudzujú | `test_m39_alternatives.py::test_confirm_only_a_code_proposal_and_unchanged_inputs_are_not_reassessed` |
 | M39 | GUI Problémy → Kritika: alternatívy a potvrdenie bez volania modelu | `test_m39_alternatives.py::test_problems_page_shows_alternatives_and_confirm_without_model_calls` |
+| M43 | jedno pravidlo vynechania (bez medzery, ručná kohorta) pre lievik, autopilota, frontu testu, karty, TED, alternatívy a doménový výskum; zadané hypotézy áno | `test_m43_consistency.py::test_one_exclusion_rule_for_funnel_autopilot_and_default_selection` |
+| M43 | osoby s oslovením ostávajú vo výbere a väzba sa obnoví | `test_m43_consistency.py::test_rank_keeps_people_with_outreach_and_restores_their_link` |
+| M43 | výmaz osoby zachová fakt o organizácii, zmaže kto a kedy | `test_m43_consistency.py::test_deleting_a_person_keeps_org_facts_but_removes_who_said_it` |
+| M43 | ručné oslovenie: obstarávanie, denný limit, bez úprav v systéme, pripomienka bez zástupného textu | `test_m43_consistency.py::test_manual_outreach_follows_approval_rules_and_is_not_edited_in_system` |
+| M43 | pripravenosť „na ponuku“ v Markdowne karty; Prehľad príležitosti vysvetlí vynechanie | `test_m43_consistency.py::test_offer_readiness_in_card_markdown_and_brief_explains_exclusion` |
+| M43 | dosiér s obchodnými dôkazmi, ekonomikou, alternatívami a benchmarkom, pseudonymizovaný | `test_m43_consistency.py::test_dossier_contains_outcomes_commercial_economics_alternatives_benchmark_and_ted` |
+| M43 | GUI Oslovenia: ručné oslovenie bez úprav a mailto | `test_m43_consistency.py::test_outreach_page_shows_manual_record_without_edit_or_mailto` |
+| M43 | návrh na adresu inej organizácie sa nedá schváliť a „Koho osloviť“ ju neukáže | `test_m43_consistency.py::test_drafts_to_an_address_of_another_org_are_held_and_hidden_from_who_to_contact` |
