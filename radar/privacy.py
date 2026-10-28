@@ -198,6 +198,7 @@ def forget(cfg, db, person_id: int | None = None, email: str | None = None, phon
         sup.add(reason, name=person["full_name"], org_key=_org_key(db, person["org_id"]))
         db.anonymize_interviews_of(pid)
         db.scrub_commercial_evidence_of_person(pid)  # obchodný fakt o organizácii ostane, text a väzba na osobu nie
+        db.scrub_buyer_factors_of_person(pid)  # ekonomika u zákazníka (M38) – rovnako
         db.delete_person(pid)
         removed += 1
     contacts_removed = 0

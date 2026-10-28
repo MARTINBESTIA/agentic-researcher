@@ -335,3 +335,10 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M40 | ručne napísané oslovenie ako záznam pre poštu; zoznam potlačenia | `test_m36_m40_business.py::test_manual_outreach_is_recorded_for_mail_matching_and_respects_suppression` |
 | M40 | porovnanie obchodných stavov so zložkami, verdikt až po 20 osloveniach a 5 rozhovoroch | `test_m36_m40_business.py::test_report_compares_commercial_states_only_after_targets` |
 | M36, M40 | GUI: Brána 0 → Benchmark a Zdroje → obchodný výsledok | `test_m36_m40_business.py::test_gate0_benchmark_tab_and_sources_yield_render` |
+| M38 | rozpätia počíta Python intervalovo (hodnota, čistý prínos, návratnosť) | `test_m38_economics.py::test_ranges_are_computed_by_python_with_interval_arithmetic` |
+| M38 | ponuka až s nákladovým údajom zákazníka; odhad z veľkosti trhu nestačí | `test_m38_economics.py::test_offer_needs_customer_cost_data_not_estimates_or_market` |
+| M38 | pozorované: doslovný citát s číslom, dokument dodávateľa odmietnutý | `test_m38_economics.py::test_observed_needs_verbatim_quote_with_number_and_vendor_is_rejected` |
+| M38 | neznáme faktory = otázky; „iba čas“ označené | `test_m38_economics.py::test_unknown_factors_are_questions_and_time_only_saving_is_flagged` |
+| M38 | forget vymaže kto a kedy, fakt o organizácii ostane | `test_m38_economics.py::test_forget_scrubs_who_said_it_but_keeps_the_org_fact` |
+| M38 | Prehľad príležitosti a pripravenosť karty „na ponuku“ | `test_m38_economics.py::test_brief_and_card_show_economics_and_offer_readiness` |
+| M38 | GUI karty: pripravenosť na ponuku a ekonomika bez volania modelu | `test_m38_economics.py::test_card_panel_shows_offer_readiness_and_economics_without_model_calls` |

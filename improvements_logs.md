@@ -154,7 +154,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   z existujúcich tabuliek (bez novej schémy). GUI Zdroje + príkaz `commercial-yield`. **Bandit nemeniť**, kým nie je
   aspoň ~30 odoslaných oslovení v ≥ 3 kategóriách (predajné výsledky sú oneskorené, riedke a závisia od toho, koho
   oslovíš); pravidlo zapísať do DECISIONS. · 1 deň.
-- **2026-10-26 – audit – M38: ekonomika u konkrétneho zákazníka.** Tabuľka `buyer_economics` (organizácia × hypotéza,
+- ~~**2026-10-26 – audit – M38: ekonomika u konkrétneho zákazníka.**~~ **Hotové 28. 10. 2026** (`economics.py`; model sa nepoužíva). Tabuľka `buyer_economics` (organizácia × hypotéza,
   väzba na kartu organizácie): objem prípadov, minúty na prípad, cena práce, dosiahnuteľná úspora, náklad na zavedenie
   a kontrolu; každý faktor s pôvodom `observed` / `customer_reported` / `inferred` / `unknown` a zdrojom (citát,
   rozhovor, výsledok oslovenia). Rozpätie ročnej hodnoty, čistý prínos a návratnosť počíta Python (model iba

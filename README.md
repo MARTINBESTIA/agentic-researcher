@@ -192,6 +192,10 @@ pseudonymizované. Pre nového používateľa: `docs/PRE_NOVEHO_POUZIVATELA.md`.
    organizácie. **Sústredený režim** (najviac 3 organizácie): autopilot najprv dopĺňa ich karty a návrhy. CLI:
    `python -m radar org-cards --run --target 4:4 --target 100:4` (ORG:HYP), `--list`, `--export exports/karty.md`,
    `--compare reports/porovnanie.md`, `--focus on --hypothesis 4 --org 4`.
+   **Ekonomika u zákazníka (M38)** v karte: objem prípadov, čas na prípad, cena práce, úspora, náklad na zavedenie
+   a kontrolu – každý údaj s pôvodom (pozorované s citátom / uviedol zákazník / odhad / nevieme). Ročnú hodnotu,
+   čistý prínos a návratnosť ráta Python v rozpätí; neznáme faktory sa ukážu ako otázky do rozhovoru. Štvrtá
+   pripravenosť **„na ponuku“** je splnená až s overeným prínosom a nákladovým údajom od zákazníka (veľký trh nestačí).
 6. **`drafts`** → **GUI → Oslovenia:** návrh podľa účelu – **zákazník** (rozhovor o skúsenosti, prípadne
    ponuka malého výstupu), **držiteľ dát** (vysvetlenie polí, vzorka), **expert** (posúdenie postupu),
    **pilot** až po potvrdení problému kontaktom; aj organizácia cez funkčný kontakt bez vymyslenej osoby.

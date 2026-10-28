@@ -10,6 +10,8 @@ from ..util import utcnow
 
 REPLIED_STATUSES = ("replied", "scheduled", "interviewed", "declined", "no_show")
 BENCHMARK_FIELDS = {"source_url", "note", "prep_minutes"}
+ECONOMICS_FIELDS = {"factor", "low", "high", "unit", "value_text", "provenance", "source_kind", "document_id", "quote",
+                    "outcome_id", "interview_id", "evidence"}
 
 
 class BusinessMixin:
@@ -110,3 +112,37 @@ class BusinessMixin:
 
     def remove_benchmark_member(self, hid: int) -> None:
         self._exec("DELETE FROM benchmark_members WHERE hypothesis_id = ?", (hid,))
+
+    # ------------------------------------------------------------- M38: ekonomika u zákazníka
+    def add_buyer_factor(self, hid: int, org_id: int, recorded_by: str = "human", person_id: int | None = None,
+                         **fields: Any) -> int:
+        bad = set(fields) - ECONOMICS_FIELDS
+        if bad:
+            raise ValueError(f"Neznáme polia: {bad}")
+        now = utcnow()
+        cols = ["hypothesis_id", "org_id", "person_id", "recorded_by", "created_at", "updated_at", *fields]
+        cur = self._exec(f"INSERT INTO buyer_economics ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                         (hid, org_id, person_id, recorded_by, now, now, *fields.values()))
+        return int(cur.lastrowid)
+
+    def buyer_factors(self, hid: int, org_id: int, include_withdrawn: bool = False) -> list[sqlite3.Row]:
+        extra = "" if include_withdrawn else "AND status = 'active'"
+        return self._all(f"SELECT * FROM buyer_economics WHERE hypothesis_id = ? AND org_id = ? {extra} ORDER BY id",
+                         (hid, org_id))
+
+    def withdraw_buyer_factor(self, factor_id: int) -> None:
+        self._exec("UPDATE buyer_economics SET status = 'withdrawn', updated_at = ? WHERE id = ?", (utcnow(), factor_id))
+
+    def orgs_with_buyer_factors(self, hid: int) -> list[int]:
+        return [r[0] for r in self.conn.execute(
+            "SELECT DISTINCT org_id FROM buyer_economics WHERE hypothesis_id = ? AND status = 'active' ORDER BY org_id",
+            (hid,))]
+
+    def document_by_url(self, url: str) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM documents WHERE url = ? ORDER BY fetched_at DESC LIMIT 1", (url.strip(),))
+
+    def scrub_buyer_factors_of_person(self, person_id: int) -> int:
+        """Forget: údaj o organizácii ostane, väzba na osobu a text „kto a kedy“ nie."""
+        cur = self._exec("UPDATE buyer_economics SET person_id = NULL, evidence = '(osoba vymazaná)', updated_at = ? "
+                         "WHERE person_id = ?", (utcnow(), person_id))
+        return cur.rowcount

@@ -754,12 +754,21 @@ def card_readiness(cfg: Config, db: DB, row) -> dict[str, Any]:
             if x["karta_proces"] != row["process_key"]:
                 why_not.append("výsledok nie je priradený k úkonu tejto karty (priradí človek)")
             benefit_missing.append(f"E{x['id']}: " + ", ".join(why_not))
+    # 4) ponuka (M38): prínos overený a aspoň jeden nákladový údaj zákazníka – veľký trh ani odhad nestačí
+    from .economics import economics
+
+    econ = economics(db, hid, org_id)
+    offer_missing = ([] if good else ["tvrdenie o prínose (porovnanie na dátach organizácie)"]) + (
+        [] if econ["pripravené_na_ponuku"] else [econ["dôvod"]])
     ready = {"rozhovor": {"pripravené": not interview_missing, "dôvody": interview_why, "chýba": interview_missing},
              "skúška": {"pripravené": not trial_missing, "chýba": trial_missing, "súhlas": consent, "dáta": has_data,
                         "dôvody": [f"zásah: {INTERVENTIONS.get(opt['type'], opt['type'])} – {opt.get('title', '')}"]
                         if opt else []},
              "prínos": {"pripravené": bool(good), "chýba": benefit_missing,
-                        "dôvody": [f"E{x['id']}: {x['verdikt']}" for x in good]}}
+                        "dôvody": [f"E{x['id']}: {x['verdikt']}" for x in good]},
+             "ponuka": {"pripravené": not offer_missing, "chýba": offer_missing,
+                        "dôvody": ([econ["dôvod"]] if econ["pripravené_na_ponuku"] else [])
+                        + ([f"ročná hodnota: {econ['text']['ročná_hodnota']}"] if econ["ročná_hodnota"] else [])}}
     if interview_missing:
         nxt = "doplň: " + interview_missing[0]
     elif trial_missing:
@@ -768,6 +777,8 @@ def card_readiness(cfg: Config, db: DB, row) -> dict[str, Any]:
         nxt = "dohodnúť prvý krok: " + ((card.get("partner_ask") or {}).get("first_step") or "malá skúška")
     elif not good:
         nxt = "spustiť skúšku a porovnať s dnešným postupom (výsledok priradiť ku karte)"
+    elif not econ["pripravené_na_ponuku"]:
+        nxt = "doplň ekonomiku u zákazníka – " + (econ["otázky"][0] if econ["otázky"] else econ["dôvod"])
     else:
         nxt = "ponuka po potvrdení rozsahu človekom"
     ready["ďalší_krok"] = nxt

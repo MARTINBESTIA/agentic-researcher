@@ -1077,6 +1077,30 @@ CREATE TABLE IF NOT EXISTS benchmark_members (  -- kohorty benchmarku v reálnom
 );
 """
 
+SCHEMA_V22 = """
+CREATE TABLE IF NOT EXISTS buyer_economics (  -- ekonomika u konkrétneho zákazníka (M38): faktor s pôvodom a zdrojom
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,   -- kto údaj uviedol (forget vymaže väzbu aj text)
+  factor TEXT NOT NULL,       -- cases_per_year | minutes_per_case | hourly_cost | saving_share | implementation_cost
+                              -- | control_cost | saving_use
+  low REAL, high REAL,        -- rozpätie (presná hodnota: low = high); NULL pri „nevieme“
+  unit TEXT, value_text TEXT, -- value_text: využitie úspory (cost_cut | capacity | time_only | unknown)
+  provenance TEXT NOT NULL,   -- observed | customer_reported | inferred | unknown
+  source_kind TEXT,           -- document | outcome | interview | manual | inference
+  document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  quote TEXT,                 -- doslovný úryvok dokumentu (overený kódom)
+  outcome_id INTEGER REFERENCES outreach_outcomes(id) ON DELETE SET NULL,
+  interview_id INTEGER REFERENCES interviews(id) ON DELETE SET NULL,
+  evidence TEXT,              -- kto a kedy (zákazník) alebo ako vznikol odhad
+  status TEXT NOT NULL DEFAULT 'active',  -- active | withdrawn
+  recorded_by TEXT NOT NULL DEFAULT 'human',
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_buyer_economics ON buyer_economics(hypothesis_id, org_id);
+"""
+
 V20_COLUMNS = {
     "org_hypotheses": {"people_version": "INTEGER NOT NULL DEFAULT 0"},  # verzia pravidiel zberu ľudí (M42)
 }

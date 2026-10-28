@@ -26,6 +26,8 @@ STEP_ACTION = {
     "oslovenia": "Správca akcií → „Pripraviť návrhy oslovení“ – návrhy na tvoju kontrolu, odosielaš ty",
     "dáta": "Správca akcií → „Brána 1: prieskum dát“ – zdroje dát a ich pripravenosť",
     "karty": "Brána 0 → Doména a prínos → Karta organizácie – ponuka pre konkrétnu organizáciu",
+    "ekonomika": "Brána 0 → Doména a prínos → Karta organizácie → Ekonomika u zákazníka – objem prípadov, čas na prípad "
+                 "a cenu práce zapíš z rozhovoru (uviedol zákazník) alebo z dokumentu s citátom; veľký trh nestačí",
     "ochota platiť": "pri rozhovore (nie v prvom e-maile) over stupne v časti 6 a zapíš ich s dôkazom do výsledku "
                      "oslovenia (GUI Oslovenia → Zapísať výsledok → Ochota platiť) – potvrdená je až záujem o kúpu za "
                      "konkrétnych podmienok alebo platba",
@@ -44,6 +46,7 @@ def _cell(text: Any, n: int = 160) -> str:
 def completeness(cfg: Config, db: DB, hid: int) -> dict[str, Any]:
     """Čo k problému existuje (počty) a čo chýba – pre prehľad aj tabuľku všetkých problémov."""
     from .commercial import wtp_state
+    from .economics import economics_summary
     from .shortlist import contact_shortlist
     from .strength import evidence_strength
     from .value import domain_of
@@ -66,6 +69,7 @@ def completeness(cfg: Config, db: DB, hid: int) -> dict[str, Any]:
             "produkt": card is not None or bool(proposals),
             "kontakty": bool(reachable), "oslovenia": bool(drafts),
             "ochota platiť": wtp_state(db, hid)["potvrdená"],
+            "ekonomika": economics_summary(db, hid)["s_nákladovým_údajom"] > 0,
             "dáta": (hyp["gate1_status"] if hyp is not None else None) not in (None, "not_started"),
             "karty": bool(org_cards)}
     all_verified = sum(1 for e in db.evidence_for(hid) if e["status"] == "verified")
@@ -73,7 +77,8 @@ def completeness(cfg: Config, db: DB, hid: int) -> dict[str, Any]:
             "karta": card,
             "návrhy": proposals, "karty_org": org_cards, "riadky": rows, "osloviteľní": reachable, "návrhy_oslovení": drafts,
             "experimenty": done_exps, "má": have, "chýba": [k for k in ("zdroje", "doména", "produkt", "kontakty",
-                                                                         "oslovenia", "ochota platiť", "dáta")
+                                                                         "oslovenia", "ochota platiť", "ekonomika",
+                                                                         "dáta")
                                                               if not have[k]],
             "skóre": sum(have[k] for k in ("zdroje", "doména", "produkt", "kontakty", "oslovenia"))}
 
@@ -252,6 +257,13 @@ def problem_brief(cfg: Config, db: DB, hid: int, with_names: bool = False) -> st
             f"datasety {len(db.datasets_for(hid, only_ok=True))} |",
             f"| ochota platiť | {ax['ochota_platiť']['stav']} | {_cell(ax['ochota_platiť']['zložky']['dôkazy'])}; "
             f"platiteľ: {_cell(ax['ochota_platiť']['zložky']['platiteľ'], 80)} – potvrdená je až záujem o kúpu alebo platba |"]
+    from .economics import economics_summary
+
+    es = economics_summary(db, hid)
+    out.append(f"| ekonomika u zákazníka | {es['s_nákladovým_údajom']} z {es['organizácie']} organizácií s nákladovým "
+               "údajom od zákazníka alebo pozorovaným | " + (_cell("ročná hodnota: " + "; ".join(es["ročné_hodnoty"][:3]))
+                                                            if es["ročné_hodnoty"] else "rozpätie zatiaľ nevypočítané")
+               + " – veľký trh nič neposúva |")
     from .procurement import signals
 
     ps = signals(cfg, db, hid)
@@ -314,6 +326,11 @@ def problem_brief(cfg: Config, db: DB, hid: int, with_names: bool = False) -> st
     out += ["**Ako overiť ochotu platiť** (pri rozhovore, nie v prvom e-maile; nepýtaj sa „kúpili by ste…“ – pýtaj sa "
             "na dnešné náklady a konkrétny ďalší krok; každý stupeň zapíš s dôkazom do výsledku oslovenia):", ""] + [
         f"{i}. *{STAGE_LABEL[st]}:* {q}" for i, (st, q) in enumerate(WTP_QUESTIONS, 1)] + [""]
+    from .economics import FACTORS as ECON_FACTORS, USE_QUESTION
+
+    out += ["**Ekonomika u zákazníka** (bez nákladového údaja zákazníka nie je ponuka; zapíš ho s pôvodom do karty "
+            "organizácie):", ""] + [f"- {ECON_FACTORS[k]['question']}" for k in ("cases_per_year", "minutes_per_case",
+                                                                                   "hourly_cost")] + [f"- {USE_QUESTION}", ""]
     if c["návrhy_oslovení"]:
         states = Counter(o["readiness"] or o["status"] for o in c["návrhy_oslovení"])
         out += [f"Návrhy oslovení: {', '.join(f'{k} {v}' for k, v in states.items())} → GUI Oslovenia (odosielaš ty).", ""]

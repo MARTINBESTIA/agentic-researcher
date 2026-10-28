@@ -94,9 +94,9 @@ def render(c, d, hid: int) -> None:
         st.markdown(f"1. **Komu pomáham:** {esc(ans['komu'])}\n2. **V akom úkone:** {esc(ans['úkon'])}\n"
                     f"3. **Čo sa zmení:** {esc(ans['zmena'])}\n4. **Minimálny vstup:** {esc(ans['vstup'])}\n"
                     f"5. **Ako overíme prínos:** {esc(ans['overenie'])}")
-    cols = st.columns(3)
+    cols = st.columns(4)
     for col, (k, label) in zip(cols, (("rozhovor", "Na rozhovor"), ("skúška", "Na návrh skúšky"),
-                                      ("prínos", "Na tvrdenie o prínose"))):
+                                      ("prínos", "Na tvrdenie o prínose"), ("ponuka", "Na ponuku"))):
         r = ready.get(k) or {}
         with col.container(border=True):
             st.markdown(f"**{label}:** {'áno' if r.get('pripravené') else 'nie'}")
@@ -181,6 +181,8 @@ def render(c, d, hid: int) -> None:
                 link_experiment(d, eid, row["id"])
                 refresh_readiness(c, d, row["id"])
                 refresh()
+    with st.expander("Ekonomika u zákazníka", icon=":material/payments:"):
+        _economics(c, d, hid, org_id, cur["id"])
     with st.expander("Zapísať odpoveď organizácie", icon=":material/forum:"):
         st.caption("Odpoveď sa viaže na túto organizáciu a verziu karty; iným organizáciám ani odvetviu potrebu nemení. "
                    "„Bez odpovede“ nie je vyvrátenie. Výpoveď kontaktu nie je meraný výsledok.")
@@ -228,3 +230,66 @@ def render(c, d, hid: int) -> None:
                  "schéma": row["schema_version"], "prompt": row["prompt_version"], "politika": row["policy_version"],
                  "poskytovateľ": row["provider"], "model": row["model"], "hash_vstupov": row["inputs_hash"],
                  "prehľad_domény": row["brief_id"], "autor": row["author"]}, expanded=False)
+
+
+def _economics(c, d, hid: int, org_id: int, card_id: int) -> None:
+    """Faktory s pôvodom a zdrojom; rozpätia počíta Python (radar.economics), model sa nepoužíva."""
+    from radar.economics import FACTORS, PROVENANCE, SAVING_USE, EconomicsError, economics, factor_rows, record
+    from radar.opportunity import refresh_readiness
+
+    e = economics(d, hid, org_id)
+    st.caption("Objem prípadov, čas na prípad a cena práce dnes; úspora a náklady riešenia. Každý údaj s pôvodom: "
+               "pozorované (citát z dokumentu – overí ho kód), uviedol zákazník (kto a kedy), odhad (ako vznikol) "
+               "alebo nevieme. Úspora z webu dodávateľa sa nepoužije. Ponuka až s nákladovým údajom zákazníka.")
+    with st.container(horizontal=True):
+        st.metric("Hodiny ročne dnes", e["text"]["hodiny_ročne"], border=True)
+        st.metric("Náklad dnes ročne", e["text"]["náklad_dnes"], border=True)
+        st.metric("Ročná hodnota úspory", e["text"]["ročná_hodnota"], border=True)
+        st.metric("Čistý prínos ročne", e["text"]["čistý_prínos"], border=True)
+        st.metric("Návratnosť", e["text"]["návratnosť_mesiace"], border=True)
+    (st.success if e["pripravené_na_ponuku"] else st.warning)(e["dôvod"], icon=":material/payments:")
+    if e.get("varovanie"):
+        st.warning(e["varovanie"], icon=":material/warning:")
+    if e.get("návratnosť_poznámka"):
+        st.caption(e["návratnosť_poznámka"])
+    rows = factor_rows(d, hid, org_id)
+    st.dataframe([{k: v for k, v in r.items() if k != "id"} for r in rows], hide_index=True,
+                 alt="Faktory ekonomiky u zákazníka s pôvodom a zdrojom")
+    if e["otázky"]:
+        st.markdown("**Otázky do rozhovoru (neznáme alebo iba odhadnuté):**\n" + "\n".join(f"- {q}" for q in e["otázky"]))
+    keys = [*FACTORS, "saving_use"]
+    labels = {**{k: v["label"] for k, v in FACTORS.items()}, "saving_use": "využitie úspory"}
+    with st.form(f"g0_econ_{hid}_{org_id}", clear_on_submit=True):
+        factor = st.selectbox("Faktor", keys, format_func=labels.get)
+        prov = st.segmented_control("Pôvod", list(PROVENANCE), format_func=PROVENANCE.get, default="customer_reported")
+        col_lo, col_hi, col_use = st.columns(3)
+        low = col_lo.number_input("Hodnota (od)", min_value=0.0, value=None, step=1.0)
+        high = col_hi.number_input("do (pri rozpätí)", min_value=0.0, value=None, step=1.0)
+        use = col_use.selectbox("Využitie úspory", list(SAVING_USE), format_func=SAVING_USE.get, index=None)
+        evidence = st.text_input("Kto a kedy to povedal / ako vznikol odhad")
+        doc_ref = st.text_input("Dokument (URL alebo ID) – pri pozorovanom údaji")
+        quote = st.text_area("Doslovný citát z dokumentu", height=70)
+        outcomes = {o["id"]: f"{o['recorded_at'][:10]} – {o['reply']}" for o in d.outcomes_for(hid) if o["org_id"] == org_id}
+        outcome = st.selectbox("Výsledok oslovenia (voliteľné)", list(outcomes), format_func=outcomes.get, index=None)
+        if st.form_submit_button("Zapísať faktor"):
+            doc_id = None
+            if doc_ref.strip():
+                doc = d.get_document(int(doc_ref)) if doc_ref.strip().isdigit() else d.document_by_url(doc_ref)
+                doc_id = doc["id"] if doc is not None else -1
+            try:
+                record(d, hid, org_id, factor, prov or "", low, high, evidence=evidence, quote=quote,
+                       document_id=doc_id if doc_id != -1 else None, outcome_id=outcome, use=use)
+                refresh_readiness(c, d, card_id)
+                st.rerun()
+            except EconomicsError as exc:
+                st.error(str(exc) if doc_id != -1 else "Dokument sa v databáze nenašiel – " + str(exc))
+    active = [r for r in rows if r["id"]]
+    if active:
+        drop = st.selectbox("Stiahnuť údaj (ostane v histórii)", [r["id"] for r in active], index=None,
+                            format_func=lambda i: next(f"{r['faktor']}: {r['hodnota']} ({r['pôvod']})" for r in active
+                                                       if r["id"] == i), key=f"g0_econ_drop_{hid}_{org_id}")
+        if drop and st.button("Stiahnuť", key=f"g0_econ_drop_btn_{hid}_{org_id}"):
+            d.withdraw_buyer_factor(drop)
+            refresh_readiness(c, d, card_id)
+            st.rerun()
+
