@@ -222,7 +222,8 @@ def pick(cfg: Config, db: DB, now: datetime | None = None) -> dict[str, Any]:
     w = cfg.workflows
     find_ok = in_window(cfg, "find", now)
     last = db.funnel_last()
-    if last is not None and last["hypothesis_id"] and last["next_step"]:
+    closed = db.gap_closed_ids()  # M39: potvrdené „bez obhájiteľnej medzery“ lievik vynecháva
+    if last is not None and last["hypothesis_id"] and last["next_step"] and last["hypothesis_id"] not in closed:
         h = db.get_hypothesis(last["hypothesis_id"])
         u = _usable(cfg, db, h, now) if h is not None else None
         if u:
@@ -235,7 +236,7 @@ def pick(cfg: Config, db: DB, now: datetime | None = None) -> dict[str, Any]:
              db.gate1_hypotheses(), db.people_enabled_hypotheses())
     for pool in pools:
         for h in pool:
-            if h["id"] in seen or h["status"] == "rejected":
+            if h["id"] in seen or h["status"] == "rejected" or h["id"] in closed:
                 continue
             seen.add(h["id"])
             u = _usable(cfg, db, h, now)
@@ -245,7 +246,7 @@ def pick(cfg: Config, db: DB, now: datetime | None = None) -> dict[str, Any]:
         _, _, hid, u = min(started)
         return {"hypothesis_id": hid, "step": u[0], "reason": f"rozpracovaná: {u[1]}", "signature": u[2]}
     for h in db.validation_queue(60, utc_days_ago(w.retest_days)):
-        if h["status"] == "rejected":
+        if h["status"] == "rejected" or h["id"] in closed:
             continue
         u = _usable(cfg, db, h, now)
         if u and u[0] == "test":

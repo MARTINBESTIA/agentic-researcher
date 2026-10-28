@@ -117,6 +117,13 @@ ACTIONS: dict[str, Action] = {
         "hodnoty) a stav obstarávania organizácií podľa IČO kupujúceho. TED má iba zákazky nad limitmi EÚ.",
         "oznámenia TED, podobné zákazky k hypotézam (Problémy → Obstarávanie), stav obstarávania v Bráne 0",
         "embeddingy (CPU) + rýchly", 45),
+    "alternatives": Action(
+        "Konkurencia: alternatívy a obhájiteľná medzera",
+        "Pre hypotézy na Bráne 0: zdroje o riešeniach (overené tvrdenia, prehľad domény, karty organizácií, stránky "
+        "z odkazov kritika) → presný model posúdi alternatívy aj nesoftvérové (človek, tabuľka, externá služba, modul ERP, "
+        "zrušenie procesu): pokrytie procesu, ako sa kupujú, bariéry, nevyriešená časť → kód overí citáty a navrhne stav. "
+        "„Bez obhájiteľnej medzery“ potvrdzuješ ty; potom ju lievik a autopilot vynechajú.",
+        "alternatívy a návrh (Problémy → Kritika)", "presný", 30),
     "mail": Action(
         "Pošta: odoslané a odpovede (Gmail)",
         "Gmail cez IMAP, iba čítanie: rozpozná tvoje odoslané oslovenia (odoslané, follow-up), odpovede, automatické "
@@ -517,6 +524,11 @@ def _procurement(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("procurement-match", deadline)
 
 
+def _alternatives(app, deadline: Deadline, run, ids, report_progress) -> None:
+    app.people_ids = ids
+    run("alternatives", deadline)
+
+
 def _eval(app, deadline: Deadline, run, ids, report_progress) -> None:
     run("eval-all", deadline)
 
@@ -544,5 +556,5 @@ FLOWS: dict[str, Callable[..., None]] = {
     "org_cards": _org_cards,
     "evidence": _evidence, "topics": _topics, "critique": _critique, "gate1": _gate1, "gate1-input": _gate1_input, "gate2": _gate2, "cards": _cards, "bench": _bench,
     "themes": _themes, "autopilot": _autopilot, "catalog": _catalog, "eval": _eval, "funnel": _funnel,
-    "procurement": _procurement, "mail": _mail,
+    "procurement": _procurement, "mail": _mail, "alternatives": _alternatives,
 }

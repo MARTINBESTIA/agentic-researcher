@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 # (workflows.autopilot_discovery_share).
 PRIORITY: list[tuple[str, int]] = [
     ("mail", 15), ("gate1-input", 10), ("gate1", 60), ("cards", 30), ("gate2", 60), ("people", 60), ("contacts", 20), ("drafts", 30),
-    ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30),
+    ("evidence", 45), ("validate", 60), ("themes", 10), ("critique", 30), ("alternatives", 20),
 ]
 DISCOVERY: list[tuple[str, int]] = [("scout", 60), ("topics", 30), ("catalog", 30), ("procurement", 30)]
 # Sústredený režim prípravy oslovení (zadanie 17. 10. 2026, časť E): karty zvolených organizácií a návrhy pred
@@ -50,8 +50,14 @@ def _since_last(db: DB, kinds: tuple[str, ...]) -> str:
     return (row["t"] if row and row["t"] else "") or ""
 
 
+def _open(db: DB) -> list:
+    """Hypotézy Brány 0 okrem potvrdených „bez obhájiteľnej medzery“ (M39 – autopilot ich vynechá)."""
+    closed = db.gap_closed_ids()
+    return [h for h in db.people_enabled_hypotheses() if h["id"] not in closed]
+
+
 def selected_ids(db: DB) -> list[int]:
-    return [h["id"] for h in db.people_enabled_hypotheses()]
+    return [h["id"] for h in _open(db)]
 
 
 STAGE_RANK = {"passed": 0, "needs_revalidation": 1, "running": 1, "needs_input": 2, "ready": 1, "not_started": 3}
@@ -62,7 +68,7 @@ def priority_ids(cfg: Config, db: DB, k: int | None = None) -> list[int]:
     (Brána 1 prešla → rozpracovaná → čaká na dáta → nezačatá), potom najdlhšie vybrané. Ostatné počkajú, kým
     sa niektorá vetva dokončí (audit: systém má dokončovať vybrané vetvy, nie rozbiehať nové)."""
     k = k if k is not None else cfg.workflows.autopilot_max_priorities
-    rows = [(STAGE_RANK.get(h["gate1_status"] or "not_started", 3), h["id"]) for h in db.people_enabled_hypotheses()]
+    rows = [(STAGE_RANK.get(h["gate1_status"] or "not_started", 3), h["id"]) for h in _open(db)]
     return [hid for _, hid in sorted(rows)[:k]]
 
 
@@ -73,7 +79,7 @@ def gate1_ids(db: DB, k: int = GATE1_PER_JOB) -> list[int]:
     from .gate1 import binding_work
 
     rows = []
-    for h in db.people_enabled_hypotheses():
+    for h in _open(db):
         status = h["gate1_status"] or "not_started"
         when = (json.loads(h["gate1_json"] or "{}") or {}).get("vypočítané") or ""
         if status in ("not_started", "running") or (status in ("needs_input", "needs_revalidation")
@@ -165,6 +171,11 @@ def pending_work(cfg: Config, db: DB) -> dict[str, str]:
                for e in exps) or hid in todo:
             work["gate2"] = "Brána 1 prešla: " + ", ".join(f"H{i}" for i in passed)
             break
+    from .alternatives import pending as alternatives_pending
+
+    alt = alternatives_pending(cfg, db, priority_ids(cfg, db))
+    if alt:
+        work["alternatives"] = "alternatívy na posúdenie: " + ", ".join(f"H{i}" for i in alt)
     for h in db.active_hypotheses():
         evidence = db.evidence_for(h["id"])
         if len(evidence) < cfg.pipeline.critique_min_claims or evidence_strength(evidence)[0] == "slabá":
@@ -233,7 +244,8 @@ def plan_round(cfg: Config, db: DB, config_path: str | Path, until: datetime, ro
         reserve = reserve if reserve >= MIN_SLICE else 0.0
     used = 0.0
     ids_for = {"gate1": gate1_ids(db, wf.autopilot_max_priorities), "people": priority_ids(cfg, db),
-               "contacts": priority_ids(cfg, db), "drafts": priority_ids(cfg, db)}
+               "contacts": priority_ids(cfg, db), "drafts": priority_ids(cfg, db),
+               "alternatives": priority_ids(cfg, db)}
     if focus_on:
         from .opportunity import focus_settings
 

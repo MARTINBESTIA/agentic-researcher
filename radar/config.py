@@ -132,6 +132,7 @@ DEFAULT_TASKS: dict[str, TaskRoute] = {
     "gap_answer": _route("accurate"),
     "procurement_match": _route("fast"),  # TED: rieši zákazka problém hypotézy? (kandidátov navrhujú embeddingy)
     "mail_reply": _route("fast"),  # rozbor odpovede na oslovenie (iba lokálne – osobné údaje); potvrdzuje človek
+    "alternatives_assess": _route("accurate"),  # alternatívy k problému (M39); citáty overuje kód, stav potvrdzuje človek
 }
 
 

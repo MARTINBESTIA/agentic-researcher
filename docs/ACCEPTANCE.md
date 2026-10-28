@@ -342,3 +342,9 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M38 | forget vymaže kto a kedy, fakt o organizácii ostane | `test_m38_economics.py::test_forget_scrubs_who_said_it_but_keeps_the_org_fact` |
 | M38 | Prehľad príležitosti a pripravenosť karty „na ponuku“ | `test_m38_economics.py::test_brief_and_card_show_economics_and_offer_readiness` |
 | M38 | GUI karty: pripravenosť na ponuku a ekonomika bez volania modelu | `test_m38_economics.py::test_card_panel_shows_offer_readiness_and_economics_without_model_calls` |
+| M39 | zdroje: dôkazy (riešenia prvé) a stránky z odkazov kritika | `test_m39_alternatives.py::test_sources_include_evidence_and_competitor_pages` |
+| M39 | citáty overuje kód, nedoložené pokrytie sa zoslabí; zdroje v untrusted_document | `test_m39_alternatives.py::test_quotes_are_verified_by_code_and_unverified_claims_are_weakened` |
+| M39 | návrh „bez obhájiteľnej medzery“ iba pri doloženom pokrytí bez doloženej medzery | `test_m39_alternatives.py::test_code_proposes_no_gap_only_with_quoted_coverage_and_no_documented_gap` |
+| M39 | človek potvrdí → lievik a autopilot vynechajú; obnovenie | `test_m39_alternatives.py::test_human_confirms_then_funnel_and_autopilot_skip_until_reopened` |
+| M39 | potvrdiť iba návrh kódu; nezmenené vstupy sa znova neposudzujú | `test_m39_alternatives.py::test_confirm_only_a_code_proposal_and_unchanged_inputs_are_not_reassessed` |
+| M39 | GUI Problémy → Kritika: alternatívy a potvrdenie bez volania modelu | `test_m39_alternatives.py::test_problems_page_shows_alternatives_and_confirm_without_model_calls` |

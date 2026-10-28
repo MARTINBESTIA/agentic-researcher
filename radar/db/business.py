@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any
 
@@ -140,6 +141,34 @@ class BusinessMixin:
 
     def document_by_url(self, url: str) -> sqlite3.Row | None:
         return self._one("SELECT * FROM documents WHERE url = ? ORDER BY fetched_at DESC LIMIT 1", (url.strip(),))
+
+    # ------------------------------------------------------------- M39: alternatívy a medzera
+    def add_alternative_assessment(self, hid: int, inputs_hash: str, sources: list, alternatives: list, proposal: str,
+                                   reason: str | None) -> int:
+        cur = self._exec(
+            """INSERT INTO alternative_assessments (hypothesis_id, inputs_hash, sources_json, alternatives_json, proposal,
+                                                    proposal_reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (hid, inputs_hash, json.dumps(sources, ensure_ascii=False), json.dumps(alternatives, ensure_ascii=False),
+             proposal, reason, utcnow()),
+        )
+        return int(cur.lastrowid)
+
+    def latest_alternative_assessment(self, hid: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM alternative_assessments WHERE hypothesis_id = ? ORDER BY id DESC LIMIT 1", (hid,))
+
+    def get_alternative_assessment(self, assessment_id: int) -> sqlite3.Row | None:
+        return self._one("SELECT * FROM alternative_assessments WHERE id = ?", (assessment_id,))
+
+    def decide_alternative_assessment(self, assessment_id: int, decision: str, note: str | None) -> None:
+        self._exec("UPDATE alternative_assessments SET decision = ?, decision_note = ?, decided_at = ? WHERE id = ?",
+                   (decision, note, utcnow(), assessment_id))
+
+    def set_gap_status(self, hid: int, status: str | None, note: str | None) -> None:
+        self._exec("UPDATE hypotheses SET gap_status = ?, gap_note = ?, gap_decided_at = ?, updated_at = ? WHERE id = ?",
+                   (status, note, utcnow(), utcnow(), hid))
+
+    def gap_closed_ids(self) -> set[int]:
+        return {r[0] for r in self.conn.execute("SELECT id FROM hypotheses WHERE gap_status = 'no_defensible_gap'")}
 
     def scrub_buyer_factors_of_person(self, person_id: int) -> int:
         """Forget: údaj o organizácii ostane, väzba na osobu a text „kto a kedy“ nie."""

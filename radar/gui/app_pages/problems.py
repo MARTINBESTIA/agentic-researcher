@@ -14,6 +14,48 @@ from radar.strength import evidence_strength
 d, c = db(), cfg()
 rows = hypothesis_table(c.db_path)
 
+
+def _alternatives(hid: int) -> None:
+    """Alternatívy k problému (M39): návrh kódu, rozhodnutie človeka; model iba cez úlohu na pozadí."""
+    from radar.alternatives import COVERS, GAP_STATUS, KINDS, decide, reopen, state
+
+    st.markdown("**Alternatívy zákazníka a obhájiteľná medzera**")
+    st.caption("Aj nesoftvérové: človek, tabuľka, externá služba, modul ERP, zrušenie procesu. Citáty overuje kód "
+               "(nedoložené tvrdenie sa zoslabí). Stav „bez obhájiteľnej medzery“ iba navrhuje kód – potvrdzuješ ty; "
+               "potom ju lievik a autopilot vynechajú.")
+    alt = state(d, hid)
+    hyp = d.get_hypothesis(hid)
+    if hyp["gap_status"] == GAP_STATUS:
+        st.warning(f"Potvrdené: bez obhájiteľnej medzery – {hyp['gap_note'] or ''}", icon=":material/block:")
+        if st.button("Obnoviť hypotézu (medzera existuje)", key=f"alt_reopen_{hid}"):
+            reopen(d, hid)
+            refresh()
+    if alt is None:
+        st.caption("Posúdenie zatiaľ nie je.")
+    else:
+        st.info(f"Návrh kódu: {alt['návrh_text']}. {alt['dôvod'] or ''}", icon=":material/rule:")
+        st.dataframe([{"alternatíva": a["názov"], "druh": KINDS.get(a["druh"], a["druh"]),
+                       "pokrýva proces": COVERS.get(a["pokrýva"], a["pokrýva"]) + (
+                           f" (model: {COVERS.get(a['pokrýva_model'])})" if a["pokrýva"] != a["pokrýva_model"] else ""),
+                       "citát": a["pokrýva_citát"], "ako sa kupuje": a["ako_sa_kupuje"], "bariéry": "; ".join(a["bariéry"]),
+                       "nevyriešené": a["nevyriešené"] + ("" if a["nevyriešené_doložené"] or not a["nevyriešené"]
+                                                          else " (nedoložené)"),
+                       "zdroj": a["pokrýva_zdroj"]} for a in alt["alternatívy"]], hide_index=True,
+                     alt="Alternatívy zákazníka s overenými citátmi")
+        if alt["rozhodnutie"]:
+            st.caption(f"Rozhodnutie: {alt['rozhodnutie']} – {alt['poznámka'] or ''}")
+        elif alt["návrh"] == GAP_STATUS and hyp["gap_status"] != GAP_STATUS:
+            note = st.text_input("Poznámka k rozhodnutiu", key=f"alt_note_{hid}")
+            with st.container(horizontal=True):
+                if st.button("Potvrdiť: bez obhájiteľnej medzery", key=f"alt_ok_{hid}", icon=":material/block:"):
+                    decide(d, alt["id"], "confirmed", note)
+                    refresh()
+                if st.button("Zamietnuť návrh (medzera existuje)", key=f"alt_no_{hid}"):
+                    decide(d, alt["id"], "rejected", note)
+                    refresh()
+    start_job_button("alternatives", "Posúdiť alternatívy (presný model)", 30, [hid], key=f"alt_job_{hid}",
+                     icon=":material/play_arrow:")
+
 view = st.segmented_control("Zobrazenie", ["Hypotézy", "Témy"], default="Hypotézy", key="pr_view")
 if view == "Témy":
     themes = theme_table(c.db_path, rows)
@@ -303,6 +345,7 @@ with tab_crit:
                     st.text(f"• {item}")
     else:
         st.caption("Kritika zatiaľ nie je.")
+    _alternatives(hid)
     est = d.latest_market_estimate(hid)
     if est:
         st.markdown("**Hrubý odhad trhu**")

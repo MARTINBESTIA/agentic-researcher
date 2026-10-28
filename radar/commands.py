@@ -112,6 +112,13 @@ def stage_procurement_match(app, deadline: Deadline) -> dict:
                             router=app.router)
 
 
+def stage_alternatives(app, deadline: Deadline) -> dict:
+    """Konkurencia (M39): alternatívy k problému s overenými citátmi a návrh „bez obhájiteľnej medzery“ (presný model)."""
+    from .alternatives import run_alternatives
+
+    return run_alternatives(app.cfg, app.db, app.router, app.fetcher, deadline, getattr(app, "people_ids", None))
+
+
 def _mail_client(app):
     from .mail import GmailImap, password
 
@@ -368,6 +375,7 @@ EXTRA_STAGES: dict[str, Callable[[Any, Deadline], dict]] = {
     "mail-sync": stage_mail_sync,
     "mail-extract": stage_mail_extract,
     "procurement-match": stage_procurement_match,
+    "alternatives": stage_alternatives,
     "eval-all": stage_eval_all,
     "gate1-fields": stage_gate1("fields"),
     "gate1-sources": stage_gate1("sources"),
@@ -444,6 +452,8 @@ STAGE_HELP = {
                         "bez osôb a kontaktov).",
     "procurement-match": "Obstarávanie z TED: kandidátske zákazky k hypotézam (embeddingy, CPU), posúdenie rýchlym "
                          "modelom (rieši problém?) a stav obstarávania organizácií podľa IČO kupujúceho.",
+    "alternatives": "Konkurencia: alternatívy k problému (aj človek, tabuľka, externá služba, modul ERP) s citátmi "
+                    "overenými kódom a návrh „bez obhájiteľnej medzery“ na potvrdenie (presný model).",
     "eval-all": "Eval presnosti profilov modelov na úlohách s aspoň 50 gold labelmi.",
     "people-rank": "Mapa rolí, väzby osoba–problém, priorita a výber ľudí (presný model).",
     "prepare-next": "Filter segmentu a mapa rolí pre vybrané hypotézy (presný model).",

@@ -473,6 +473,16 @@ profil; akcia „Zmerať rýchlosť modelov“. Na 8 GB VRAM + 32 GB RAM je prak
 Úloha beží ako samostatný proces (aj po zatvorení prehliadača), naraz iba jedna (GPU), dá sa
 zastaviť. Priebeh a koniec výstupu (maskovaný) sú v Prehľade, celý výstup v `logs/jobs/`.
 
+### Konkurencia: alternatívy a obhájiteľná medzera (M39)
+
+GUI → Problémy → hypotéza → **Kritika** → „Posúdiť alternatívy“ (alebo `python -m radar job alternatives --hypotheses 3`;
+autopilot ich robí sám pre prioritné hypotézy). Presný model z dôkazov, prehľadu domény, kariet organizácií a stránok
+konkurencie z kritiky vypíše, čím zákazník problém rieši už dnes – aj bez softvéru (človek, tabuľka, externá služba,
+modul ERP, zrušenie procesu): či to pokrýva proces, ako sa to kupuje, bariéry a čo ostáva nevyriešené. Každý citát
+overí kód; nedoložené sa zoslabí. Keď všetko pokrýva proces doloženým citátom a medzera doložená nie je, kód navrhne
+**„bez obhájiteľnej medzery“** – potvrdzuješ ty, potom hypotézu lievik a autopilot vynechajú (tlačidlo „Obnoviť
+hypotézu“ ju vráti).
+
 ## Objavovanie nových problémov
 
 30 % dokumentov behu ide mimo tém: katalóg `sources.yaml` (NKÚ, revízie výdavkov, legislatíva,

@@ -161,7 +161,7 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   štruktúru, ako `market.py`); neznámy faktor = otázka do rozhovoru. Úspora z webu dodávateľa sa nepoužije.
   Pravidlo: veľký trh nič neposúva – „pripravené na ponuku“ až s aspoň jedným nákladovým údajom `observed` alebo
   `customer_reported`. Doplniť aj otázky, či zákazník úsporu vie reálne využiť (nie iba „ušetrený čas“). · 2 dni.
-- **2026-10-26 – audit – M39: konkurencia ako dôvod zamietnutia.** Kritik dnes iba ukladá odkazy z vyhľadávania
+- ~~**2026-10-26 – audit – M39: konkurencia ako dôvod zamietnutia.**~~ **Hotové 28. 10. 2026** (`alternatives.py`). Kritik dnes iba ukladá odkazy z vyhľadávania
   (`critic.py`). Pre hypotézy na Bráne 0 posúdenie alternatív – aj nesoftvérových (človek, Excel, externá služba,
   modul ERP, zrušenie procesu): pokrýva proces (áno / čiastočne / nie, s citátom), ako sa kupuje, bariéry zavedenia,
   ktorá časť ostáva nevyriešená (s dôkazom). Zdroje: odkazy kritika, „existujúce riešenia“ z kariet organizácií,

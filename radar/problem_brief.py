@@ -239,6 +239,16 @@ def problem_brief(cfg: Config, db: DB, hid: int, with_names: bool = False) -> st
         counter = (crit["content"] or {}).get("counterarguments") or []
         if counter:
             out += ["", "**Prečo to nemusí fungovať (kritika):**", ""] + [f"- {_cut(x, 240)}" for x in counter[:4]]
+    from .alternatives import COVERS, KINDS, state as alternatives_state
+
+    alt = alternatives_state(db, hid)
+    if alt is not None:
+        out += ["", f"**Alternatívy zákazníka** (návrh kódu: {alt['návrh_text']}"
+                + ("; **potvrdené človekom – lievik hypotézu vynecháva**" if alt["stav_hypotézy"] == "no_defensible_gap" else "")
+                + "):", ""]
+        out += [f"- {a['názov']} ({KINDS.get(a['druh'], a['druh'])}): {COVERS.get(a['pokrýva'], a['pokrýva'])}"
+                + (f"; nevyriešené: {_cut(a['nevyriešené'], 160)}" + ("" if a["nevyriešené_doložené"] else " (nedoložené)")
+                   if a["nevyriešené"] else "") for a in alt["alternatívy"][:5]]
     market = db.latest_market_estimate(hid)
     if market:
         rng = (f"{market['low']:,.0f} – {market['high']:,.0f} {market['unit']}".replace(",", " ") if market["complete"]

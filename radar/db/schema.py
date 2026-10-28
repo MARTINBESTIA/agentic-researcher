@@ -1101,6 +1101,26 @@ CREATE TABLE IF NOT EXISTS buyer_economics (  -- ekonomika u konkrétneho zákaz
 CREATE INDEX IF NOT EXISTS idx_buyer_economics ON buyer_economics(hypothesis_id, org_id);
 """
 
+SCHEMA_V23 = """
+CREATE TABLE IF NOT EXISTS alternative_assessments (  -- alternatívy k problému a obhájiteľná medzera (M39)
+  id INTEGER PRIMARY KEY,
+  hypothesis_id INTEGER NOT NULL REFERENCES hypotheses(id) ON DELETE CASCADE,
+  inputs_hash TEXT NOT NULL,                  -- odtlačok vstupov (tvrdenia, prehľad domény, karty, kritika, prompt)
+  sources_json TEXT NOT NULL,                 -- zdroje (druh, názov, URL) bez textu
+  alternatives_json TEXT NOT NULL,            -- alternatívy po kontrole citátov kódom
+  proposal TEXT NOT NULL,                     -- no_defensible_gap | gap_evidence | open | insufficient (návrh kódu)
+  proposal_reason TEXT,
+  decision TEXT,                              -- confirmed | rejected | NULL (čaká na človeka)
+  decision_note TEXT, decided_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alt_hyp ON alternative_assessments(hypothesis_id);
+"""
+
+V23_COLUMNS = {
+    "hypotheses": {"gap_status": "TEXT", "gap_note": "TEXT", "gap_decided_at": "TEXT"},  # no_defensible_gap (človek)
+}
+
 V20_COLUMNS = {
     "org_hypotheses": {"people_version": "INTEGER NOT NULL DEFAULT 0"},  # verzia pravidiel zberu ľudí (M42)
 }
