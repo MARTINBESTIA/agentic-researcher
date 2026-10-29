@@ -189,3 +189,106 @@ Formát: **dátum – oblasť – nápad.** Prečo · odhad náročnosti.
   ako presne fungujú existujúce kroky: ručne označiť ~50 prípadov na úlohu (Kontrola → gold labely; zatiaľ 0),
   presnosť kariet organizácií a kontaktov (správna organizácia, správna rola, kontakt platný) na vzorke 20. · 1 deň
   + označovanie.
+
+## 2026-10-29 – požiadavky používateľa
+
+- **2026-10-29 – GUI – história mojej práce v aplikácii a pripomenutie nevyužitých funkcií.** Lokálne zapisovať, čo
+  používateľ v aplikácii reálne robí (navštívené stránky a karty, tlačidlá, formuláre, príkazy CLI – iba názvy akcií
+  a čas, žiadne údaje kontaktov). Porovnať so zoznamom funkcií podľa míľnikov (M35–M43 …) a ukázať „čo je nové a ešte si
+  to neskúsil“ (napr. v Prehľade) – a aby asistent v Claude Code vedel z histórie upozorniť na zabudnutú funkciu.
+  Iba lokálne v DB, bez telemetrie (Streamlit `gatherUsageStats` ostáva vypnuté), s možnosťou vymazania. · 1 deň.
+- **2026-10-29 – Správca akcií – tlačidlo „Spustiť kroky pre existujúce hypotézy na X hodín“.** Ako „Spustiť všetko
+  hneď“ (zvolený čas), ale bez hľadania nových hypotéz: autopilot bez akcií objavovania (scout, topics, catalog)
+  a lievik bez kroku „find“; beží test, kontakty, Brány 1 a 2, karty, kritika, alternatívy, návrhy, pošta a porovnanie
+  s TED pre existujúce hypotézy. Rozhodnúť: akcia `evidence` (zaradenie tvrdení) z nezaradených tvrdení zakladá aj
+  nových kandidátov – v tomto režime iba zaraďovať k existujúcim. · 0,5 dňa.
+
+## 2026-10-29 – externá recenzia (iné AI) po M35–M43
+
+Hodnotenie: väčšina medzier z auditu 26. 10. je riešená (M35–M43); zostávajú správnosť, spoľahlivosť a reálny
+obchodný výsledok. Nasledujúce body sú overené v kóde 29. 10. 2026, ak nie je uvedené inak.
+
+- **P0 – obstarávanie: výzva bez lehoty nie je otvorená.** `procurement.open_days_without_deadline` (60) berie výzvu
+  bez lehoty v dátach ako otvorenú 60 dní od zverejnenia – overené. Taký stav má byť „neoverené“, nie otvorené ani
+  potvrdené, kým sa neoverí živý stav zákazky. Regresný test. · 0,5 dňa.
+- **P0 – ochota platiť: posledný platný stav, nie iba najvyšší.** `commercial._top` berie najvyšší kladný stupeň –
+  overené; neskoršie „nezaplatia“ alebo odmietnutie ponuky staršiu ochotu nezruší, firma ďalej vyzerá ako aktívny
+  kupujúci. Viesť zvlášť historické maximum, posledný účinný stav (neskorší negatívny prebije), rozpory a stiahnuté
+  dôkazy; GUI, Prehľad, M36 a M40 počítať z posledného stavu. · 1 deň.
+- **P0 – pošta: párovanie s prahom istoty.** Bez vlákna sa odoslaná správa páruje podľa adresy a najpodobnejšieho
+  predmetu bez minimálnej podobnosti (`mail._pick`) a odpoveď bez vlákna padá na posledné odoslané oslovenie na adresu –
+  overené. Pridať prah (napr. token_set_ratio ≥ 80) a nejasné prípady dať na ručné potvrdenie. · 0,5 dňa.
+- **P0 – ekonomika: dve úrovne pripravenosti.** `pripravené_na_ponuku` stačí jeden nákladový údaj zákazníka, aj keď
+  ostatné faktory sú odhad (zámer M38). Rozlíšiť „pripravené na rozhovor o pilote“ a „pripravené na ekonomické tvrdenie
+  alebo cenu“ (napr. objem, čas aj cena práce pozorované alebo od zákazníka). · 0,5 dňa.
+- **P0 – alternatívy: „bez medzery“ vyžaduje dôkaz od zákazníka.** Návrh `no_defensible_gap` dnes stačí, že nájdené
+  alternatívy podľa citátov pokrývajú proces a medzera nie je doložená; inzerovaná funkcia nedokazuje, že zákazník je
+  dobre obslúžený. Vyžadovať aspoň jeden dôkaz zo strany zákazníka (výsledok oslovenia, rozhovor, recenzia používateľa).
+  · 0,5 dňa.
+- **P0 – sila dôkazov skôr ako ďalšie poradie.** Nadväzuje na „sila dôkazov podľa relevantnosti“ (21. 10.)
+  a „nezávislosť pozorovaní“ (26. 10.): jednotka dôkazu = nezávislé pôvodné pozorovanie relevantné k cieľovému procesu,
+  nie overený citát z inej domény (tri články o jednej správe NKÚ = 1). Ovplyvňuje, ktoré hypotézy idú do lievika.
+- **P0 – míľnik podľa výsledku, nie funkcií.** Ďalší míľnik: 3 reálne organizácie s doloženým dnešným postupom,
+  aspoň 1 overený ekonomický odhad (M38) a 1 vážny rozhovor o platenom pilote. Námietky a zlyhania potom určia, čo
+  softvér naozaj potrebuje.
+- **P1 – benchmark M40 iba smerový.** Verdikt po 20 osloveniach a 5 rozhovoroch je diagnostika, nie dôkaz prevahy;
+  kohorty sa líšia výberom problémov. Párovať príležitosti z rovnakého zdroja a odvetvia a ukazovať mieru konverzie
+  s intervalom (Wilson, už je v `evals.py`), nie iba počty. · 0,5 dňa.
+- **P1 – referenčné sady a CI.** Ručne označené sady z reálnych behov: relevantnosť zákaziek TED, správna organizácia,
+  rola kontaktu (správny rozhodovateľ), relevantnosť tvrdení, odlíšenie nenaplnenej potreby od inzerovanej funkcie,
+  párovanie pošty na reálnych vláknach; presnosť a úplnosť pred väčšími modelmi (nadväzuje na „zmerať presnosť
+  komponentov“ 26. 10.). GitHub Actions s offline pytest – v repozitári žiadny workflow nie je (overené). · 1 deň
+  + označovanie.
+- **P2 – nová stratégia objavovania: povolania a úlohy (Cedefop + ESCO).** Import skóre nedostatku pracovníkov
+  (Cedefop), rozklad povolania na úlohy s podielom času (ESCO je už lokálne), technická automatizovateľnosť na úrovni
+  úlohy, prepojenie s firmami s tlakom na nábor (inzeráty iba z povolených zdrojov) → hypotéza o úspore a nákupe, napr.
+  „technik údržby → hľadanie náhradných dielov a dokumentácia zákaziek → ušetrené hodiny → konkrétne oddelenia údržby
+  na rozhovor“. Nepredpovedať zánik povolaní. Samostatná stratégia do kariet organizácií a Brány 0; zmierni zaujatosť
+  zdrojov k verejnému sektoru. · 2–3 dni.
+- **Zatiaľ nerobiť** (odporúčanie recenzie, súhlasí s pravidlom M40): ďalšiu multiagentovú vrstvu, vážené „skóre
+  úspechu startupu“, zložitejšie ML experimenty. Úzke hrdlo sú rozhovory so zákazníkmi a merané výsledky.
+
+## 2026-10-29 – modernejšia AI (recenzia, druhá časť)
+
+- **Selektívny silný cloudový model pre ťažké úsudky a výskum.** Lokálne Qwen ostávajú na hromadný zber a extrakciu;
+  silný model iba pre zložité, nejednoznačné prípady (rozporné zdroje, karta organizácie, alternatívy, výskum medzier).
+  Nemeniť globálne, kým označená sada neukáže zlepšenie. Voľba modelu nižšie.
+- **Rozhodnutie 29. 10. 2026: Claude Sonnet 5.5 (pred GPT-6.1 Sol).** Obe stoja 2 $ / 10 $ za milión vstupných /
+  výstupných tokenov a majú okno ~1 M tokenov. Sonnet 5.5 vedie v nezávislých agentových a výskumných meraniach
+  (Vals AI: Vals Index 70,9 vs 63,9 %, Legal Research Bench 48,1 vs 38,5 %, Finance Agent v2.1 67,3 vs 61,8 %;
+  Artificial Analysis Intelligence Index 56 vs 52; Terminal-Bench 4.0 64 vs 55 % podľa Artificial Analysis), je
+  rýchlejší (86 vs 29 tok/s v jednom meraní) a má publikované viacjazyčné výsledky (Global-MMLU 92,1 %). GPT-6.1 Sol
+  vedie vo faktickej pamäti bez zdrojov (SimpleQA Verified 73,9 vs 46,5 %), na SRE Bench a DeepSWE a má lacnejšie
+  čítanie z cache (0,10 vs 0,20 $). Pre tento projekt rozhoduje práca nad stiahnutými zdrojmi s overením citátov
+  kódom, agent s nástrojmi a slovenčina – tam vedie Sonnet; faktická pamäť modelu je menej dôležitá. Výhrady: väčšina
+  čísel je z agregátorov a správ výrobcov (nezhody medzi zdrojmi); rozhodnutie navrhol asistent bežiaci na modeli
+  Claude – preto ho potvrdí až porovnanie A/B/C/D na vlastných prípadoch (Sol ako druhý kandidát). Integrácia: Sonnet
+  cez Anthropic API alebo Microsoft Foundry (Azure) – v `cloud.py` druhý protokol (Messages API cez `httpx`, bez SDK),
+  rozpočet, `cloud.allowed_tasks` a zákaz osobných údajov v cloude platia ďalej. API kľúče a nastavenia vyžiadať až
+  pri implementácii. Zdroje: gradually.ai (Vals AI), llm-stats.com, fullstack.com, datacamp.com. · 1–2 dni.
+- **`cloud.py`: Responses API pre volanie nástrojov.** Nástroje modelov GPT-6.x idú cez Responses API; dnešný klient
+  používa Chat Completions – pri GPT stačí na štruktúrovaný JSON, nie na agenta s nástrojmi. · 0,5 dňa.
+- **Hybridné hľadanie v zozbieraných dokumentoch + reranker.** Dnes sémantika iba páruje tvrdenia, hypotézy a zákazky.
+  Lokálne SQLite FTS5 (BM25) nad všetkými dokumentmi + existujúce Qwen embeddingy + reranker pasáží; vyhodnotiť na ručne
+  označených dopytoch. Potom porovnať SearXNG s platenou search API – zmerať pokrytie slovenských úradných webov, nie
+  predpokladať. · 2 dni.
+- **Viacmodálne dokumenty (tabuľky, skeny).** `fetch.py` berie text PDF cez pypdf. Docling (lokálne: rozloženie,
+  štruktúra tabuliek, poradie čítania, OCR) iba pri dôležitých tabuľkách, slabej extrakcii alebo skenoch; pri
+  kľúčových stranách model s videním nad obrázkom strany. Hodnoty vždy overiť voči originálu (OCR sa mýli). Nová
+  závislosť → odôvodnenie v DECISIONS. · 1–2 dni.
+- **Adaptívna hĺbka výskumu.** Úsilie podľa očakávanej hodnoty a neistoty: jednoduchá extrakcia → lokálny rýchly
+  model; nezhoda lokálnych modelov → silnejší hodnotiteľ; chýba kľúčový fakt → cielené dohľadanie; rozpor zdrojov →
+  nezávislé posúdenie s pôvodom; sľubná príležitosť s nevyriešenou rozhodujúcou otázkou → silný výskumný agent; silný
+  protidôkaz alebo žiadny platiteľ → stop a šetriť rozpočet. · 1–2 dni.
+- **Výskumný agent s plánom.** Namiesto opakovaného širokého hľadania najprv najdôležitejšia neznáma (napr. „majú
+  firmy plánovanie už dobre pokryté v ERP/MES?“), cielené hľadanie nasadení a sťažností, revízia plánu podľa dôkazov;
+  stavať na cielenom výskume medzier v kartách organizácií. Merať počet nových nezávisle overených obchodne relevantných
+  faktov na beh, nie dĺžku správy. · 2 dni.
+- **Porovnanie A/B/C/D na 30–50 reálnych prípadoch pred plošnou zmenou.** A dnešný systém, B silný model pri zložitých
+  rozhodnutiach, C lepšie hľadanie s dnešnými modelmi, D oboje. Merať úplnosť platných zdrojov, podiel nepodložených
+  tvrdení, nájdených platiteľov, vyriešené obchodne dôležité neznáme, čas a cenu. Ak B > A, pomáha uvažovanie; ak C > A,
+  úzkym hrdlom je hľadanie; ak D neprinesie viac, neplatiť za oboje. · 1 deň + príprava prípadov.
+- **Nižšia priorita:** agent ovládajúci prehliadač iba na povolených weboch s JavaScriptom, kde API ani stiahnutie
+  nestačí (stredná); MCP integrácie (nízka až stredná); znalostný graf organizácia – zákazka – dodávateľ – problém –
+  produkt (stredná); doladenie lokálnych modelov až po stovkách označených chýb (nízka); multiagentové frameworky –
+  orchestrácia už je v kóde (nízka).
