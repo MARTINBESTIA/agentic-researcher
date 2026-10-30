@@ -509,3 +509,4 @@ cloud:
 gui:
   host: 127.0.0.1                  # iba tento počítač; nemeň na 0.0.0.0
   port: 8501
+  auto_restart: true              # po zmene kódu alebo konfigurácie sa GUI spustí nanovo (úlohy na pozadí bežia ďalej)

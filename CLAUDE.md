@@ -40,7 +40,7 @@ na potvrdenie (schéma v19, M41); zber ľudí po skúsenosti z H3 – konateľ m
 s pôvodom faktorov a pripravenosťou „na ponuku“ (schéma v22, M38); konkurencia ako dôvod zamietnutia – alternatívy
 aj nesoftvérové s citátmi overenými kódom, „bez obhájiteľnej medzery“ potvrdzuje človek (schéma v23, M39); kontrola
 konzistentnosti M36–M42 – jedno pravidlo vynechania v automatike, osoby s oslovením vo výbere, výmaz osoby, ručné
-oslovenie, spresnená adresa organizácie, úplný dosiér (M43); odoslané e-maily a konverzia po hypotézach na Prehľade, bez sledovania otvorení (M44).
+oslovenie, spresnená adresa organizácie, úplný dosiér (M43); odoslané e-maily a konverzia po hypotézach na Prehľade, bez sledovania otvorení (M44); GUI sa po zmene kódu spustí nanovo samo (M45).
 Stav dodatku: `docs/STAV_domenovy_search_event_log.md`. Nápady na neskôr zapisuj do `improvements_logs.md`. Rozhodnutia a odchýlky od špecifikácie sú v
 `docs/DECISIONS.md`. Pred zmenou si prečítaj príslušnú kapitolu špecifikácie a kód, ktorý budeš meniť.
 
@@ -111,7 +111,7 @@ docker compose up -d                     # SearXNG
 | `radar/outcomes.py` | výsledok oslovenia zapísaný človekom → stav oslovenia, stav potreby návrhov prínosu (po organizáciách a type adresáta), dôvod novej verzie prehľadu domény; metriky po unikátnych organizáciách (čas prípravy, dodania, režimy); `sent_overview` – odoslané e-maily a konverzia po hypotézach, stav iba z pošty a zápisu človeka (M44) |
 | `radar/outreach.py`, `radar/crm.py` | návrhy oslovení podľa režimu (discovery, data_request, expert_review, pilot) s obchodnou politikou `outreach.value_offer`, reťazcom dôvodov (`package_json`) a pripravenosťou; kontroly, stavy, follow-up, mailto; rozhovory, metriky a verdikt Brány 0, exporty |
 | `radar/privacy.py`, `radar/review.py`, `radar/evals.py`, `radar/bench.py` | maskovanie logov, LIA, potlačenie, forget, purge; kontrola → gold label; eval (Wilson) a referenčná vzorka s kontrolnou časťou (holdout); benchmark a plán behu |
-| `radar/pipeline.py`, `radar/cli.py`, `radar/commands.py` | run-all v poradí podľa modelov; príkazy `python -m radar …` |
+| `radar/pipeline.py`, `radar/cli.py`, `radar/commands.py` | run-all v poradí podľa modelov; príkazy `python -m radar …`; `serve_gui` – nový proces GUI po zmene kódu alebo konfigurácie (M45) |
 | `radar/agent.py` | agent s nástrojmi len na čítanie a `record_evidence` (úlohy deep_dive, validate, scout) |
 | `radar/scout.py`, `radar/validate.py` | agent hľadá nové problémy (bunky matice); test uložených hypotéz (fronta, verdikt kódu) |
 | `radar/workflows.py`, `radar/jobs.py` | akcie (`ACTIONS`: scout, validate, people, drafts, evidence, topics, critique, alternatives, profiles, procurement, mail, run-all; `python -m radar workflow …`); úlohy na pozadí z GUI (tabuľka `jobs`, jedna naraz, poradie, stav GPU); plánovaný beh hneď (`run_now`: pokračovanie poradia, prerušené úlohy, autopilot bez druhej reťaze – `queue_autopilot`) |

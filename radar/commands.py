@@ -6,8 +6,10 @@ import argparse
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable
@@ -831,12 +833,66 @@ def gui_command(cfg) -> list[str]:
     ]
 
 
+def gui_sources(cfg) -> dict[str, float]:
+    """Súbory, po ktorých zmene treba nový proces GUI: kód mimo radar/gui (stránky Streamlit obnoví sám, moduly balíka a
+    objekty v cache_resource nie – 30. 10. 2026 stránka hlásila ImportError) a konfigurácia."""
+    base = Path(__file__).resolve().parent
+    files = [p for p in base.rglob("*.py") if p.relative_to(base).parts[0] != "gui"]
+    files += [Path(cfg.config_dir) / name for name in ("config.yaml", "config.local.yaml")]
+    return {str(p): p.stat().st_mtime for p in files if p.exists()}
+
+
+def _port_free(port: int) -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        return sock.connect_ex(("127.0.0.1", port)) != 0
+
+
+def serve_gui(start: Callable[[], Any], sources: Callable[[], dict[str, float]], port: int, poll: float = 2.0,
+              sleep: Callable[[float], None] = time.sleep, port_free: Callable[[int], bool] = _port_free) -> int:
+    """Beží GUI a po zmene zdrojov ho spustí nanovo (prehliadač sa pripojí sám). Úlohy na pozadí to nezastaví: majú vlastný
+    proces a skupinu (jobs._spawn). Zmeny sa čakajú do ticha, aby reštart nepadol medzi zápisy viacerých súborov."""
+    child = start()
+    seen = sources()
+    try:
+        while (code := child.poll()) is None:
+            sleep(poll)
+            current = sources()
+            if current == seen:
+                continue
+            while True:
+                sleep(poll)
+                latest = sources()
+                if latest == current:
+                    break
+                current = latest
+            seen = current
+            print("Kód alebo konfigurácia sa zmenili – GUI sa spúšťa nanovo.")
+            child.terminate()
+            child.wait()
+            for _ in range(10):  # Streamlit s pevným portom skončí, ak je ešte obsadený
+                if port_free(port):
+                    break
+                sleep(1)
+            child = start()
+        return code
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            child.wait()
+
+
 def cmd_gui(app, args) -> int:
-    cmd = gui_command(app.cfg)
-    env = dict(os.environ, RADAR_CONFIG=str(Path(app.cfg.config_dir) / "config.yaml"))
-    print(f"GUI: http://127.0.0.1:{app.cfg.gui.port} (ukončíš Ctrl+C)")
+    cfg = app.cfg
+    cmd = gui_command(cfg)
+    env = dict(os.environ, RADAR_CONFIG=str(Path(cfg.config_dir) / "config.yaml"))
+    print(f"GUI: http://127.0.0.1:{cfg.gui.port} (ukončíš Ctrl+C)")
     app.db.close()
-    return subprocess.call(cmd, env=env, cwd=app.cfg.config_dir)
+    if not cfg.gui.auto_restart:
+        return subprocess.call(cmd, env=env, cwd=cfg.config_dir)
+    return serve_gui(lambda: subprocess.Popen(cmd, env=env, cwd=cfg.config_dir), lambda: gui_sources(cfg), cfg.gui.port)
 
 
 def cmd_eval(app, args) -> int:

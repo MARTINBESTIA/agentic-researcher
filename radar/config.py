@@ -703,6 +703,7 @@ class PrivacyConfig(BaseModel):
 class GuiConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8501
+    auto_restart: bool = True  # po zmene kódu v radar/ alebo konfigurácie sa GUI spustí nanovo
 
 
 class Topic(BaseModel):

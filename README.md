@@ -272,6 +272,10 @@ Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.
 
+### Automatický reštart GUI (M45)
+
+`python -m radar gui` a `start_gui.bat` sledujú kód v `radar/` a `config.yaml`, `config.local.yaml`. Po zmene sa GUI samo spustí nanovo a prehliadač sa pripojí (rozpísaný formulár a výber na stránke sa stratia, úlohy na pozadí bežia ďalej). Vypnutie: `gui.auto_restart: false`.
+
 ### Odoslané e-maily a konverzia (M44)
 
 Stránka **Prehľad → Odoslané e-maily a konverzia**: po hypotézach odoslané, nedoručené, čaká, poslať pripomienku, bez reakcie, odpovede a miera odpovedí, v rozbaľovacej časti každý e-mail so stavom a ďalším krokom. Otvorenie e-mailu sa zámerne nesleduje. „Bez reakcie“ znamená ticho aj po pripomienke a ďalšej lehote (`outreach.follow_up_business_days`).
