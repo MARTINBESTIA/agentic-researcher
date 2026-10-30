@@ -272,6 +272,10 @@ Rozdelenie času: ~45 % rýchly model a práca bez modelu, zvyšok presný model
 (ľudia a návrhy → overenie dôkazov → zaradenie → kritika a trh). Čo sa nestihne, pokračuje
 pri ďalšom behu.
 
+### Odoslané e-maily a konverzia (M44)
+
+Stránka **Prehľad → Odoslané e-maily a konverzia**: po hypotézach odoslané, nedoručené, čaká, poslať pripomienku, bez reakcie, odpovede a miera odpovedí, v rozbaľovacej časti každý e-mail so stavom a ďalším krokom. Otvorenie e-mailu sa zámerne nesleduje. „Bez reakcie“ znamená ticho aj po pripomienke a ďalšej lehote (`outreach.follow_up_business_days`).
+
 ### Pošta: odoslané a odpovede bez ručného zapisovania (M41, Gmail)
 
 Systém sám nič neodosiela – posielaš ty zo svojho Gmailu. Kontrola pošty potom za teba zapíše:

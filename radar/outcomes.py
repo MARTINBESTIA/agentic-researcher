@@ -18,6 +18,7 @@ e-mailmi a telefónmi a do promptov ide pseudonymizovaná.
 from __future__ import annotations
 
 import json
+from datetime import date
 from statistics import median
 from typing import Any
 
@@ -266,3 +267,82 @@ def outcome_metrics(db: DB, hids: list[int] | None = None) -> dict[str, Any]:
     return {"riadky": rows, "režimy": modes, "oslovené": base,
             "príprava_min_medián": round(median(prep), 1) if prep else None, "príprava_n": len(prep),
             "dodanie_dni_medián": round(median(delivery), 1) if delivery else None, "dodanie_n": len(delivery)}
+
+
+# ======================================================================= odoslané e-maily a konverzia (M44)
+SENT_STATES = ("čaká", "poslať pripomienku", "bez reakcie", "nedoručené", "odpovedal", "odmietol", "dohodnuté", "neprišiel",
+               "rozhovor")
+_STATE_OF_STATUS = {"bounced": "nedoručené", "replied": "odpovedal", "declined": "odmietol", "scheduled": "dohodnuté",
+                    "no_show": "neprišiel", "interviewed": "rozhovor", "no_reply": "bez reakcie"}
+_REPLIED_STATES = {"odpovedal", "odmietol", "dohodnuté", "neprišiel", "rozhovor"}
+OPEN_STATES = {"čaká", "poslať pripomienku"}
+
+
+def _day(value: str) -> date:
+    return date.fromisoformat(value[:10])
+
+
+def _sent_state(cfg: Config, row: Any, mails: list, today: date) -> tuple[str, str]:
+    """Stav odoslanej správy z toho, čo naozaj vieme (pošta a zápis človeka), a ďalší krok. „Bez reakcie“ až po pripomienke
+    a ďalšej lehote: ticho samo o sebe nie je dôkaz, že ťa niekto ignoruje."""
+    from .outreach import add_business_days
+
+    state = _STATE_OF_STATUS.get(row["status"])
+    if state == "nedoručené":
+        return state, "nájdi iný kontakt (telefón, formulár)"
+    if state == "bez reakcie":
+        return state, "–"
+    if state:
+        return state, "pozri výsledok oslovenia"
+    due = row["follow_up_due"]
+    if due and due <= today.isoformat():
+        return "poslať pripomienku", f"pripomienka mala ísť {due}"
+    if due:
+        return "čaká", f"pripomienka {due}"
+    last_out = max([_day(row["sent_at"]), *(_day(m["sent_at"]) for m in mails if m["direction"] == "out" and m["sent_at"])])
+    until = add_business_days(last_out, cfg.outreach.follow_up_business_days[-1], cfg.outreach.holidays)
+    if today >= until:
+        return "bez reakcie", "–"
+    return "čaká", f"po pripomienke čakať do {until.isoformat()}"
+
+
+def sent_overview(cfg: Config, db: DB, today: date | None = None) -> dict[str, Any]:
+    """Odoslané e-maily naprieč hypotézami a konverzia po hypotézach. Otvorenie e-mailu sa nesleduje (CLAUDE.md, súkromie);
+    dôkaz prečítania je odpoveď, dôkaz doručenia odpoveď alebo automatická odpoveď, „nevrátené“ je iba bez chyby doručenia."""
+    today = today or date.today()
+    mail = db.mail_by_outreach()
+    titles = {h["id"]: h["title"] for h in db.conn.execute("SELECT id, title FROM hypotheses")}
+    messages: list[dict[str, Any]] = []
+    for o in db.outreach_list():
+        if not o["sent_at"]:
+            continue
+        mails = mail.get(o["id"], [])
+        state, step = _sent_state(cfg, o, mails, today)
+        replies = [m["sent_at"] for m in mails if m["kind"] == "reply" and m["sent_at"]]
+        messages.append({
+            "id": o["id"], "hypothesis_id": o["hypothesis_id"], "hypotéza": f"H{o['hypothesis_id']}",
+            "organizácia": o["org_name"] or "", "komu": o["contact_value"] or "", "predmet": o["subject"] or "",
+            "odoslané": o["sent_at"][:10], "dní od odoslania": (today - _day(o["sent_at"])).days, "stav": state,
+            "pripomienka": "poslaná" if o["follow_up_count"] else (o["follow_up_due"] if state in OPEN_STATES and o["follow_up_due"] else "–"),
+            "automatická odpoveď": "áno" if any(m["kind"] == "auto_reply" for m in mails) else "",
+            "dní do odpovede": (_day(replies[0]) - _day(o["sent_at"])).days if replies else None,
+            "ďalší krok": step})
+    messages.sort(key=lambda m: (m["hypothesis_id"], m["odoslané"], m["id"]))
+
+    def row(label: str, items: list[dict[str, Any]]) -> dict[str, Any]:
+        count = lambda *states: sum(1 for m in items if m["stav"] in states)  # noqa: E731
+        bounced = count("nedoručené")
+        replied = count(*_REPLIED_STATES)
+        delivered = len(items) - bounced
+        return {"hypotéza": label, "odoslané": len(items), "nedoručené": bounced, "čaká": count("čaká"),
+                "poslať pripomienku": count("poslať pripomienku"), "bez reakcie": count("bez reakcie"), "odpovede": replied,
+                "miera odpovedí": f"{replied}/{delivered} ({replied / delivered:.0%})" if delivered else "–",
+                "z toho odmietli": count("odmietol"), "dohodnuté": count("dohodnuté", "neprišiel", "rozhovor"),
+                "rozhovory": count("rozhovor"),
+                "automatické odpovede": sum(1 for m in items if m["automatická odpoveď"])}
+
+    summary = [row(f"H{hid}: {titles.get(hid, '')[:60]}", [m for m in messages if m["hypothesis_id"] == hid])
+               for hid in sorted({m["hypothesis_id"] for m in messages})]
+    if len(summary) > 1:
+        summary.append(row("Spolu", messages))
+    return {"súhrn": summary, "správy": messages}

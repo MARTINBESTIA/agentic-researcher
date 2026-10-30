@@ -61,6 +61,14 @@ class MailMixin:
             "SELECT thread_id, outreach_id FROM mail_messages WHERE direction = 'out' AND thread_id IS NOT NULL "
             "AND outreach_id IS NOT NULL ORDER BY id")}
 
+    def mail_by_outreach(self) -> dict[int, list[sqlite3.Row]]:
+        """Oslovenie → jeho správy z pošty v časovom poradí (iba druh a čas, bez predmetu a návrhu)."""
+        out: dict[int, list[sqlite3.Row]] = {}
+        for r in self.conn.execute("SELECT outreach_id, direction, kind, sent_at FROM mail_messages "
+                                   "WHERE outreach_id IS NOT NULL ORDER BY sent_at, id"):
+            out.setdefault(r["outreach_id"], []).append(r)
+        return out
+
     def mail_stats(self) -> dict[str, int]:
         rows = self.conn.execute("SELECT kind, status, COUNT(*) AS n FROM mail_messages GROUP BY kind, status").fetchall()
         out: dict[str, int] = {}

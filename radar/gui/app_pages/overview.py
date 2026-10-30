@@ -6,6 +6,7 @@ from radar.eta import local
 from radar.crm import gate0_metrics
 from radar.gui.common import action_card, cfg, db, jobs_panel
 from radar.jobs import refresh_jobs
+from radar.outcomes import SENT_STATES, sent_overview
 from radar.privacy import sender_placeholders
 
 d, c = db(), cfg()
@@ -57,6 +58,23 @@ if prog and prog["hypotézy"]:
     st.caption("Merajú cestu k zákazníkovi pre hypotézy na Bráne 0. Prevádzkové: "
                f"{prog['prevádzkové']['hypotézy']} hypotéz, {prog['prevádzkové']['modelové_rozhodnutia']} modelových "
                "rozhodnutí – to nie je postup.")
+
+sent = sent_overview(c, d)
+if sent["správy"]:
+    st.subheader("Odoslané e-maily a konverzia")
+    st.dataframe(sent["súhrn"], hide_index=True, alt="Odoslané e-maily a odpovede po hypotézach")
+    w_days = c.outreach.follow_up_business_days[-1]
+    st.caption("Otvorenie e-mailu sa zámerne nesleduje (súkromie a zákon, navyše je nespoľahlivé). Istý signál je odpoveď; "
+               f"„bez reakcie“ znamená ticho aj {w_days} pracovných dní po pripomienke, nie dôkaz, že správu niekto čítal "
+               "a ignoruje ju. Miera odpovedí sa ráta z nevrátených správ, údaje dopĺňa kontrola pošty.")
+    with st.expander(f"Všetky odoslané e-maily ({len(sent['správy'])})", icon=":material/outgoing_mail:"):
+        hyps = sorted({m["hypothesis_id"] for m in sent["správy"]})
+        pick = st.selectbox("Hypotéza", ["všetky", *hyps], key="ov_sent_h", format_func=lambda v: v if v == "všetky" else f"H{v}")
+        present = [s for s in SENT_STATES if any(m["stav"] == s for m in sent["správy"])]
+        states = st.pills("Stav", present, selection_mode="multi", default=present, key="ov_sent_st")
+        st.dataframe([{k: v for k, v in m.items() if k not in ("id", "hypothesis_id")} for m in sent["správy"]
+                      if m["stav"] in (states or []) and pick in ("všetky", m["hypothesis_id"])],
+                     hide_index=True, alt="Odoslané e-maily so stavom a ďalším krokom")
 
 st.subheader("Akcie")
 cols = st.columns(3)
