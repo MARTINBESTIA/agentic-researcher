@@ -96,8 +96,10 @@ def gate0_metrics(db: DB, hypothesis_id: int) -> dict[str, Any]:
     commitments = Counter(i["commitment"] for i in customers if i["commitment"] and i["commitment"] != "none")
     links = [l for l in db.links_for_hypothesis(hypothesis_id) if not l["is_expert"] and l["link_type"] != "data_holder"]
     outreach = db.outreach_list(hypothesis_id)
-    people_with = lambda statuses: len({o["person_id"] for o in outreach if o["status"] in statuses})  # noqa: E731
-    sent_people = len({o["person_id"] for o in outreach if o["sent_at"]})
+    # Kontakt = osoba, alebo organizácia pri správe na adresu firmy (person_id prázdne by sa zlialo do jedného).
+    contact = lambda o: o["person_id"] or f"org{o['org_id']}"  # noqa: E731
+    people_with = lambda statuses: len({contact(o) for o in outreach if o["status"] in statuses})  # noqa: E731
+    sent_people = len({contact(o) for o in outreach if o["sent_at"]})
     replied = people_with(("replied", "scheduled", "interviewed", "declined", "no_show"))
     funnel = {
         "kandidáti": len({l["person_id"] for l in links}),

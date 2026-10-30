@@ -222,3 +222,51 @@ def test_drafts_to_an_address_of_another_org_are_held_and_hidden_from_who_to_con
     oid2 = db.insert_outreach(None, hid, "email", "A", "Otázka", "Telo", [], {}, "draft", good, org_id=org)
     assert send_state(cfg, db, db.get_outreach(oid2))[0] != "needs_contact_evidence"
     assert any(r["e-mail"] == "podatelna@obecfiktivna.sk" for r in contact_shortlist(cfg, db, hid))
+
+
+def test_message_to_org_address_shows_on_the_contact_row_and_in_the_funnel(tmp_path):
+    """Živé dáta 30. 10. 2026: správy na info@ boli zapísané pri organizácii, riadok konateľa ostal „nové“ a lievik zlial
+    všetky takéto správy do jednej."""
+    from radar.crm import gate0_metrics
+    from radar.outreach import mark_sent
+    from radar.shortlist import contact_shortlist
+
+    cfg, db = setup(tmp_path)
+    hid = db.create_hypothesis("Kancelárie nestíhajú dopyty", "Popis", "kancelárie")
+    db.set_people_selection(hid, True)
+    for i, used in enumerate(("info", "kancelaria")):
+        org, _ = db.upsert_organization(f"Fiktívna Firma {i} s.r.o.", f"fiktivna firma {i}", "search",
+                                        website=f"https://firma{i}.example/", website_verified=1)
+        db.link_org_hypothesis(org, hid, "segment_match")
+        pid = db.insert_person(org, f"Konateľ{i} Testový", f"konatel{i} testovy", f"https://firma{i}.example/", "x", hid,
+                               role_title="konateľ", source_kind="rpo")
+        db.set_link_priority(db.upsert_link(pid, hid, "role_owner"), 0.5, {"skupina": "customer"})
+        db.add_contact_point(None, org, "email", f"sekretariat@firma{i}.example", f"https://firma{i}.example/k",
+                             f"sekretariat@firma{i}.example", "mailto", is_generic=True)
+        cp = db.add_contact_point(None, org, "email", f"{used}@firma{i}.example", f"https://firma{i}.example/k",
+                                  f"{used}@firma{i}.example", "mailto", is_generic=True)
+        oid = record_manual_outreach(cfg, db, hid, cp, "Otázka")
+        mark_sent(cfg, db, oid, date.today(), detected=True)
+    rows = [r for r in contact_shortlist(cfg, db, hid) if r["person_id"]]
+    assert len(rows) == 2 and all(r["stav_komunikácie"] == "čaká na odpoveď" for r in rows)
+    assert {r["e-mail"] for r in rows} == {"info@firma0.example", "kancelaria@firma1.example"}  # adresa, kam správa odišla
+    assert gate0_metrics(db, hid)["funnel"]["odoslaní"] == 2
+
+
+def test_outreach_page_shows_bounced_message_by_default(gui):  # noqa: F811
+    from streamlit.testing.v1 import AppTest
+
+    from radar.config import load_config
+    from tests.test_m2_gui import APP
+
+    cfg = load_config(gui / "config.yaml")
+    d = DB(cfg.db_path)
+    hid = d.people_enabled_hypotheses()[0]["id"]
+    link = d.links_for_hypothesis(hid)[0]
+    cp = next(c for c in d.contacts_for_person(link["person_id"]) if c["kind"] == "email")
+    d.insert_outreach(link["person_id"], hid, "email", "manual", "Vrátená správa", "(text)", [], {}, "bounced", cp["id"])
+    d.close()
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    at.switch_page("app_pages/outreach.py").run()
+    assert not at.exception, at.exception
+    assert any("bounced" in e.label for e in at.expander)

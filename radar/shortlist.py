@@ -290,6 +290,13 @@ def apply_queue(cfg: Config, db: DB, hid: int, rows: list[dict[str, Any]], today
     for r in rows:
         mine = by_person.get(r["person_id"], []) if r["person_id"] else [
             h for h in by_org.get(r["org_id"], []) if not h["person_id"]]
+        if r["person_id"] and r["e-mail_druh"] == "organizácie":
+            # Kontakt bez vlastného e-mailu: správa na adresu firmy je jeho oslovenie, inak by ostal „nové“.
+            shared = [h for h in by_org.get(r["org_id"], []) if not h["person_id"]]
+            mine = [*mine, *shared]
+            sent = [h for h in shared if h["sent_at"] and h["contact_value"]]
+            if sent:
+                r["e-mail"] = sent[-1]["contact_value"]  # adresa, na ktorú správa naozaj odišla
         stage, action = _stage(mine, None if not r["person_id"] else _person_status(db, r["person_id"]), hid, today)
         if r["odporúčanie"] == "neoslovovať" and stage in ("nové", "návrh"):
             stage, action = "uzavreté", "neoslovovať (" + r["dôvody"].split("⛔ ")[-1] + ")"

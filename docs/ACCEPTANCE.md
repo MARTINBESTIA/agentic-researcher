@@ -356,3 +356,4 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M43 | dosiér s obchodnými dôkazmi, ekonomikou, alternatívami a benchmarkom, pseudonymizovaný | `test_m43_consistency.py::test_dossier_contains_outcomes_commercial_economics_alternatives_benchmark_and_ted` |
 | M43 | GUI Oslovenia: ručné oslovenie bez úprav a mailto | `test_m43_consistency.py::test_outreach_page_shows_manual_record_without_edit_or_mailto` |
 | M43 | návrh na adresu inej organizácie sa nedá schváliť a „Koho osloviť“ ju neukáže | `test_m43_consistency.py::test_drafts_to_an_address_of_another_org_are_held_and_hidden_from_who_to_contact` |
+| M43 | správa na adresu firmy na riadku kontaktu a v lieviku Brány 0 | `test_m43_consistency.py::test_message_to_org_address_shows_on_the_contact_row_and_in_the_funnel` |\n| M43 | Oslovenia predvolene ukazujú aj nedoručené správy | `test_m43_consistency.py::test_outreach_page_shows_bounced_message_by_default` |\n

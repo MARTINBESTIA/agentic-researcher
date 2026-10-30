@@ -93,8 +93,7 @@ if metrics["oslovené"]:
                    "Počíta sa po organizáciách, nie po počte správ.")
 STATUS = ["draft", "needs_edit", "approved", "sent", "replied", "scheduled", "interviewed", "no_reply", "declined",
           "bounced", "no_show", "blocked"]
-shown = st.pills("Stav", STATUS, selection_mode="multi", default=["draft", "needs_edit", "approved", "sent", "replied",
-                                                                  "scheduled", "blocked"], key="out_st")
+shown = st.pills("Stav", STATUS, selection_mode="multi", default=STATUS, key="out_st")  # odoslané nesmú zmiznúť (nedoručené)
 items = [o for o in d.outreach_list(hid) if o["status"] in (shown or [])]
 if not items:
     st.caption("Žiadne oslovenia v zvolených stavoch (návrhy vytvorí krok drafts).")
