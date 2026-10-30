@@ -356,3 +356,23 @@ def test_model_swap_load_time_is_measured_and_kept(tmp_path, monkeypatch):
     router._switch_to(SimpleNamespace(model="radar-qwen3.6-27b"),
                       SimpleNamespace(make_exclusive=lambda: [], last_swap=llm.last_swap))
     assert db.get_setting(SWAPS_KEY)[0]["model"] == "radar-qwen3.6-27b"
+
+
+def test_pdf_unreadable_while_iterating_pages_does_not_crash(monkeypatch):
+    """Šifrované PDF (AES bez balíka cryptography) zlyhá až pri čítaní stránok a zhodilo krok `contacts` úlohy #411."""
+    from pypdf.errors import DependencyError
+
+    from radar import fetch as fetch_module
+
+    class EncryptedReader:
+        def __init__(self, stream):
+            pass
+
+        @property
+        def pages(self):
+            raise DependencyError("cryptography>=3.1 is required for AES algorithm")
+
+        metadata = None
+
+    monkeypatch.setattr(fetch_module, "PdfReader", EncryptedReader)
+    assert Fetcher(FetchConfig(per_domain_delay_s=0))._pdf_text(b"%PDF-1.7") == ("", "")

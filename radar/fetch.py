@@ -279,13 +279,16 @@ class Fetcher:
             log.warning("PDF sa nedá otvoriť: %s", exc)
             return "", ""
         pages: list[str] = []
-        for i, page in enumerate(reader.pages):
-            if i >= self.cfg.max_pdf_pages:
-                break
-            try:
-                pages.append(page.extract_text() or "")
-            except Exception:
-                continue
+        try:
+            for i, page in enumerate(reader.pages):
+                if i >= self.cfg.max_pdf_pages:
+                    break
+                try:
+                    pages.append(page.extract_text() or "")
+                except Exception:
+                    continue
+        except Exception as exc:  # šifrované PDF zlyhá až pri čítaní stránok; jeden súbor nesmie zhodiť beh
+            log.warning("PDF sa nedá prečítať: %s", exc)
         title = ""
         try:
             if reader.metadata and reader.metadata.title:
