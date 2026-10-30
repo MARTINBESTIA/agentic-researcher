@@ -143,3 +143,17 @@ def test_segment_queries_continue_by_towns_of_the_region_and_remember_tried(tmp_
     assert searx.queries == plan[:6]  # druhý beh pokračuje tam, kde prvý skončil
     assert set(db.get_setting(f"segment_queries:{hid}")) == set(plan[:6])
     assert segment_query_plan(flt, expand=False) == ["realitná kancelária Žilina kontakt"]
+
+
+def test_site_without_ico_is_checked_only_once_per_run(tmp_path):
+    cfg, db, hid, rec, router = setup(tmp_path)
+    fetcher = FakeFetcher(htmls={"https://urad.example/": "<html><body>Úrad bez identifikačného čísla</body></html>"})
+    finder = OrgFinder(cfg, db, router, FakeSearx(), fetcher, None, None, Deadline(1))
+    assert finder.org_from_result("https://urad.example/kontakt", "search") is None
+    checked = len(fetcher.fetched)
+    assert checked >= 2  # úvodná stránka a podstránky
+    assert finder.org_from_result("https://urad.example/o-nas", "search") is None
+    assert len(fetcher.fetched) == checked and finder.stats["segment_no_ico"] == 1
+    fresh = OrgFinder(cfg, db, router, FakeSearx(), fetcher, None, None, Deadline(1))
+    assert fresh.org_from_result("https://urad.example/", "search") is None  # ďalší beh skúsi znova, web sa mohol zmeniť
+    assert len(fetcher.fetched) > checked

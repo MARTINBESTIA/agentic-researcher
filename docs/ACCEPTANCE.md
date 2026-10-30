@@ -363,3 +363,4 @@ Stav 14. 10. 2026: 247 testov prechádza (30 pôvodných z v0.1 bez úprav; test
 | M44 | Prehľad ukazuje odoslané e-maily a vysvetľuje, prečo sa otvorenie nesleduje | `test_m44_sent_overview.py::test_overview_page_shows_sent_mail_and_explains_no_open_tracking` |
 | M45 | po zmene zdrojov jeden reštart GUI až po dopísaní, nový proces čaká na voľný port | `test_m45_gui_restart.py::test_change_restarts_once_after_writes_settle_and_exit_code_is_returned`, `test_m45_gui_restart.py::test_new_process_waits_until_the_port_is_free` |
 | M45 | sleduje balík a konfiguráciu, nie stránky radar/gui; Ctrl+C ukončí GUI | `test_m45_gui_restart.py::test_sources_cover_package_and_config_but_not_gui_pages`, `test_m45_gui_restart.py::test_ctrl_c_stops_the_gui_process` |
+| M42 | web bez IČO sa za beh overuje iba raz, ďalší beh znova | `test_m42_people_fix.py::test_site_without_ico_is_checked_only_once_per_run` |

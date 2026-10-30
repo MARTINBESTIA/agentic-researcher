@@ -282,6 +282,8 @@ class OrgFinder:
         self.model_filters = model_filters
         self.stats: Counter = Counter()
         self._resolved: dict[str, OrgInfo | None] = {}
+        # Web bez IČO sa v rámci behu neskúša znova. Úloha #411: jeden úrad 39-krát za hodinu, 4 stránky s pauzami zakaždým.
+        self._no_ico: set[str] = set()
 
     # ------------------------------------------------------------- registre
     def resolve_name(self, name: str) -> OrgInfo | None:
@@ -618,6 +620,8 @@ class OrgFinder:
         known = self.db.find_organization_by_website(url)
         if known is not None:
             return None if known["excluded"] else int(known["id"])
+        if url in self._no_ico:
+            return None
         page = self.fetcher.fetch_html(url)
         if page.status != "ok":
             return None
@@ -635,6 +639,7 @@ class OrgFinder:
                         break
         if not icos:
             self.stats["segment_no_ico"] += 1
+            self._no_ico.add(url)
             log.info("Web bez IČO %s – kandidát vynechaný", domain_of(url))
             return None
         info = self.lookup_ico(icos[0])
